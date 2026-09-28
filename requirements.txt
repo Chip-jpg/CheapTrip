@@ -2,38 +2,22 @@
 httpx[http2]==0.27.0
 beautifulsoup4==4.12.3
 lxml==5.2.2
-playwright==1.44.0
 
 # Data modeling & validation
 pydantic==2.7.1
 pydantic-settings==2.3.0
+PyYAML>=6.0
 
 # Database
 aiosqlite==0.20.0
-SQLAlchemy==2.0.30
 
 # Scheduling
 APScheduler==3.10.4
 
-# Telegram
-python-telegram-bot==21.3
-
-# AI layer
-anthropic==0.28.0
-
-# Environment & config
-python-dotenv==1.0.1
-
-# Currency conversion
-forex-python==1.8
+# AI layer (alert formatting only)
+anthropic==1.8.0
 
 # Utilities
 tenacity==8.3.0
 structlog==24.1.0
 click==8.1.7
-
-# Testing
-pytest==8.2.0
-pytest-asyncio==0.23.7
-pytest-httpx==0.30.0
-PyYAML>=6.0

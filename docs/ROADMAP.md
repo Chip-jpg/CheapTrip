@@ -231,7 +231,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 ## 6. Progress tracker
 | Card | Branch | Status |
 |---|---|---|
-| B01 | `chore/dev-tooling-ci` | todo |
+| B01 | `chore/dev-tooling-ci` | done |
 | B02 | `test/pipeline-harness` | todo |
 | B03 | `refactor/airport-registry` | todo |
 | B04 | `fix/digest-crash` | todo |

@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from typing import Any, Callable, Optional, Tuple, Type
-
 import logging as _logging
+from typing import Any, Callable, Optional, Tuple, Type
 
 from tenacity import (
     AsyncRetrying,
-    RetryError,
     before_sleep_log,
     retry_if_exception_type,
     stop_after_attempt,

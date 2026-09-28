@@ -12,9 +12,9 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import List
 
+from config import TRIP_LENGTH_NIGHTS
 from preferences import UserPreferences
 from storage.models import ScraperParams, TripLengthProfile
-from config import TRIP_LENGTH_NIGHTS
 
 # Chunk size: each ScraperParams covers this many departure days.
 # Smaller = more API calls but finer-grained; 14 is a good default.

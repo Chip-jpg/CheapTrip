@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import List
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from config import LAYER_1_AIRPORTS, LAYER_2_AIRPORTS, LAYER_3_HUBS, POPULAR_DESTINATIONS, get_settings
+from config import POPULAR_DESTINATIONS, get_settings
 from filters.deduplication import deduplicate_trips
 from filters.hard_filters import apply_hard_filters
 from filters.time_decay import apply_time_decay
@@ -18,8 +17,7 @@ from notifier.telegram import TelegramNotifier
 from preferences import get_preferences
 from scrapers.aggregator import ScraperAggregator
 from scrapers.health_monitor import get_health_monitor
-from storage.database import get_digest_deals, get_pending_instant_alerts, init_db
-from storage.models import ScraperParams
+from storage.database import get_digest_deals, init_db
 from trip_builder.builder import build_trips
 from trip_builder.date_discovery import generate_search_windows
 from utils.airport_clusters import expand_list_to_clusters

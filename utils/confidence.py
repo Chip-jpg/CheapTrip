@@ -3,8 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List
 
-from storage.models import RawFlightResult, RawHotelResult
-
+from storage.models import BookingConfidence, RawFlightResult, RawHotelResult
 
 # Source reliability weights (0.0–1.0)
 SOURCE_RELIABILITY: dict[str, float] = {
@@ -126,7 +125,7 @@ def compute_booking_confidence(
     source_count: int,
     has_booking_url: bool,
     is_error_fare: bool = False,
-) -> "BookingConfidence":
+) -> BookingConfidence:
     """
     Assign a human-readable booking confidence tier.
 
@@ -134,8 +133,6 @@ def compute_booking_confidence(
     MEDIUM = partially verified or single source with URL
     LOW   = unverified, no URL, or error fare with uncertainty
     """
-    from storage.models import BookingConfidence
-
     # Error fares carry uncertainty even with good data
     if is_error_fare:
         return BookingConfidence.MEDIUM if has_booking_url else BookingConfidence.LOW

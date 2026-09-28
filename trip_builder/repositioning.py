@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import List, Optional, Tuple
 
 from config import (
@@ -11,8 +10,8 @@ from config import (
     REPOSITIONING_MIN_SAVING_EUR,
     REPOSITIONING_MIN_SAVING_PCT,
 )
-from trip_builder.feasibility import estimate_travel_hours
 from storage.models import FlightLeg, RepositioningLeg
+from trip_builder.feasibility import estimate_travel_hours
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
-from config import FEASIBILITY_MAX_TRAVEL_HOURS, FEASIBILITY_MIN_NIGHTS, TRIP_LENGTH_NIGHTS
+from config import FEASIBILITY_MAX_TRAVEL_HOURS, FEASIBILITY_MIN_NIGHTS
 from storage.models import Trip, TripLengthProfile
 from utils.logging_config import get_logger
 

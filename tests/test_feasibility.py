@@ -1,7 +1,6 @@
 """Tests for trip feasibility engine."""
 from __future__ import annotations
 
-import pytest
 from datetime import date
 
 from storage.models import DealType, FlightLeg, Trip, TripLengthProfile

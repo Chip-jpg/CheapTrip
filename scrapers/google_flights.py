@@ -4,7 +4,7 @@ import asyncio
 import json
 import re
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 from urllib.parse import quote
 
 import httpx

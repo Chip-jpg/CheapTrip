@@ -1,8 +1,6 @@
 """Tests for the booking confidence model."""
 from __future__ import annotations
 
-import pytest
-
 from storage.models import BookingConfidence
 from utils.confidence import compute_booking_confidence
 

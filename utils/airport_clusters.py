@@ -1,7 +1,7 @@
 """Airport cluster expansion utilities."""
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Set, Tuple
+from typing import List, Optional, Set
 
 from config import AIRPORT_CLUSTERS, CLUSTER_REVERSE
 

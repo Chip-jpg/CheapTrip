@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from ai_layer.formatter import format_complete_trip, format_flight_only, format_digest
+from ai_layer.formatter import format_complete_trip, format_digest, format_flight_only
 from storage.models import DealType, FlightLeg, HotelDeal, Trip
 
 

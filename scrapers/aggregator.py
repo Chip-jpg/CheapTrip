@@ -7,8 +7,8 @@ from scrapers.base import BaseFlightScraper, BaseHotelScraper
 from scrapers.booking_com import BookingComScraper
 from scrapers.going import GoingScraper
 from scrapers.google_flights import GoogleFlightsScraper
-from scrapers.holiday_pirates import HolidayPiratesFlightScraper, HolidayPiratesHotelScraper
 from scrapers.health_monitor import get_health_monitor
+from scrapers.holiday_pirates import HolidayPiratesFlightScraper, HolidayPiratesHotelScraper
 from scrapers.secret_flying import SecretFlyingScraper
 from scrapers.skyscanner import SkyscannerScraper
 from storage.models import RawFlightResult, RawHotelResult, ScraperParams

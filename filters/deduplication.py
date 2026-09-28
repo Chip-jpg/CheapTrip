@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import List, Tuple
 
-from config import DEDUP_DATE_TOLERANCE_DAYS, DEDUP_PRICE_TOLERANCE_PCT
 from storage.database import is_duplicate, save_deal
 from storage.models import Trip
 from utils.logging_config import get_logger

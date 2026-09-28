@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-import pytest
-
 from preferences import UserPreferences
 from trip_builder.date_discovery import _CHUNK_DAYS, _MAX_CHUNKS, generate_search_windows
 
