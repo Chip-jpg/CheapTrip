@@ -120,7 +120,7 @@ async def build_trips(
     for leg in flight_legs:
         if leg.origin not in home_origins:
             continue
-        trip = _build_flight_only_trip(leg, price_index)
+        trip = _build_package_trip(leg) if leg.is_package else _build_flight_only_trip(leg, price_index)
         if trip:
             trips.append(trip)
 
@@ -135,7 +135,7 @@ async def build_trips(
 
     from utils.airport_clusters import expand_to_cluster
     for leg in flight_legs:
-        if leg.origin not in home_origins:
+        if leg.origin not in home_origins or leg.is_package:
             continue
         nights = leg.stay_nights
         if nights is None:
@@ -160,7 +160,9 @@ async def build_trips(
                 trips.append(trip)
 
     # ── 3. Repositioned trips ────────────────────────────────────────────────
-    repo_opportunities = find_repositioning_opportunities(flight_legs, primary_origins=sorted(home_origins))
+    repo_opportunities = find_repositioning_opportunities(
+        [leg for leg in flight_legs if not leg.is_package], primary_origins=sorted(home_origins)
+    )
     for repo_leg, onward_flight, total_cost in repo_opportunities:
         trip = await _build_repositioned_trip(repo_leg, onward_flight, total_cost)
         if trip:
@@ -208,6 +210,26 @@ def _build_flight_only_trip(leg: FlightLeg, price_index: PriceIndex) -> Optional
         _apply_anomaly_to_trip(trip, anomaly)
         trip.verdict = f"{trip.verdict} (Historical anomaly: {anomaly.description})"
 
+    _finalize_trip(trip)
+    return trip
+
+
+def _build_package_trip(leg: FlightLeg) -> Optional[Trip]:
+    """A flight + hotel package from a deal-site post: one price per person for both."""
+    trip = Trip(
+        trip_id=str(uuid.uuid4())[:8],
+        deal_type=DealType.PACKAGE,
+        route=_make_route_string(leg.origin, leg.destination),
+        outbound_flight=leg,
+        flight_cost_eur=leg.price_eur,
+        departure_date=leg.departure_date,
+        return_date=leg.return_date,
+        nights=leg.stay_nights,
+        data_confidence_score=leg.data_confidence_score,
+        source_list=[leg.source],
+        verdict="SEE THE OFFER",
+    )
+    trip.compute_totals()
     _finalize_trip(trip)
     return trip
 

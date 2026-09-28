@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     # Deal feeds behind bot protection (Cloudflare / JS SPA) — off unless you have a workaround
     enable_secret_flying: bool = Field(default=False)
     enable_going: bool = Field(default=False)
+    # HolidayPirates .com is the UK edition (GBP packages from UK airports): off by default
+    enable_holiday_pirates: bool = Field(default=False)
+    # PiratinViaggio (Italian deal site) read by Claude: runs when ANTHROPIC_API_KEY is set
+    enable_piratinviaggio: bool = Field(default=True)
+    # New posts sent to Claude per cycle (each post is read once, then cached)
+    ai_extraction_max_posts_per_cycle: int = Field(default=30)
 
     # Currency
     exchange_rate_api_key: str = Field(default="")

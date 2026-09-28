@@ -23,7 +23,7 @@ async def normalize_flights(raw: List[RawFlightResult]) -> List[FlightLeg]:
     groups: dict[str, List[RawFlightResult]] = {}
     for r in raw:
         # Different return dates are different trips (e.g. a weekend vs a week away)
-        key = f"{r.origin}_{r.destination}_{r.departure_date}_{r.return_date}"
+        key = f"{r.origin}_{r.destination}_{r.departure_date}_{r.return_date}_{r.is_package}"
         groups.setdefault(key, []).append(r)
 
     legs: List[FlightLeg] = []
@@ -60,6 +60,8 @@ async def normalize_flights(raw: List[RawFlightResult]) -> List[FlightLeg]:
                 is_round_trip=best.is_round_trip,
                 price_is_cached=best.price_is_cached,
                 is_feed_deal=best.is_feed_deal,
+                is_package=best.is_package,
+                package_hotel=best.package_hotel,
             )
             legs.append(leg)
         except Exception as exc:
