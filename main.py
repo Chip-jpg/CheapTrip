@@ -6,10 +6,13 @@ Usage:
   python main.py cycle         # Run a single pipeline cycle and exit
   python main.py digest        # Send today's digest and exit
   python main.py status        # Print DB stats
+  python main.py doctor        # Check the configuration (exit 1 on blocking problems)
+  python main.py healthcheck   # Exit 1 when no cycle completed recently (Docker healthcheck)
 """
 from __future__ import annotations
 
 import asyncio
+import sys
 
 import click
 
@@ -122,6 +125,29 @@ Alerts sent:      {alerts_sent}
             click.echo("Run 'python main.py cycle' to initialize.")
 
     asyncio.run(_run())
+
+
+@cli.command()
+def healthcheck() -> None:
+    """Exit 0 when a cycle completed recently, 1 otherwise (used by the Docker healthcheck)."""
+    from utils.doctor import health_status
+
+    healthy, detail = asyncio.run(health_status())
+    click.echo(("healthy: " if healthy else "unhealthy: ") + detail)
+    sys.exit(0 if healthy else 1)
+
+
+@cli.command()
+def doctor() -> None:
+    """Check keys, Telegram, preferences, database and sources; exit 1 on blocking problems."""
+    from utils.doctor import run_checks
+
+    checks = asyncio.run(run_checks())
+    for check in checks:
+        click.echo(check.line())
+    failures = [c for c in checks if c.level == "fail"]
+    click.echo(f"\n{len(failures)} blocking problem(s)." if failures else "\nReady to run.")
+    sys.exit(1 if failures else 0)
 
 
 @cli.command("resolve-airports")

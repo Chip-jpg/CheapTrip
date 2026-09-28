@@ -7,6 +7,7 @@ import httpx
 
 from config import get_settings
 from utils.logging_config import get_logger
+from utils.timeutil import utcnow
 
 log = get_logger(__name__)
 
@@ -62,7 +63,7 @@ class CurrencyConverter:
     def _is_stale(self) -> bool:
         if not self._fetched_at:
             return True
-        age = (datetime.utcnow() - self._fetched_at).total_seconds() / 3600
+        age = (utcnow() - self._fetched_at).total_seconds() / 3600
         return age >= self._CACHE_TTL_HOURS
 
     async def fetch_live_rates(self) -> None:
@@ -76,7 +77,7 @@ class CurrencyConverter:
                 data = resp.json()
                 if data.get("result") == "success":
                     CurrencyConverter._live_rates = data["conversion_rates"]
-                    CurrencyConverter._fetched_at = datetime.utcnow()
+                    CurrencyConverter._fetched_at = utcnow()
                     log.info("currency_rates_refreshed", count=len(self._live_rates))
         except Exception as exc:
             log.warning("currency_fetch_failed", error=str(exc), fallback="static_rates")

@@ -21,7 +21,7 @@ a fare that moves by €1 between cycles is not a new deal.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from config import DEDUP_DATE_TOLERANCE_DAYS, DEDUP_PRICE_TOLERANCE_PCT, DEDUP_WINDOW_DAYS
@@ -39,6 +39,7 @@ from trip_builder.feasibility import get_trip_profile
 from utils.airport_clusters import cluster_city_code
 from utils.confidence import compute_booking_confidence
 from utils.logging_config import get_logger
+from utils.timeutil import utcnow
 
 log = get_logger(__name__)
 
@@ -112,7 +113,7 @@ def collapse_similar(trips: List[Trip]) -> List[Trip]:
 
 async def _similar_saved(trip: Trip, key: DedupKey) -> List[SimilarDeal]:
     """Similar deals saved within the window, departing within the date tolerance."""
-    since = datetime.utcnow() - timedelta(days=DEDUP_WINDOW_DAYS)
+    since = utcnow() - timedelta(days=DEDUP_WINDOW_DAYS)
     return [d for d in await find_similar_deals(key, since) if _close(d.depart_date, trip.departure_date)]
 
 

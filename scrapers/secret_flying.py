@@ -49,6 +49,7 @@ class SecretFlyingScraper(BaseFeedScraper):
 
     def __init__(self) -> None:
         self.enabled = get_settings().enable_secret_flying
+        self.disabled_reason = None if self.enabled else "behind Cloudflare (ENABLE_SECRET_FLYING=true to try)"
         if not self.enabled:
             log.info(
                 "scraper_disabled",

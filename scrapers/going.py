@@ -29,6 +29,7 @@ class GoingScraper(BaseFeedScraper):
 
     def __init__(self) -> None:
         self.enabled = get_settings().enable_going
+        self.disabled_reason = None if self.enabled else "JavaScript-only site (ENABLE_GOING=true to try)"
         if not self.enabled:
             log.info(
                 "scraper_disabled",

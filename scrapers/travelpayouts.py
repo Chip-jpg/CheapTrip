@@ -61,6 +61,7 @@ class TravelpayoutsScraper(BaseFlightScraper):
         self._token = settings.travelpayouts_token
         self._marker = settings.travelpayouts_marker
         self.enabled = bool(self._token)
+        self.disabled_reason = None if self.enabled else "needs TRAVELPAYOUTS_TOKEN"
 
     def calls_per_cycle(self) -> int:
         return get_settings().travelpayouts_calls_per_cycle

@@ -9,8 +9,12 @@ services:
       - ./logs:/app/logs
       - ./config:/app/config
     restart: unless-stopped
+    # Fails when no cycle completed in the last 3 × SCRAPE_INTERVAL_MINUTES
     healthcheck:
-      test: ["CMD", "python", "main.py", "status"]
+      test: ["CMD", "python", "main.py", "healthcheck"]
       interval: 5m
-      timeout: 10s
+      timeout: 20s
       retries: 3
+      start_period: 15m
+    # SIGTERM → the engine finishes cleanly (scheduler and Telegram polling)
+    stop_grace_period: 30s

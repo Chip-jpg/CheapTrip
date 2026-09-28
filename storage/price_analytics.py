@@ -26,6 +26,7 @@ from storage.models import FlightLeg
 from trip_builder.feasibility import get_trip_profile
 from utils.airport_clusters import cluster_city_code
 from utils.logging_config import get_logger
+from utils.timeutil import utcnow
 
 log = get_logger(__name__)
 
@@ -102,7 +103,7 @@ class PriceIndex:
 
     @classmethod
     async def load(cls, exclude_cycle: str) -> "PriceIndex":
-        since = datetime.utcnow() - timedelta(days=LOOKBACK_DAYS)
+        since = utcnow() - timedelta(days=LOOKBACK_DAYS)
         rows = await load_price_history(since, exclude_cycle)
         index = cls((PriceKey(*row[:5]), row[5], row[6]) for row in rows)
         log.info("price_index_loaded", observations=len(rows), baselines=len(index._baselines))

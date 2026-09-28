@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List
 
 from storage.models import BookingConfidence, RawFlightResult, RawHotelResult
+from utils.timeutil import utcnow
 
 # Source reliability weights (0.0–1.0)
 SOURCE_RELIABILITY: dict[str, float] = {
@@ -29,7 +30,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
 
 
 def _freshness_score(scraped_at: datetime) -> float:
-    hours_ago = (datetime.utcnow() - scraped_at).total_seconds() / 3600
+    hours_ago = (utcnow() - scraped_at).total_seconds() / 3600
     if hours_ago < 1:
         return 1.0
     if hours_ago < 6:
