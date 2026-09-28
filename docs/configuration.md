@@ -1,72 +1,83 @@
-# Configuration Reference
+# Configuration reference
 
-## Environment variables (`.env`)
+Two files: `.env` (credentials and engine settings) and `config/user_preferences.yaml` (your travel preferences). Run `python main.py doctor` after changing either.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Yes* | Bot token from @BotFather |
-| `TELEGRAM_CHAT_ID` | Yes* | Your Telegram chat/group ID |
-| `ANTHROPIC_API_KEY` | No | Enables AI message polishing |
-| `DATABASE_URL` | No | SQLite path (default: `sqlite+aiosqlite:///./data/travel_deals.db`) |
-| `SCRAPE_INTERVAL_MINUTES` | No | Scrape cycle frequency (default: 30) |
-| `DIGEST_HOUR` | No | Daily digest send hour in Europe/Rome TZ (default: 8) |
-| `DIGEST_MINUTE` | No | Digest minute (default: 0) |
-| `EUROPE_TRIP_MAX_EUR` | No | Backstop: short-haul trips at or under this always alert instantly (default: 25) |
-| `LONGHAUL_TRIP_MAX_EUR` | No | Backstop: long-haul trips at or under this always alert instantly (default: 250) |
-| `FLIGHT_DISCOUNT_MIN_PCT` | No | Min discount % for flight instant alert (default: 60) |
-| `HOTEL_DISCOUNT_MIN_PCT` | No | Min discount % for hotel instant alert (default: 60) |
+## `.env`
 
-*Without Telegram credentials, the engine runs in dry-run mode (logs alerts but doesn't send).
+Start from `.env.example`. Names are case-insensitive environment variables.
 
-## User preferences (`config/user_preferences.yaml`)
+### Credentials
 
-```yaml
-# Airports you can depart from. Cluster-expanded automatically.
-# Milan cluster = MXP + LIN + BGY
-home_airports:
-  - MXP
-  - LIN
-  - BGY
+| Variable | Default | Description |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | — | Bot token from @BotFather. Without it (and the chat ID) alerts are only logged. |
+| `TELEGRAM_CHAT_ID` | — | Chat or group that receives alerts and may send commands. |
+| `ANTHROPIC_API_KEY` | — | Reads PiratinViaggio posts and polishes alert wording. |
+| `AI_MODEL` | `claude-haiku-4-5` | Model for both. |
+| `AI_TIMEOUT_SECONDS` | `15` | Timeout for the alert polish (post reading uses at least 30s). |
+| `TRAVELPAYOUTS_TOKEN` | — | Enables Travelpayouts. `TRAVELPAYOUTS_MARKER` adds affiliate tracking to its links. |
+| `EXCHANGE_RATE_API_KEY` | — | Live currency rates (static fallback rates otherwise). |
+| `RAPIDAPI_KEY` | — | Skyscanner via RapidAPI, also needs `ENABLE_SKYSCANNER=true`. |
 
-# Allow multi-leg repositioning deals (cheap to hub, then long-haul from hub)
-allow_repositioning: true
+### Sources
 
-# Maximum total trip budget in EUR. null = no limit.
-max_trip_budget: null
+| Variable | Default | Description |
+|---|---|---|
+| `ENABLE_RYANAIR` | `true` | Ryanair fare API. |
+| `RYANAIR_MARKET` | empty | e.g. `it-it`, `en-gb`. Empty: the `market` preference, else your home country. |
+| `RYANAIR_CALLS_PER_CYCLE` | `30` | Searches per cycle. |
+| `GOOGLE_FLIGHTS_CALLS_PER_CYCLE` | `6` | Google throttles datacenter IPs; keep it small. |
+| `GOOGLE_FLIGHTS_COOLDOWN_HOURS` | `3` | Pause after a 429 or bot-check page. |
+| `TRAVELPAYOUTS_CALLS_PER_CYCLE` | `30` | |
+| `ENABLE_PIRATINVIAGGIO` | `true` | Italian deal posts; runs when `ANTHROPIC_API_KEY` is set and a home airport is in Italy. |
+| `AI_EXTRACTION_MAX_POSTS_PER_CYCLE` | `30` | New posts sent to Claude per cycle (each post is read once). |
+| `ENABLE_SKYSCANNER` | `false` | `SKYSCANNER_MAX_CALLS_PER_CYCLE` (20) caps calls; a 429 pauses it until midnight UTC. |
+| `ENABLE_BOOKING_HTML` | `false` | Booking.com answers plain HTTP with a bot wall. |
+| `ENABLE_GOOGLE_HOTELS` | `false` | Stay dates can't be set yet. |
+| `ENABLE_SECRET_FLYING` | `false` | Behind Cloudflare. |
+| `ENABLE_GOING` | `false` | JavaScript-only site. |
+| `ENABLE_HOLIDAY_PIRATES` | `false` | UK edition (GBP packages from UK airports). |
 
-# Destinations to never show (IATA codes)
-excluded_destinations: []
+### Alerts
 
-# Trip length categories to search for
-# Options: weekend (2-4 nights), short (4-7), medium (7-14), long (14-30)
-preferred_trip_lengths:
-  - weekend
-  - short
-  - medium
+| Variable | Default | Description |
+|---|---|---|
+| `PRICE_ANOMALY_MIN_DROP_PCT` | `35` | % below the route's usual price (same length and month, earlier cycles) that makes a fare instant. |
+| `EUROPE_TRIP_MAX_EUR` | `25` | Backstop: dated short-haul trips at or under this are instant. |
+| `LONGHAUL_TRIP_MAX_EUR` | `250` | Backstop for long-haul trips. |
+| `FLIGHT_DISCOUNT_MIN_PCT` | `60` | Discount vs the usual price that makes a flight instant. |
+| `HOTEL_DISCOUNT_MIN_PCT` | `60` | The same for hotel deals with a known usual price. |
+| `BOOKING_CONFIDENCE_MIN_FOR_INSTANT` | `MEDIUM` | `LOW`, `MEDIUM` or `HIGH`. |
+| `INSTANT_ALERTS_PER_HOUR` | `5` | Best discounts go first. |
 
-# Minimum acceptable hotel rating (0-10 scale, Booking.com style)
-# Hotels below this are filtered unless they have exceptional discounts
-minimum_hotel_rating: 7.0
+### Schedule and storage
 
-# Preferred hotel rating — used in deal scoring
-preferred_hotel_rating: 8.0
+| Variable | Default | Description |
+|---|---|---|
+| `SCRAPE_INTERVAL_MINUTES` | `90` | Cycle interval. The healthcheck fails after 3 intervals without a cycle. |
+| `DIGEST_HOUR` / `DIGEST_MINUTE` | `8` / `0` | Daily digest time, in `TIMEZONE`. |
+| `TIMEZONE` | `Europe/Rome` | IANA time zone for the digest schedule. |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./data/travel_deals.db` | SQLite file. |
+| `LOG_LEVEL` / `LOG_FILE` | `INFO` / `./logs/engine.log` | |
 
-# Hotels below minimum_hotel_rating still pass if total trip cost ≤ this (EUR)
-hotel_exceptionally_low_trip_cost: 80.0
+## `config/user_preferences.yaml`
 
-# Days ahead to search for departures
-search_window_days: 90
-```
+Copy `config/user_preferences.yaml.example`. Telegram commands (`/mute`, `/priority`, `/budget`) override these without editing the file; `/status` shows the result.
 
-## Settings class fields (advanced)
-
-These can be overridden via environment variables (uppercase with underscores):
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `minimum_hotel_rating` | 7.0 | Hotel quality floor |
-| `preferred_hotel_rating` | 8.0 | Preferred quality level |
-| `hotel_low_rating_max_discount` | 70.0 | Discount % that overrides low rating |
-| `price_anomaly_min_drop_pct` | 35.0 | % below the route's usual price (same trip length and month, earlier cycles) = anomaly |
-| `booking_confidence_min_for_instant` | MEDIUM | Min booking confidence for instant alert |
-| `search_window_days` | 90 | Default search horizon in days |
+| Key | Default | Description |
+|---|---|---|
+| `home_airports` | `[MXP, LIN, BGY]` | Any airports; each is expanded to its city (MXP → MXP, LIN, BGY). |
+| `preferred_trip_lengths` | `[weekend, short, medium]` | `weekend` (≤4 nights), `short` (≤7), `medium` (≤14), `long` (≤30). |
+| `search_window_days` | `90` | How far ahead to search. |
+| `priority_destinations` | `[]` | Always instant, whatever the price. Airport codes. |
+| `excluded_destinations` | `[]` | Never shown. |
+| `max_trip_budget` | `null` | Skip trips above this total (EUR per person). |
+| `adults` | `1` | Travellers for searches and booking links; prices are shown per person. |
+| `market` | `null` | Airline/site market (`it-it`, `en-gb`, …); `null` = from the first home airport's country. |
+| `allow_repositioning` | `true` | Search from hubs and build home → hub → destination trips. |
+| `repositioning_hubs` | `[LHR, LGW, AMS, CDG, FRA, MAD, BCN, DUB]` | Hubs for repositioning. |
+| `minimum_hotel_rating` | `7.0` | Out of 10; lower-rated hotels only pass with a big discount or a very cheap trip. |
+| `preferred_hotel_rating` | `8.0` | "Luxury Discount" category threshold. |
+| `hotel_low_rating_discount_threshold` | `70.0` | Discount % that lets a low-rated hotel through. |
+| `hotel_exceptionally_low_trip_cost` | `80.0` | Total (EUR) under which a low-rated hotel passes. |
+| `min_hotel_review_count` | `null` | Drop hotels with fewer reviews (unknown counts are kept). |
