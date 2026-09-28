@@ -108,6 +108,8 @@ async def build_trips(
     # Record prices for historical tracking and keep price_stats fresh
     routes_seen: set[str] = set()
     for leg in flight_legs:
+        if leg.departure_date is None:
+            continue  # deal-feed "from" prices would skew route history
         route = f"{leg.origin}-{leg.destination}"
         await record_price(route, leg.price_eur, leg.source)
         routes_seen.add(route)
@@ -190,18 +192,21 @@ async def _build_flight_only_trip(leg: FlightLeg) -> Optional[Trip]:
     )
     trip.compute_totals()
 
-    # Flag potential error fares
-    if normal and leg.price_eur < normal * 0.40:
+    # Flag potential error fares: flagged by the source, or a dated fare far below the
+    # route median (feed "from" prices aren't comparable to dated history).
+    far_below_median = bool(leg.departure_date and normal and leg.price_eur < normal * 0.40)
+    if leg.is_error_fare_hint or far_below_median:
         trip.is_error_fare = True
         trip.deal_type = DealType.ERROR_FARE
 
-    # Historical anomaly check
+    # Historical anomaly check (dated fares only)
     try:
-        anomaly = await detect_anomaly(f"{leg.origin}-{leg.destination}", leg.price_eur)
-        if anomaly.is_anomaly:
-            _apply_anomaly_to_trip(trip, anomaly)
-            if anomaly.description:
-                trip.verdict = f"{trip.verdict} (Historical anomaly: {anomaly.description})"
+        if leg.departure_date:
+            anomaly = await detect_anomaly(f"{leg.origin}-{leg.destination}", leg.price_eur)
+            if anomaly.is_anomaly:
+                _apply_anomaly_to_trip(trip, anomaly)
+                if anomaly.description:
+                    trip.verdict = f"{trip.verdict} (Historical anomaly: {anomaly.description})"
     except Exception:
         log.warning("anomaly_check_failed", route=f"{leg.origin}-{leg.destination}")
 

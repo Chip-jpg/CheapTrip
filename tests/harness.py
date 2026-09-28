@@ -21,7 +21,7 @@ from config import get_settings
 from notifier.telegram import TelegramNotifier
 from preferences import get_preferences
 from scrapers.aggregator import ScraperAggregator
-from scrapers.base import BaseFlightScraper, BaseHotelScraper
+from scrapers.base import BaseFeedScraper, BaseFlightScraper, BaseHotelScraper
 from storage.database import init_db
 from storage.models import RawFlightResult, RawHotelResult, ScraperParams
 
@@ -119,6 +119,20 @@ class FakeFlightScraper(BaseFlightScraper):
         return _materialize(self._results, params)
 
 
+class FakeFeedScraper(BaseFeedScraper):
+    """Deal-feed fake: returns canned (usually undated) deals and counts calls."""
+
+    def __init__(self, results: Sequence[Any] = (), source_id: str = "fake_feed") -> None:
+        self.source_id = source_id
+        self.enabled = True
+        self._results = results
+        self.calls = 0
+
+    async def scrape_feed(self) -> List[RawFlightResult]:
+        self.calls += 1
+        return [r.model_copy() for r in self._results]
+
+
 class FakeHotelScraper(BaseHotelScraper):
     """Returns canned hotel results and records every call."""
 
@@ -184,13 +198,17 @@ class Engine:
         self,
         flights: ResultsSpec = (),
         hotels: ResultsSpec = (),
+        feeds: Sequence[Any] = (),
     ) -> ScraperAggregator:
-        """Run one full pipeline cycle; returns the aggregator (inspect its fake scrapers' calls)."""
+        """
+        Run one full pipeline cycle; returns the aggregator. Its scrapers are
+        [FakeFlightScraper, FakeFeedScraper] and [FakeHotelScraper] — inspect their calls.
+        """
         from scheduler.runner import run_pipeline_cycle
 
         await init_db()
         aggregator = ScraperAggregator(
-            flight_scrapers=[FakeFlightScraper(flights)],
+            flight_scrapers=[FakeFlightScraper(flights), FakeFeedScraper(feeds)],
             hotel_scrapers=[FakeHotelScraper(hotels)],
         )
         notifier = await TelegramNotifier.create()

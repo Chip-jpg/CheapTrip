@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional
 
 import httpx
 
@@ -48,6 +48,8 @@ def build_client(timeout: float = 30.0) -> httpx.AsyncClient:
 class BaseFlightScraper(ABC):
     source_id: str = "unknown"
     enabled: bool = True
+    # Feed scrapers (deal blogs/newsletters) ignore search params and run once per cycle.
+    is_feed: bool = False
 
     def begin_cycle(self) -> None:
         """Called once at the start of each pipeline cycle (reset per-cycle budgets)."""
@@ -66,6 +68,24 @@ class BaseFlightScraper(ABC):
         except Exception as exc:
             log.error("scraper_failed", source=self.source_id, error=str(exc))
             return []
+
+
+class BaseFeedScraper(BaseFlightScraper):
+    """
+    Deal feeds publish posts, not search results: a route, a price and
+    usually a travel window instead of a date. They are collected once per
+    cycle (ScraperAggregator.collect_feed_flights) rather than per search
+    window, and never invent a departure date.
+    """
+
+    is_feed = True
+
+    @abstractmethod
+    async def scrape_feed(self) -> List[RawFlightResult]:
+        """Return deals from the feed; never raise — log and return []."""
+
+    async def scrape(self, params: Optional[ScraperParams] = None) -> List[RawFlightResult]:
+        return await self.scrape_feed()
 
 
 class BaseHotelScraper(ABC):

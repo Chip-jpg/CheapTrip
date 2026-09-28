@@ -48,6 +48,8 @@ async def normalize_flights(raw: List[RawFlightResult]) -> List[FlightLeg]:
                 scraped_at=best.scraped_at,
                 raw_currency=best.currency,
                 raw_price=best.price,
+                travel_window=best.travel_window,
+                is_error_fare_hint=any(r.is_error_fare_hint for r in group),
             )
             legs.append(leg)
         except Exception as exc:

@@ -105,9 +105,16 @@ async def run_pipeline_cycle(
             destinations=len(destinations),
         )
 
-        # Collect from all scrapers across all date windows
+        # Deal feeds are date-independent: collect them once per cycle.
         all_raw_flights = []
         all_raw_hotels = []
+        try:
+            feed_flights, _ = await aggregator.collect_feed_flights()
+            all_raw_flights.extend(feed_flights)
+        except Exception as exc:
+            log.warning("collect_feed_flights_failed", error=str(exc))
+
+        # Search-based scrapers run once per date window
 
         for params in param_batches:
             flight_result, hotel_result = await asyncio.gather(

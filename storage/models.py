@@ -51,7 +51,8 @@ class FlightLeg(BaseModel):
     origin: str
     destination: str
     price_eur: float
-    departure_date: date
+    # None for deal-feed posts that give a travel window rather than a date
+    departure_date: Optional[date] = None
     return_date: Optional[date] = None
     airline: Optional[str] = None
     booking_url: Optional[str] = None
@@ -60,6 +61,8 @@ class FlightLeg(BaseModel):
     scraped_at: datetime = Field(default_factory=datetime.utcnow)
     raw_currency: str = "EUR"
     raw_price: float = 0.0
+    travel_window: Optional[str] = None
+    is_error_fare_hint: bool = False
 
     @field_validator("origin", "destination")
     @classmethod
@@ -196,12 +199,16 @@ class RawFlightResult(BaseModel):
     destination: str
     price: float
     currency: str
-    departure_date: date
+    # None for deal-feed posts that give a travel window rather than a date
+    departure_date: Optional[date] = None
     return_date: Optional[date] = None
     airline: Optional[str] = None
     booking_url: Optional[str] = None
     source: str
     scraped_at: datetime = Field(default_factory=datetime.utcnow)
+    # Deal feeds: free-text travel window ("Nov–Mar") and error-fare flag from the source
+    travel_window: Optional[str] = None
+    is_error_fare_hint: bool = False
     extra: Dict[str, Any] = Field(default_factory=dict)
 
 
