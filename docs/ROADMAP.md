@@ -71,6 +71,7 @@ Findings marked **(confirmed)** were traced line by line in the code. File:line 
 - Enforce `booking_confidence_min_for_instant`, which is currently unused.
 - Use `prefs.hotel_low_rating_discount_threshold` instead of the hardcoded 70.
 - Remove the duplicate hotel-quality settings in `Settings` vs `UserPreferences`.
+- **(confirmed, found in B03)** `get_price_stats` crashes with `round(None)` when a route has exactly one price in the last 30 days (`storage/price_analytics.py:100`), so the anomaly check throws on every new route.
 
 **B06 `fix/telegram-delivery`** (M)
 - Switch from legacy Markdown to `parse_mode=HTML` and escape text. Hotel or airline names containing `_ * [` currently cause 400 errors, and those messages are silently dropped.
@@ -233,7 +234,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 |---|---|---|
 | B01 | `chore/dev-tooling-ci` | done |
 | B02 | `test/pipeline-harness` | done |
-| B03 | `refactor/airport-registry` | todo |
+| B03 | `refactor/airport-registry` | done |
 | B04 | `fix/digest-crash` | todo |
 | B05 | `fix/alert-tier-logic` | todo |
 | B06 | `fix/telegram-delivery` | todo |

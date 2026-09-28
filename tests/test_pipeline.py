@@ -13,7 +13,7 @@ async def test_cheap_europe_flight_sends_one_instant_alert(engine):
     text = engine.telegram.texts[0]
     assert "FLIGHT DEAL" in text
     assert "€25" in text
-    assert "KRK" in text
+    assert "Milan → Krakow" in text
     assert engine.telegram.payloads[0]["chat_id"] == TEST_CHAT_ID
 
 

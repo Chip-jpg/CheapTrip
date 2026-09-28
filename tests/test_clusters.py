@@ -53,7 +53,7 @@ def test_cluster_display_name_in_cluster():
 
 
 def test_cluster_display_name_standalone():
-    assert cluster_display_name("WAW") == "WAW"
+    assert cluster_display_name("KRK") == "KRK"
 
 
 def test_are_in_same_cluster_true():

@@ -82,27 +82,7 @@ LAYER_3_HUBS = ["LHR", "LGW", "AMS", "CDG", "FRA", "MAD", "BCN", "DUB"]
 
 ALL_ORIGIN_AIRPORTS = LAYER_1_AIRPORTS + LAYER_2_AIRPORTS + LAYER_3_HUBS
 
-# ── Airport clusters (nearby airports for the same city/region) ───────────────
-
-AIRPORT_CLUSTERS: dict[str, list[str]] = {
-    "Milan":        ["MXP", "LIN", "BGY"],
-    "London":       ["LHR", "LGW", "STN", "LTN"],
-    "Paris":        ["CDG", "ORY"],
-    "Rome":         ["FCO", "CIA"],
-    "Barcelona":    ["BCN", "GRO"],
-    "New York":     ["JFK", "EWR"],
-    "Tokyo":        ["NRT", "HND"],
-    "Stockholm":    ["ARN", "BMA"],
-    "Oslo":         ["OSL", "TRF"],
-    "Copenhagen":   ["CPH", "AAR"],
-}
-
-# Reverse map: airport code → cluster name
-CLUSTER_REVERSE: dict[str, str] = {
-    airport: cluster
-    for cluster, airports in AIRPORT_CLUSTERS.items()
-    for airport in airports
-}
+# Airport clusters, cities, regions and distances live in utils/airports.py.
 
 # ── Trip length profiles ──────────────────────────────────────────────────────
 
@@ -131,7 +111,7 @@ POPULAR_DESTINATIONS = [
     # Europe
     "KRK", "WAW", "PRG", "BUD", "LIS", "ATH", "DUB", "CPH", "ARN",
     "HEL", "OSL", "VIE", "ZRH", "BRU", "EDI", "GVA", "NCE", "MRS",
-    "OPO", "SEV", "MAH", "IBZ", "PMI", "TFS", "ACE", "LPA",
+    "OPO", "SVQ", "MAH", "IBZ", "PMI", "TFS", "ACE", "LPA",
     # Long-haul
     "JFK", "EWR", "LAX", "MIA", "ORD", "BOS", "YYZ", "YVR",
     "NRT", "HND", "ICN", "HKG", "BKK", "SIN", "KUL", "CGK",

@@ -8,29 +8,7 @@ from __future__ import annotations
 
 from preferences import get_preferences
 from storage.models import DealCategory, DealType, Trip, TripLengthProfile
-
-# ── Destination sets ──────────────────────────────────────────────────────────
-
-BEACH_AIRPORTS = {
-    # Mediterranean islands & coastal
-    "PMI", "IBZ", "MAH", "TFS", "ACE", "LPA", "GRO",
-    "RHO", "CFU", "HER", "JTR", "SKG",
-    # Caribbean / Atlantic
-    "CUN", "PUJ", "MBJ", "BGI", "AUA", "SXM", "FDF",
-    # Indian Ocean
-    "MLE", "RUN", "SEZ",
-    # Asia beach
-    "HKT", "USM", "DPS", "BKI",
-}
-
-LONG_HAUL_AIRPORTS = {
-    "JFK", "EWR", "LAX", "MIA", "ORD", "BOS", "YYZ", "YVR",
-    "NRT", "HND", "ICN", "HKG", "BKK", "SIN", "KUL", "CGK",
-    "DXB", "AUH", "DOH",
-    "GRU", "EZE", "BOG", "LIM", "SCL",
-    "JNB", "CPT", "NBO",
-    "SYD", "MEL", "AKL",
-}
+from utils import airports
 
 
 def _dest(trip: Trip) -> str:
@@ -70,12 +48,15 @@ def categorize_trip(trip: Trip) -> DealCategory:
     if has_hotel and hotel_rating >= prefs.preferred_hotel_rating and discount >= 30.0:
         return DealCategory.LUXURY_DISCOUNT
 
+    origin = trip.outbound_flight.origin if trip.outbound_flight else None
+    long_haul = bool(dest) and airports.is_long_haul(dest, origin)
+
     # 6. Long-haul adventure
-    if dest in LONG_HAUL_AIRPORTS and nights >= 5:
+    if long_haul and nights >= 5:
         return DealCategory.LONG_HAUL_ADVENTURE
 
     # 7. Beach holiday
-    if dest in BEACH_AIRPORTS:
+    if airports.is_beach(dest):
         return DealCategory.BEACH_HOLIDAY
 
     # 8. Weekend escape: short Europe trip
@@ -84,7 +65,7 @@ def categorize_trip(trip: Trip) -> DealCategory:
         profile == TripLengthProfile.WEEKEND
         or (nights >= 2 and nights <= 4)
     )
-    is_europe = dest not in LONG_HAUL_AIRPORTS and dest != ""
+    is_europe = bool(dest) and not long_haul
 
     if is_weekend and is_europe and has_hotel:
         return DealCategory.WEEKEND_ESCAPE
