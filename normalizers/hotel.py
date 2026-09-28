@@ -22,7 +22,7 @@ async def normalize_hotels(raw: List[RawHotelResult]) -> List[HotelDeal]:
     # Group by hotel and stay (the same hotel on other dates is a different offer)
     groups: dict[str, List[RawHotelResult]] = {}
     for r in raw:
-        key = f"{r.name.lower().strip()}_{r.location.lower().strip()}_{r.check_in}_{r.check_out}"
+        key = f"{r.name.lower().strip()}_{r.location.lower().strip()}_{r.check_in}_{r.check_out}_{r.is_feed_deal}"
         groups.setdefault(key, []).append(r)
 
     deals: List[HotelDeal] = []
@@ -65,6 +65,9 @@ async def normalize_hotels(raw: List[RawHotelResult]) -> List[HotelDeal]:
                 check_in=best.check_in,
                 check_out=best.check_out,
                 meets_quality_threshold=meets_quality,
+                is_feed_deal=best.is_feed_deal,
+                price_basis=best.price_basis,
+                travel_window=best.travel_window,
             )
             deals.append(deal)
         except Exception as exc:

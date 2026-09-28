@@ -41,6 +41,11 @@ def apply_hard_filters(trips: List[Trip]) -> Tuple[List[Trip], List[Trip]]:
             discarded += 1
             continue
 
+        min_reviews = prefs.min_hotel_review_count
+        if trip.hotel and min_reviews and trip.hotel.review_count is not None and trip.hotel.review_count < min_reviews:
+            discarded += 1  # too few reviews to trust the rating (unknown counts are kept)
+            continue
+
         if (
             trip.hotel
             and not trip.hotel.meets_quality_threshold

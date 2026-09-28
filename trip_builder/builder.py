@@ -128,8 +128,8 @@ async def build_trips(
     # Index quality hotels by destination airport (skip hotels below quality threshold)
     hotel_by_dest: dict[str, List[HotelDeal]] = {}
     for hotel in hotel_deals:
-        if not hotel.meets_quality_threshold:
-            continue
+        if not hotel.meets_quality_threshold or hotel.is_feed_deal:
+            continue  # deal-site hotel posts become hotel-only deals below
         for airport in _hotel_airports(hotel.location):
             hotel_by_dest.setdefault(airport, []).append(hotel)
 
@@ -159,7 +159,12 @@ async def build_trips(
             if trip:
                 trips.append(trip)
 
-    # ── 3. Repositioned trips ────────────────────────────────────────────────
+    # ── 3. Hotel-only deals (deal-site hotel posts) ──────────────────────────
+    for hotel in hotel_deals:
+        if hotel.is_feed_deal:
+            trips.append(_build_hotel_only_trip(hotel))
+
+    # ── 4. Repositioned trips ────────────────────────────────────────────────
     repo_opportunities = find_repositioning_opportunities(
         [leg for leg in flight_legs if not leg.is_package], primary_origins=sorted(home_origins)
     )
@@ -227,6 +232,27 @@ def _build_package_trip(leg: FlightLeg) -> Optional[Trip]:
         nights=leg.stay_nights,
         data_confidence_score=leg.data_confidence_score,
         source_list=[leg.source],
+        verdict="SEE THE OFFER",
+    )
+    trip.compute_totals()
+    _finalize_trip(trip)
+    return trip
+
+
+def _build_hotel_only_trip(hotel: HotelDeal) -> Trip:
+    """A hotel stay from a deal-site post; the price is per night as the post states it."""
+    dated = hotel.check_in is not None
+    trip = Trip(
+        trip_id=str(uuid.uuid4())[:8],
+        deal_type=DealType.HOTEL_ONLY,
+        route=hotel.location,
+        hotel=hotel,
+        hotel_cost_eur=hotel.total_price_eur,
+        departure_date=hotel.check_in,
+        return_date=hotel.check_out,
+        nights=hotel.nights if dated else None,
+        data_confidence_score=hotel.data_confidence_score,
+        source_list=[hotel.source],
         verdict="SEE THE OFFER",
     )
     trip.compute_totals()

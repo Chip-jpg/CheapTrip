@@ -216,3 +216,130 @@ def validate_option(option: Optional[FeedDealOption], post: FeedPost, home: List
         hotel_name=(option.hotel_name or None) if option.kind == "package" else None,
         travel_window=None if departure else option.travel_window,
     ), ""
+
+
+# ── Hotel posts (B19) ─────────────────────────────────────────────────────────
+
+class FeedHotelOption(BaseModel):
+    """The hotel offer in one post, as the model reads it."""
+
+    kind: Literal["hotel", "none"] = Field(
+        description="hotel = a priced hotel stay; none = no priced hotel offer (list articles, several hotels)",
+    )
+    hotel_name: Optional[str] = Field(description="The hotel's name as written")
+    city: Optional[str] = Field(description="City or town where the hotel is, in English")
+    country_code: Optional[str] = Field(description="ISO 3166 two-letter country code")
+    price_eur: Optional[float] = Field(description="The cheapest price in euros, exactly as written in the post")
+    price_basis: Literal["per_person_per_night", "per_room_per_night", "per_person_stay", "per_room_stay"] = Field(
+        description="What that price covers",
+    )
+    nights: Optional[int] = Field(description="Nights the price is for, when stated")
+    check_in: Optional[str] = Field(description="YYYY-MM-DD, only when the post gives the exact date")
+    check_out: Optional[str] = Field(description="YYYY-MM-DD, only when the post gives the exact date")
+    travel_window: Optional[str] = Field(description="Travel period in English when there are no exact dates")
+    rating_out_of_10: Optional[float] = Field(description="Guest rating converted to a 0-10 scale, when stated")
+    review_count: Optional[int] = Field(description="Number of reviews, when stated")
+    stars: Optional[int] = Field(description="Hotel class (1-5 stars), when stated")
+
+
+@dataclass
+class ValidHotelOption:
+    """A hotel offer that passed every check (stored as the cache payload)."""
+
+    kind: str
+    hotel_name: str
+    city: str
+    country_code: Optional[str]
+    price_per_night: float
+    price_basis: str               # "per person" / "per room"
+    nights: int
+    check_in: Optional[str]
+    check_out: Optional[str]
+    travel_window: Optional[str]
+    rating: Optional[float]
+    review_count: Optional[int]
+    stars: Optional[int]
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def _hotel_system_prompt(today: date) -> str:
+    return (
+        "You read Italian hotel-deal posts from the site PiratinViaggio and extract the offer. "
+        f"Today is {today.isoformat()}.\n"
+        "- kind: 'hotel' for a priced stay in one hotel; 'none' for lists of many hotels or posts without a price.\n"
+        "- price_eur: the cheapest price exactly as written (e.g. '48,50€/persona' → 48.5), and price_basis says "
+        "what it covers ('a persona' = per person; '/tot.' or 'a camera' = per room; a price for a whole stay of "
+        "several nights = *_stay with nights).\n"
+        "- check_in / check_out: only exact dates; dates without a year are the first such date after today. "
+        "Otherwise describe the period in travel_window (in English, e.g. 'October to December').\n"
+        "- rating_out_of_10: convert other scales ('4,98/5' → 9.96).\n"
+        "Do not guess: use null for what the post does not say."
+    )
+
+
+async def extract_hotel_option(client: Any, model: str, post: FeedPost, today: date) -> Optional[FeedHotelOption]:
+    response = await client.messages.parse(
+        model=model,
+        max_tokens=1024,
+        system=_hotel_system_prompt(today),
+        messages=[{"role": "user", "content": post.render()}],
+        output_format=FeedHotelOption,
+    )
+    if response.stop_reason == "refusal":
+        log.warning("feed_extraction_refused", url=post.url)
+        return None
+    return response.parsed_output
+
+
+def validate_hotel_option(option: Optional[FeedHotelOption], post: FeedPost,
+                          today: date) -> Tuple[Optional[ValidHotelOption], str]:
+    """(valid option, '') or (None, why it was dropped)."""
+    if option is None or option.kind == "none":
+        return None, "no priced hotel offer"
+    name, city = (option.hotel_name or "").strip(), (option.city or "").strip()
+    if not name or not city:
+        return None, "no hotel name or city"
+    price = option.price_eur
+    if not price or price <= 0:
+        return None, "no price"
+    if round(price, 2) not in amounts_in(f"{post.title}\n{post.headline_price}\n{post.text}"):
+        return None, f"price €{price:g} is not written in the post"
+
+    ok_in, check_in = _parse_date(option.check_in)
+    ok_out, check_out = _parse_date(option.check_out)
+    if not (ok_in and ok_out):
+        return None, "malformed date"
+    if (check_in is None) != (check_out is None):
+        return None, "only one of check-in / check-out"
+    if check_in and check_in < today:
+        return None, f"check-in {check_in} is in the past"
+    if check_in and check_out <= check_in:
+        return None, "check-out is not after check-in"
+
+    nights = (check_out - check_in).days if check_in else (option.nights or 1)
+    if nights < 1:
+        return None, "no nights"
+    per_stay = option.price_basis.endswith("_stay")
+    if per_stay and not (check_in or option.nights):
+        return None, "a price for the stay without its length"
+    rating = option.rating_out_of_10
+    if rating is not None and not 0 < rating <= 10:
+        rating = None
+
+    return ValidHotelOption(
+        kind="hotel",
+        hotel_name=name,
+        city=city,
+        country_code=(option.country_code or "").upper() or None,
+        price_per_night=round(price / nights, 2) if per_stay else round(price, 2),
+        price_basis="per person" if option.price_basis.startswith("per_person") else "per room",
+        nights=nights,
+        check_in=check_in.isoformat() if check_in else None,
+        check_out=check_out.isoformat() if check_out else None,
+        travel_window=None if check_in else option.travel_window,
+        rating=rating,
+        review_count=option.review_count if option.review_count and option.review_count > 0 else None,
+        stars=option.stars if option.stars and 1 <= option.stars <= 5 else None,
+    ), ""
