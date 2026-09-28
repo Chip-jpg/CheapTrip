@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     scrape_interval_minutes: int = Field(default=90)
     digest_hour: int = Field(default=8)
     digest_minute: int = Field(default=0)
+    # IANA time zone for the daily digest schedule (DIGEST_HOUR/DIGEST_MINUTE are local to it)
+    timezone: str = Field(default="Europe/Rome")
 
     # Alert thresholds
     europe_trip_max_eur: float = Field(default=120.0)

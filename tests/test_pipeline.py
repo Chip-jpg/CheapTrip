@@ -1,8 +1,6 @@
 """End-to-end pipeline tests: fake scrapers in, captured Telegram messages out."""
 from __future__ import annotations
 
-import pytest
-
 from tests.harness import TEST_CHAT_ID, flight
 
 
@@ -54,9 +52,33 @@ async def test_excluded_destination_is_never_alerted(engine):
     assert engine.telegram.texts == []
 
 
-@pytest.mark.xfail(strict=True, reason="B04: digest crashes on trips loaded from the DB (use_enum_values)")
 async def test_daily_digest_is_sent_after_a_cycle(engine):
     await engine.run_cycle(flights=[flight(destination="KRK", price=300.0)])
     await engine.run_digest()
 
-    assert any("DAILY TRAVEL DEALS DIGEST" in t for t in engine.telegram.texts)
+    digests = [t for t in engine.telegram.texts if "DAILY TRAVEL DEALS DIGEST" in t]
+    assert len(digests) == 1
+    assert "Milan → Krakow" in digests[0]
+
+
+async def test_digest_lists_each_route_once_with_its_cheapest_deal(engine):
+    await engine.run_cycle(flights=[
+        flight(destination="KRK", price=300.0, days_ahead=10),
+        flight(destination="KRK", price=280.0, days_ahead=12),
+        flight(destination="PRG", price=310.0, days_ahead=10),
+    ])
+    await engine.run_digest()
+
+    digest = next(t for t in engine.telegram.texts if "DAILY TRAVEL DEALS DIGEST" in t)
+    assert digest.count("Milan → Krakow") == 1
+    assert "€280" in digest
+    assert "€300" not in digest
+    assert "Milan → Prague" in digest
+
+
+async def test_only_one_digest_per_day(engine):
+    await engine.run_cycle(flights=[flight(destination="KRK", price=300.0)])
+    await engine.run_digest()
+    await engine.run_digest()
+
+    assert sum("DAILY TRAVEL DEALS DIGEST" in t for t in engine.telegram.texts) == 1

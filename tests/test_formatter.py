@@ -5,7 +5,7 @@ import re
 from datetime import date
 
 from ai_layer.formatter import format_complete_trip, format_digest, format_flight_only
-from storage.models import DealType, FlightLeg, HotelDeal, Trip
+from storage.models import BookingConfidence, DealCategory, DealType, FlightLeg, HotelDeal, Trip
 
 
 def _make_complete_trip() -> Trip:
@@ -119,3 +119,30 @@ class TestFormatDigest:
         trips = [_make_complete_trip(), _make_complete_trip()]
         msg = format_digest(trips)
         assert "2" in msg
+
+
+class TestTripsLoadedFromDatabase:
+    """Trips are stored as JSON and re-validated for the digest (B04 regression)."""
+
+    def _roundtrip(self, trip: Trip) -> Trip:
+        return Trip.model_validate_json(trip.model_dump_json())
+
+    def test_enums_survive_json_roundtrip(self):
+        trip = _make_complete_trip()
+        trip.category = DealCategory.WEEKEND_ESCAPE
+        trip.booking_confidence = BookingConfidence.HIGH
+        loaded = self._roundtrip(trip)
+        assert loaded.deal_type is DealType.COMPLETE_TRIP
+        assert loaded.category is DealCategory.WEEKEND_ESCAPE
+        assert loaded.booking_confidence is BookingConfidence.HIGH
+
+    def test_format_digest_on_loaded_trips(self):
+        trip = _make_complete_trip()
+        trip.category = DealCategory.WEEKEND_ESCAPE
+        msg = format_digest([self._roundtrip(trip)])
+        assert "Weekend Escape" in msg
+        assert "LOW" in msg  # default booking confidence
+
+    def test_hash_is_stable_across_roundtrip(self):
+        trip = _make_complete_trip()
+        assert self._roundtrip(trip).compute_hash() == trip.compute_hash()

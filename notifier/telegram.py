@@ -108,14 +108,16 @@ class TelegramNotifier:
             log.info("telegram_disabled_digest_dry_run", count=len(trips))
             return False
 
+        if not trips:
+            return True
+
+        # Format before reserving the daily slot so a formatting error can't burn it.
+        message = format_digest(trips)
+
         if not await self._rate_limiter.try_send_digest():
             log.info("rate_limit_digest_skipped")
             return False
 
-        if not trips:
-            return True
-
-        message = format_digest(trips)
         success = await self._send_raw(message)
         if success:
             for trip in trips:

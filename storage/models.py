@@ -158,7 +158,7 @@ class Trip(BaseModel):
         dep = str(self.departure_date or "")
         ret = str(self.return_date or "")
         price = f"{self.total_cost_eur:.2f}"
-        raw = f"{origin}{dest}{self.deal_type}{price}{dep}{ret}"
+        raw = f"{origin}{dest}{DealType(self.deal_type).value}{price}{dep}{ret}"
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
     def compute_totals(self) -> None:
@@ -183,8 +183,6 @@ class Trip(BaseModel):
             "fees": self.fees_eur,
             "total": self.total_cost_eur,
         }
-
-    model_config = {"use_enum_values": True}
 
 
 class RawFlightResult(BaseModel):

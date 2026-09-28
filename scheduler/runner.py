@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -19,12 +19,16 @@ from preferences import get_preferences
 from scrapers.aggregator import ScraperAggregator
 from scrapers.health_monitor import get_health_monitor
 from storage.database import get_digest_deals, init_db
+from storage.models import Trip
 from trip_builder.builder import build_trips
 from trip_builder.date_discovery import generate_search_windows
 from utils.airport_clusters import expand_list_to_clusters
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
+
+# The digest lists at most this many routes (best deal per route).
+DIGEST_MAX_ROUTES = 15
 
 # Notifier is initialized async in run_forever() to restore rate-limiter state from DB.
 # Fallback sync init is used for cycle/search commands that don't go through run_forever().
@@ -179,7 +183,7 @@ async def _send_best_finds_summary(trips: list, notifier: TelegramNotifier) -> N
         sorted_trips = sorted(trips, key=lambda t: t.total_cost_eur)[:10]
         lines = ["🔍 *Cycle Summary — Cheapest Finds*\n"]
         for t in sorted_trips:
-            emoji = "✈️" if "FLIGHT" in str(t.deal_type) else "🏨"
+            emoji = "🏨+✈️" if t.hotel and t.outbound_flight else ("🏨" if t.hotel else "✈️")
             lines.append(f"{emoji} {t.route} — *€{t.total_cost_eur:.0f}*")
             airline = t.outbound_flight.airline if t.outbound_flight else None
             if airline:
@@ -205,12 +209,26 @@ async def _log_health_summary() -> None:
         pass
 
 
+def select_digest_trips(trips: List[Trip], limit: int = DIGEST_MAX_ROUTES) -> List[Trip]:
+    """
+    Keep the cheapest deal per route, then order routes by data confidence
+    (desc) and price (asc) so the digest isn't one route on many dates.
+    """
+    best: Dict[str, Trip] = {}
+    for trip in trips:
+        current = best.get(trip.route)
+        if current is None or trip.total_cost_eur < current.total_cost_eur:
+            best[trip.route] = trip
+    ranked = sorted(best.values(), key=lambda t: (-t.data_confidence_score, t.total_cost_eur))
+    return ranked[:limit]
+
+
 async def run_daily_digest(notifier: Optional[TelegramNotifier] = None) -> None:
     """Send the daily digest of best deals."""
     notifier = notifier or _notifier
     log.info("digest_run_start")
     try:
-        trips = await get_digest_deals(limit=20)
+        trips = select_digest_trips(await get_digest_deals(limit=100))
         if trips:
             await notifier.send_digest(trips)
         else:
@@ -221,7 +239,7 @@ async def run_daily_digest(notifier: Optional[TelegramNotifier] = None) -> None:
 
 def create_scheduler() -> AsyncIOScheduler:
     settings = get_settings()
-    scheduler = AsyncIOScheduler(timezone="UTC")
+    scheduler = AsyncIOScheduler(timezone=settings.timezone)
 
     # Main scraping cycle
     scheduler.add_job(
@@ -240,7 +258,7 @@ def create_scheduler() -> AsyncIOScheduler:
         trigger=CronTrigger(
             hour=settings.digest_hour,
             minute=settings.digest_minute,
-            timezone="UTC",
+            timezone=settings.timezone,
         ),
         id="daily_digest",
         name="Daily deal digest",
