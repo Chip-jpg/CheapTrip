@@ -244,7 +244,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B09 | `fix/health-monitor` | done |
 | B10 | `feat/search-planner` | done |
 | B11 | `feat/source-ryanair` (Wizz dropped) | done |
-| B12 | `feat/source-travelpayouts` | todo |
+| B12 | `feat/source-travelpayouts` | done (needs a token to go live) |
 | B13 | `fix/google-flights` | todo |
 | B14 | `fix/hotel-sources` | todo |
 | B15 | `fix/trip-assembly` | todo |

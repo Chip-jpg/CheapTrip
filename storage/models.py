@@ -71,6 +71,8 @@ class FlightLeg(BaseModel):
     duration_minutes: Optional[int] = None
     # True when price_eur covers the return flight too
     is_round_trip: bool = False
+    # Price from a cache of recent searches (e.g. Travelpayouts) — verify before booking
+    price_is_cached: bool = False
 
     @field_validator("origin", "destination")
     @classmethod
@@ -225,6 +227,8 @@ class RawFlightResult(BaseModel):
     duration_minutes: Optional[int] = None
     # True when `price` covers the return flight too
     is_round_trip: bool = False
+    # Price from a cache of recent searches (e.g. Travelpayouts) — verify before booking
+    price_is_cached: bool = False
     extra: Dict[str, Any] = Field(default_factory=dict)
 
 
