@@ -156,4 +156,5 @@ class BookingComScraper(BaseHotelScraper):
                     await asyncio.sleep(1.0)
                 except Exception as exc:
                     log.warning("booking_search_failed", location=location, error=str(exc))
+                    self._record_error(f"{location}: {exc}")
         return results

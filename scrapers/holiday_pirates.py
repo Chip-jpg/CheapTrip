@@ -198,6 +198,7 @@ class HolidayPiratesFlightScraper(BaseFeedScraper):
         results: List[RawFlightResult] = []
         async with build_client(timeout=20.0) as client:
             discovered_flights, _ = await _discover_deal_urls(client)
+            failed = 0
 
             for url in discovered_flights:
                 try:
@@ -207,10 +208,13 @@ class HolidayPiratesFlightScraper(BaseFeedScraper):
                         if results:
                             break
                 except Exception as exc:
+                    failed += 1
                     log.debug("hp_flight_url_failed", url=url, error=str(exc))
 
             if not results:
                 log.info("hp_flight_no_results", urls_tried=len(discovered_flights))
+                if failed == len(discovered_flights):
+                    self._record_error(f"all {failed} deal URLs failed")
         return results
 
 
@@ -268,6 +272,7 @@ class HolidayPiratesHotelScraper(BaseHotelScraper):
         results: List[RawHotelResult] = []
         async with build_client(timeout=20.0) as client:
             _, discovered_hotels = await _discover_deal_urls(client)
+            failed = 0
 
             for url in discovered_hotels:
                 try:
@@ -284,8 +289,11 @@ class HolidayPiratesHotelScraper(BaseHotelScraper):
                         if results:
                             break
                 except Exception as exc:
+                    failed += 1
                     log.debug("hp_hotel_url_failed", url=url, error=str(exc))
 
             if not results:
                 log.info("hp_hotel_no_results", urls_tried=len(discovered_hotels))
+                if failed == len(discovered_hotels):
+                    self._record_error(f"all {failed} deal URLs failed")
         return results

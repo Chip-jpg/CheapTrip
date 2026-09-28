@@ -190,7 +190,7 @@ async def run_pipeline_cycle(
         if all_found and not new_instant:
             await _send_best_finds_summary(all_found, notifier)
 
-        await _log_health_summary()
+        await _report_health(notifier)
 
         duration = (datetime.utcnow() - cycle_start).total_seconds()
         log.info("pipeline_cycle_complete", duration_s=round(duration, 1))
@@ -208,19 +208,33 @@ async def _send_best_finds_summary(trips: list, notifier: TelegramNotifier) -> N
         log.warning("best_finds_summary_failed", error=str(exc))
 
 
-async def _log_health_summary() -> None:
-    """Log a brief scraper health summary after each cycle."""
+async def _report_health(notifier: TelegramNotifier) -> None:
+    """Log scraper health after each cycle; notify once when a source starts failing or recovers."""
     try:
         monitor = get_health_monitor()
         report = await monitor.get_health_report()
-        failing = [h.source_id for h in report if h.status in ("FAILING", "STALE")]
-        if failing:
-            log.warning("scrapers_degraded", sources=failing)
+        unhealthy = [h.source_id for h in report if h.status in ("FAILING", "STALE", "DEGRADED")]
+        if unhealthy:
+            log.warning("scrapers_degraded", sources=unhealthy)
         else:
             ok = sum(1 for h in report if h.status == "OK")
             log.info("scraper_health_ok", ok_count=ok, total=len(report))
-    except Exception:
-        pass
+
+        for health, change in await monitor.pending_notifications():
+            if change == "failing":
+                text = (
+                    f"⚠️ <b>Source failing:</b> {html.escape(health.source_id)}\n"
+                    f"{health.consecutive_failures} failed runs in a row"
+                    f" (last: {html.escape(health.last_status or '?')})"
+                )
+                if health.last_error:
+                    text += f"\n<i>{html.escape(health.last_error[:200])}</i>"
+            else:
+                text = f"✅ <b>Source recovered:</b> {html.escape(health.source_id)}"
+            if await notifier.send_system_message(text):
+                await monitor.mark_notified(health.source_id, health.status)
+    except Exception as exc:
+        log.warning("health_report_failed", error=str(exc))
 
 
 def select_digest_trips(trips: List[Trip], limit: int = DIGEST_MAX_ROUTES) -> List[Trip]:

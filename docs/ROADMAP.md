@@ -241,7 +241,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B06 | `fix/telegram-delivery` | done |
 | B07 | `fix/skyscanner-demote` | done |
 | B08 | `fix/feed-scrapers` | done |
-| B09 | `fix/health-monitor` | todo |
+| B09 | `fix/health-monitor` | done |
 | B10 | `feat/search-planner` | todo |
 | B11 | `feat/source-ryanair-wizz` | todo |
 | B12 | `feat/source-travelpayouts` | todo |

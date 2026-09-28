@@ -114,6 +114,7 @@ class SecretFlyingScraper(BaseFeedScraper):
                         results.extend(self._parse_page(html, is_error_fare_page=path == _ERROR_FARE_PATH))
                 except Exception as exc:
                     log.warning("sf_page_failed", path=path, error=str(exc))
+                    self._record_error(f"{path}: {exc}")
 
         # Keep deals that start or end in the user's home country
         countries = home_countries()

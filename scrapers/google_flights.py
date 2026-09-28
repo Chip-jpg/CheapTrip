@@ -69,6 +69,7 @@ class GoogleFlightsScraper(BaseFlightScraper):
         if resp.status_code == 200:
             return resp.text
         log.warning("gf_bad_status", status=resp.status_code, origin=origin, dest=dest)
+        self._record_error(f"{origin}-{dest}: HTTP {resp.status_code}")
         return None
 
     def _extract_prices(self, html: str, origin: str, dest: str, dep_date: date) -> List[RawFlightResult]:
@@ -155,4 +156,5 @@ class GoogleFlightsScraper(BaseFlightScraper):
                     await asyncio.sleep(1.5)
                 except Exception as exc:
                     log.warning("gf_scrape_pair_failed", origin=origin, dest=dest, error=str(exc))
+                    self._record_error(f"{origin}-{dest}: {exc}")
         return results

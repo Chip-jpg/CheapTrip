@@ -64,6 +64,22 @@ CREATE TABLE IF NOT EXISTS price_stats (
 )
 """
 
+_CREATE_SCRAPER_HEALTH_TABLE = """
+CREATE TABLE IF NOT EXISTS scraper_health (
+    source_id            TEXT PRIMARY KEY,
+    last_run_at          TEXT,
+    last_success_at      TEXT,
+    last_status          TEXT,
+    last_count           INTEGER NOT NULL DEFAULT 0,
+    last_error           TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    consecutive_empty    INTEGER NOT NULL DEFAULT 0,
+    total_runs           INTEGER NOT NULL DEFAULT 0,
+    total_successes      INTEGER NOT NULL DEFAULT 0,
+    notified_status      TEXT
+)
+"""
+
 _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_deals_hash ON deals(hash)",
     "CREATE INDEX IF NOT EXISTS idx_deals_created ON deals(created_at)",
@@ -95,6 +111,7 @@ async def init_db() -> None:
         await db.execute(_CREATE_ALERTS_TABLE)
         await db.execute(_CREATE_PRICES_TABLE)
         await db.execute(_CREATE_PRICE_STATS_TABLE)
+        await db.execute(_CREATE_SCRAPER_HEALTH_TABLE)
         for idx_sql in _CREATE_INDEXES:
             await db.execute(idx_sql)
         await db.commit()

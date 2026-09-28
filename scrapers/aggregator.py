@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import List, Optional, Tuple
 
-from scrapers.base import BaseFlightScraper, BaseHotelScraper
+from scrapers.base import BaseFlightScraper, BaseHotelScraper, ScrapeOutcome, ScrapeStatus
 from scrapers.booking_com import BookingComScraper
 from scrapers.going import GoingScraper
 from scrapers.google_flights import GoogleFlightsScraper
@@ -81,52 +81,30 @@ class ScraperAggregator:
     async def _run_flight_scrapers(
         self, scrapers: List[BaseFlightScraper], params: Optional[ScraperParams]
     ) -> Tuple[List[RawFlightResult], dict]:
-        tasks = [s.safe_scrape(params) for s in scrapers]
-        gathered = await asyncio.gather(*tasks, return_exceptions=True)
-
-        results: List[RawFlightResult] = []
-        stats: dict = {}
-        for scraper, outcome in zip(scrapers, gathered):
-            if isinstance(outcome, list):
-                count = len(outcome)
-                stats[scraper.source_id] = count
-                results.extend(outcome)
-                await self._monitor.record_result(scraper.source_id, count, success=True)
-            else:
-                stats[scraper.source_id] = 0
-                await self._monitor.record_result(scraper.source_id, 0, success=False)
-                log.error(
-                    "aggregator_flight_error",
-                    source=scraper.source_id,
-                    error=str(outcome),
-                )
-
+        results, stats = await self._run(scrapers, params)
         log.info("flights_collected", total=len(results), sources=stats)
         return results, stats
 
     async def collect_hotels(
         self, params: ScraperParams
     ) -> Tuple[List[RawHotelResult], dict]:
-        expanded = _expand_params(params)
-        tasks = [s.safe_scrape(expanded) for s in self._hotel_scrapers]
-        gathered = await asyncio.gather(*tasks, return_exceptions=True)
-
-        results: List[RawHotelResult] = []
-        stats: dict = {}
-        for scraper, outcome in zip(self._hotel_scrapers, gathered):
-            if isinstance(outcome, list):
-                count = len(outcome)
-                stats[scraper.source_id] = count
-                results.extend(outcome)
-                await self._monitor.record_result(scraper.source_id, count, success=True)
-            else:
-                stats[scraper.source_id] = 0
-                await self._monitor.record_result(scraper.source_id, 0, success=False)
-                log.error(
-                    "aggregator_hotel_error",
-                    source=scraper.source_id,
-                    error=str(outcome),
-                )
-
+        results, stats = await self._run(self._hotel_scrapers, _expand_params(params))
         log.info("hotels_collected", total=len(results), sources=stats)
+        return results, stats
+
+    async def _run(self, scrapers: list, params: Optional[ScraperParams]) -> Tuple[list, dict]:
+        """Run scrapers concurrently; record every outcome with the health monitor."""
+        outcomes = await asyncio.gather(*(s.safe_scrape(params) for s in scrapers), return_exceptions=True)
+        results: list = []
+        stats: dict = {}
+        for scraper, outcome in zip(scrapers, outcomes):
+            if isinstance(outcome, BaseException):
+                # safe_scrape never raises; this is a bug guard, not a normal path
+                outcome = ScrapeOutcome(scraper.source_id, ScrapeStatus.ERROR, error=str(outcome))
+            stats[scraper.source_id] = outcome.count
+            results.extend(outcome.results)
+            try:
+                await self._monitor.record(outcome)
+            except Exception as exc:
+                log.warning("health_record_failed", source=scraper.source_id, error=str(exc))
         return results, stats
