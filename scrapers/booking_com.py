@@ -9,15 +9,30 @@ import httpx
 from bs4 import BeautifulSoup
 
 from config import get_settings
-from scrapers.base import BaseHotelScraper, build_client, random_headers
+from scrapers.base import BaseHotelScraper, ScrapeStatus, build_client, random_headers
 from storage.models import RawHotelResult, SearchTask
 from utils import airports
+from utils.iata_extract import parse_amount
 from utils.logging_config import get_logger
 from utils.retry import async_retry
 
 log = get_logger(__name__)
 
 _SEARCH_BASE = "https://www.booking.com/searchresults.html"
+
+
+_AMOUNT_RE = re.compile(r"\d{1,3}(?:[.,\s\u00a0]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?")
+
+
+def parse_price_text(text: str) -> Optional[float]:
+    """'€ 1,234' → 1234.0 (the old regex read it as 1.23); '€89' → 89.0."""
+    m = _AMOUNT_RE.search(text)
+    return parse_amount(m.group(0)) if m else None
+
+
+def is_waf_challenge(html: str) -> bool:
+    head = html[:5000].lower()
+    return "awswaf" in head or "challenge.js" in head
 
 
 class BookingComScraper(BaseHotelScraper):
@@ -30,7 +45,8 @@ class BookingComScraper(BaseHotelScraper):
     source_id = "booking_com_api"
 
     def __init__(self) -> None:
-        self.enabled = True
+        # Plain-HTTP scraping gets an AWS WAF challenge page; off unless you have a workaround.
+        self.enabled = get_settings().enable_booking_html
 
     def calls_per_cycle(self) -> int:
         return get_settings().booking_calls_per_cycle
@@ -58,7 +74,7 @@ class BookingComScraper(BaseHotelScraper):
             "group_adults": str(adults),
             "no_rooms": "1",
             "order": "price",
-            "nflt": "ht_id%3D204",
+            "nflt": "ht_id=204",  # hotels only (httpx encodes it; it was double-encoded before)
             "lang": "en-gb",
             "selected_currency": "EUR",
         }
@@ -92,12 +108,9 @@ class BookingComScraper(BaseHotelScraper):
                     ["span", "div"],
                     {"data-testid": "price-and-discounted-price"}
                 ) or card.find(class_=re.compile(r"prco-inline-block-maker-helper|bui-price-display", re.I))
-                price_text = price_el.get_text(strip=True) if price_el else ""
-                price_m = re.search(r"(\d{2,4}(?:[.,]\d{2})?)", price_text.replace(" ", ""))
-                if not price_m:
-                    continue
-                price = float(price_m.group(1).replace(",", "."))
-                if price <= 0:
+                price_text = price_el.get_text(" ", strip=True) if price_el else ""
+                price = parse_price_text(price_text)
+                if not price or price <= 0:
                     continue
 
                 rating_el = card.find(
@@ -146,6 +159,9 @@ class BookingComScraper(BaseHotelScraper):
                 checkin, checkout = task.depart_from, task.return_date
                 try:
                     html = await self._search_html(client, location, checkin, checkout, task.adults)
+                    if html and is_waf_challenge(html):
+                        self._report_status(ScrapeStatus.BLOCKED, "AWS WAF challenge page")
+                        break
                     if html:
                         found = self._parse_html_results(html, location, nights, checkin)
                         results.extend(found)

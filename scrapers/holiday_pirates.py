@@ -240,8 +240,9 @@ class HolidayPiratesHotelScraper(BaseHotelScraper):
         self, card: BeautifulSoup
     ) -> Optional[RawHotelResult]:
         text = card.get_text(separator=" ")
-        price = _first_price(text)
-        if not price:
+        # Posts quote the package price for the whole stay
+        package_price = _first_price(text)
+        if not package_price:
             return None
 
         discount = _first_discount(text)
@@ -264,7 +265,7 @@ class HolidayPiratesHotelScraper(BaseHotelScraper):
         return RawHotelResult(
             name=name,
             location=location or "Unknown",
-            price_per_night=price,
+            price_per_night=round(package_price / nights, 2),
             currency="EUR",
             nights=nights,
             booking_url=booking_url,
