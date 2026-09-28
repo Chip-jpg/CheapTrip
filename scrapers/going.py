@@ -84,5 +84,6 @@ class GoingScraper(BaseFeedScraper):
                 html = await self._fetch(client, _DEALS_URL)
             except Exception as exc:
                 log.warning("going_scrape_failed", error=str(exc))
+                self._record_error(str(exc))
                 return []
         return self._parse_page(html) if html else []

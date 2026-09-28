@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import random
+import time
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, List, Optional
 
 import httpx
 
@@ -45,29 +48,93 @@ def build_client(timeout: float = 30.0) -> httpx.AsyncClient:
     )
 
 
-class BaseFlightScraper(ABC):
+class ScrapeStatus(str, Enum):
+    OK = "ok"                      # returned results
+    EMPTY = "empty"                # ran cleanly, nothing found
+    PARTIAL = "partial"            # some requests failed, some results
+    ERROR = "error"                # failed (exception, or every request failed)
+    DISABLED = "disabled"          # turned off in settings / missing key
+    RATE_LIMITED = "rate_limited"  # the source asked us to back off
+    BLOCKED = "blocked"            # bot protection / consent wall
+
+
+@dataclass
+class ScrapeOutcome:
+    source_id: str
+    status: ScrapeStatus
+    results: List[Any] = field(default_factory=list)
+    error: Optional[str] = None
+    duration_ms: int = 0
+
+    @property
+    def count(self) -> int:
+        return len(self.results)
+
+
+class _OutcomeReporting:
+    """
+    Shared safe_scrape(): never raises, and turns what happened into a
+    ScrapeOutcome. Scrapers that catch their own per-request errors call
+    _record_error() so those failures still show up in health reports, and
+    _report_status() for rate limits and blocks.
+    """
+
     source_id: str = "unknown"
     enabled: bool = True
-    # Feed scrapers (deal blogs/newsletters) ignore search params and run once per cycle.
-    is_feed: bool = False
 
     def begin_cycle(self) -> None:
         """Called once at the start of each pipeline cycle (reset per-cycle budgets)."""
 
+    def _record_error(self, message: str) -> None:
+        self.__dict__.setdefault("_errors", []).append(message)
+
+    def _report_status(self, status: ScrapeStatus, message: Optional[str] = None) -> None:
+        self.__dict__["_status_override"] = status
+        if message:
+            self._record_error(message)
+
+    async def scrape(self, params: Any) -> List[Any]:  # pragma: no cover - overridden
+        raise NotImplementedError
+
+    async def safe_scrape(self, params: Any) -> ScrapeOutcome:
+        if not self.enabled:
+            return ScrapeOutcome(self.source_id, ScrapeStatus.DISABLED)
+
+        self.__dict__["_errors"] = []
+        self.__dict__["_status_override"] = None
+        started = time.monotonic()
+        try:
+            results = await self.scrape(params)
+        except Exception as exc:
+            log.error("scraper_failed", source=self.source_id, error=str(exc))
+            return ScrapeOutcome(
+                self.source_id, ScrapeStatus.ERROR, error=str(exc),
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+
+        errors: List[str] = self.__dict__.get("_errors") or []
+        status = self.__dict__.get("_status_override")
+        if status is None:
+            if errors:
+                status = ScrapeStatus.PARTIAL if results else ScrapeStatus.ERROR
+            else:
+                status = ScrapeStatus.OK if results else ScrapeStatus.EMPTY
+        outcome = ScrapeOutcome(
+            self.source_id, status, list(results),
+            error="; ".join(errors[:3]) or None,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+        log.info("scraper_done", source=self.source_id, status=status.value, count=outcome.count)
+        return outcome
+
+
+class BaseFlightScraper(_OutcomeReporting, ABC):
+    # Feed scrapers (deal blogs/newsletters) ignore search params and run once per cycle.
+    is_feed: bool = False
+
     @abstractmethod
     async def scrape(self, params: ScraperParams) -> List[RawFlightResult]:
         """Return a list of raw flight results; never raise — log and return []."""
-
-    async def safe_scrape(self, params: ScraperParams) -> List[RawFlightResult]:
-        if not self.enabled:
-            return []
-        try:
-            results = await self.scrape(params)
-            log.info("scraper_done", source=self.source_id, count=len(results))
-            return results
-        except Exception as exc:
-            log.error("scraper_failed", source=self.source_id, error=str(exc))
-            return []
 
 
 class BaseFeedScraper(BaseFlightScraper):
@@ -88,24 +155,7 @@ class BaseFeedScraper(BaseFlightScraper):
         return await self.scrape_feed()
 
 
-class BaseHotelScraper(ABC):
-    source_id: str = "unknown"
-    enabled: bool = True
-
-    def begin_cycle(self) -> None:
-        """Called once at the start of each pipeline cycle (reset per-cycle budgets)."""
-
+class BaseHotelScraper(_OutcomeReporting, ABC):
     @abstractmethod
     async def scrape(self, params: ScraperParams) -> List[RawHotelResult]:
         """Return a list of raw hotel results; never raise — log and return []."""
-
-    async def safe_scrape(self, params: ScraperParams) -> List[RawHotelResult]:
-        if not self.enabled:
-            return []
-        try:
-            results = await self.scrape(params)
-            log.info("hotel_scraper_done", source=self.source_id, count=len(results))
-            return results
-        except Exception as exc:
-            log.error("hotel_scraper_failed", source=self.source_id, error=str(exc))
-            return []

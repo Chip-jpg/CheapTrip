@@ -154,8 +154,10 @@ def resolve_airports() -> None:
 def health() -> None:
     """Show scraper health status (requires at least one cycle to have run)."""
     from scrapers.health_monitor import get_health_monitor
+    from storage.database import init_db
 
     async def _run():
+        await init_db()
         monitor = get_health_monitor()
         summary = await monitor.get_summary()
         click.echo(summary)

@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 import httpx
 
 from config import get_settings
-from scrapers.base import BaseFlightScraper, build_client
+from scrapers.base import BaseFlightScraper, ScrapeStatus, build_client
 from storage.models import RawFlightResult, ScraperParams
 from utils import airports
 from utils.logging_config import get_logger
@@ -240,6 +240,7 @@ class SkyscannerScraper(BaseFlightScraper):
         resp = await client.get(f"https://{self._host}{path}", params=params, headers=self._headers())
         if resp.status_code == 429:
             self._pause_until_next_utc_midnight()
+            self._report_status(ScrapeStatus.RATE_LIMITED, "HTTP 429 from RapidAPI")
         return resp
 
     def _headers(self) -> dict:
@@ -598,6 +599,7 @@ class SkyscannerScraper(BaseFlightScraper):
         results: List[RawFlightResult] = []
         if self._is_paused():
             log.info("skyscanner_paused", until=self._paused_until.isoformat())
+            self._report_status(ScrapeStatus.RATE_LIMITED, f"paused until {self._paused_until.isoformat()}")
             return results
         async with build_client(timeout=30.0) as client:
             if not self._probed:
@@ -611,6 +613,7 @@ class SkyscannerScraper(BaseFlightScraper):
                              "and set RAPIDAPI_SKYSCANNER_ENDPOINT in .env",
                     )
                     self.enabled = False
+                    self._report_status(ScrapeStatus.ERROR, "no working RapidAPI endpoint")
                     return results
 
             if not self._search_endpoint:
@@ -633,4 +636,5 @@ class SkyscannerScraper(BaseFlightScraper):
                         )
                     except Exception as exc:
                         log.warning("skyscanner_pair_failed", origin=origin, dest=dest, error=str(exc))
+                        self._record_error(f"{origin}-{dest}: {exc}")
         return results
