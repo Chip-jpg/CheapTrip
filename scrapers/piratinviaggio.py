@@ -3,7 +3,8 @@ PiratinViaggio (the Italian HolidayPirates site) — deal posts read by Claude.
 
   1. The RSS feed (https://www.piratinviaggio.it/feed) lists about 30 recent
      posts. The URL path says what a post is: /voli/ (flights) and
-     /pacchetti/ (flight + hotel packages) are read; /hotel/, /crociere/ and
+     /pacchetti/ (flight + hotel packages) are read by PiratinViaggioScraper,
+     /hotel/ by PiratinViaggioHotelScraper (hotel-only deals); cruises and
      magazine articles are skipped without fetching them.
   2. A post page embeds the post as JSON (window.__staticRouterHydrationData):
      title, headline price, departure cities, expiry date and the body, which
@@ -22,19 +23,27 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 
 import httpx
 from bs4 import BeautifulSoup
 
-from ai_layer.extractor import FeedPost, ValidOption, extract_option, validate_option
+from ai_layer.extractor import (
+    FeedPost,
+    ValidHotelOption,
+    ValidOption,
+    extract_hotel_option,
+    extract_option,
+    validate_hotel_option,
+    validate_option,
+)
 from ai_layer.formatter import _make_client
 from config import get_settings
 from preferences import get_preferences
 from scheduler.planner import all_origins
-from scrapers.base import BaseFeedScraper, build_client, random_headers
+from scrapers.base import BaseFeedScraper, BaseHotelScraper, SearchCapability, build_client, random_headers
 from storage.database import get_feed_extractions, save_feed_extraction
-from storage.models import RawFlightResult
+from storage.models import RawFlightResult, RawHotelResult, SearchTask
 from utils.logging_config import get_logger
 from utils.markets import home_country
 
@@ -61,7 +70,10 @@ class FeedItem:
 
     @property
     def is_deal_section(self) -> bool:
-        return any(section in self.url for section in _DEAL_SECTIONS)
+        return self.in_section(_DEAL_SECTIONS)
+
+    def in_section(self, sections: Tuple[str, ...]) -> bool:
+        return any(section in self.url for section in sections)
 
 
 def parse_feed(xml: str) -> List[FeedItem]:
@@ -140,10 +152,19 @@ def parse_post(html: str, url: str) -> Optional[FeedPost]:
     )
 
 
-class PiratinViaggioScraper(BaseFeedScraper):
-    source_id = "piratinviaggio"
+class _PostReader:
+    """
+    Shared by the flight and hotel readers: feed → new posts in the reader's
+    sections → Claude → validated option, cached per URL (each post is sent to
+    the model once; API errors are not cached and retry next cycle).
+    """
 
-    def __init__(self) -> None:
+    source_id = "piratinviaggio"
+    sections: Tuple[str, ...] = ()
+    categories: Tuple[str, ...] = ()
+    option_type: Any = None  # the dataclass stored as the cache payload
+
+    def _init_reader(self) -> None:
         settings = get_settings()
         italian_home = home_country(get_preferences()) == "IT"  # an Italian site: departures from Italy
         self.enabled = settings.enable_piratinviaggio and bool(settings.anthropic_api_key) and italian_home
@@ -152,6 +173,126 @@ class PiratinViaggioScraper(BaseFeedScraper):
                       else "needs ANTHROPIC_API_KEY (posts are read by Claude)")
             self.disabled_reason = reason
             log.info("scraper_disabled", source=self.source_id, reason=reason)
+
+    async def _read(self, ai_client: Any, post: FeedPost, today: date) -> Tuple[Any, str]:
+        """(valid option, '') or (None, reason) for one post."""
+        raise NotImplementedError
+
+    def _result(self, option: Any, url: str) -> Any:
+        raise NotImplementedError
+
+    @staticmethod
+    def _starts(option: Any) -> Optional[date]:
+        raise NotImplementedError
+
+    async def _fetch(self, client: httpx.AsyncClient, url: str) -> Optional[str]:
+        try:
+            resp = await client.get(url, headers=random_headers({"Accept-Language": "it-IT,it;q=0.9"}))
+        except httpx.HTTPError as exc:
+            self._record_error(f"{url}: {exc}")
+            return None
+        if resp.status_code != 200:
+            self._record_error(f"{url}: HTTP {resp.status_code}")
+            return None
+        return resp.text
+
+    async def _extract(self, client: httpx.AsyncClient, ai_client: Any, item: FeedItem, today: date) -> Any:
+        """Read one new post and cache the outcome; None when it has no usable offer."""
+        html = await self._fetch(client, item.url)
+        if html is None:
+            return None  # not cached: retried next cycle
+        post = parse_post(html, item.url)
+        if post is None:
+            await save_feed_extraction(item.url, self.source_id, "unreadable")
+            return None
+        if post.category not in self.categories:
+            await save_feed_extraction(item.url, self.source_id, f"skipped: {post.category or 'no category'}")
+            return None
+        if post.expires and post.expires < today:
+            await save_feed_extraction(item.url, self.source_id, "skipped: expired")
+            return None
+
+        try:
+            valid, reason = await self._read(ai_client, post, today)
+        except Exception as exc:  # API or network error: not cached, retried next cycle
+            self._record_error(f"{item.url}: {type(exc).__name__}: {exc}")
+            return None
+        if valid is None:
+            log.info("feed_post_rejected", url=item.url, reason=reason)
+            await save_feed_extraction(item.url, self.source_id, f"rejected: {reason}")
+            return None
+        await save_feed_extraction(item.url, self.source_id, "deal", json.dumps(valid.to_dict()))
+        return valid
+
+    async def _collect(self) -> List[Any]:
+        settings = get_settings()
+        now = _now()
+        today = now.date()
+        results: List[Any] = []
+
+        async with build_client(timeout=25.0) as client:
+            xml = await self._fetch(client, FEED_URL)
+            if xml is None:
+                return []
+            items = [
+                i for i in parse_feed(xml)
+                if i.in_section(self.sections)
+                and (i.published is None or now - i.published <= timedelta(days=FEED_MAX_AGE_DAYS))
+            ]
+            cached = await get_feed_extractions([i.url for i in items])
+            budget = settings.ai_extraction_max_posts_per_cycle
+            ai_client = None
+
+            for item in items:
+                if item.url in cached:
+                    status, payload = cached[item.url]
+                    try:
+                        option = self.option_type(**json.loads(payload)) if status == "deal" and payload else None
+                    except (TypeError, ValueError):  # cached by an older version: skip it
+                        option = None
+                elif budget > 0:
+                    budget -= 1
+                    ai_client = ai_client or _make_client(
+                        settings.anthropic_api_key, max(settings.ai_timeout_seconds, _MIN_EXTRACTION_TIMEOUT_S)
+                    )
+                    option = await self._extract(client, ai_client, item, today)
+                else:
+                    log.info("feed_extraction_budget_reached", source=self.source_id, url=item.url)
+                    continue
+
+                if option is None:
+                    continue
+                starts = self._starts(option)
+                if starts and starts < today:
+                    continue  # a cached offer whose date has passed
+                results.append(self._result(option, item.url))
+
+        log.info("piratinviaggio_deals", source=self.source_id, posts=len(items), deals=len(results))
+        return results
+
+
+class PiratinViaggioScraper(_PostReader, BaseFeedScraper):
+    """Flight and flight + hotel package posts (/voli/, /pacchetti/)."""
+
+    source_id = "piratinviaggio"
+    sections = _DEAL_SECTIONS
+    categories = _DEAL_CATEGORIES
+    option_type = ValidOption
+
+    def __init__(self) -> None:
+        self._init_reader()
+
+    async def _read(self, ai_client: Any, post: FeedPost, today: date) -> Tuple[Any, str]:
+        home = all_origins(get_preferences())
+        option = await extract_option(ai_client, get_settings().ai_model, post, home, today)
+        return validate_option(option, post, home, today)
+
+    @staticmethod
+    def _starts(option: ValidOption) -> Optional[date]:
+        return date.fromisoformat(option.departure_date) if option.departure_date else None
+
+    def _result(self, option: ValidOption, url: str) -> RawFlightResult:
+        return self.result_from(option, url)
 
     def result_from(self, option: ValidOption, url: str) -> RawFlightResult:
         return RawFlightResult(
@@ -170,90 +311,50 @@ class PiratinViaggioScraper(BaseFeedScraper):
             package_hotel=option.hotel_name,
         )
 
-    async def _fetch(self, client: httpx.AsyncClient, url: str) -> Optional[str]:
-        try:
-            resp = await client.get(url, headers=random_headers({"Accept-Language": "it-IT,it;q=0.9"}))
-        except httpx.HTTPError as exc:
-            self._record_error(f"{url}: {exc}")
-            return None
-        if resp.status_code != 200:
-            self._record_error(f"{url}: HTTP {resp.status_code}")
-            return None
-        return resp.text
-
-    async def _extract(self, client: httpx.AsyncClient, ai_client: Any, item: FeedItem,
-                       home: List[str], today: date) -> Optional[ValidOption]:
-        """Read one new post and cache the outcome; None when it has no usable offer."""
-        html = await self._fetch(client, item.url)
-        if html is None:
-            return None  # not cached: retried next cycle
-        post = parse_post(html, item.url)
-        if post is None:
-            await save_feed_extraction(item.url, self.source_id, "unreadable")
-            return None
-        if post.category not in _DEAL_CATEGORIES:
-            await save_feed_extraction(item.url, self.source_id, f"skipped: {post.category or 'no category'}")
-            return None
-        if post.expires and post.expires < today:
-            await save_feed_extraction(item.url, self.source_id, "skipped: expired")
-            return None
-
-        settings = get_settings()
-        try:
-            option = await extract_option(ai_client, settings.ai_model, post, home, today)
-        except Exception as exc:  # API or network error: not cached, retried next cycle
-            self._record_error(f"{item.url}: {type(exc).__name__}: {exc}")
-            return None
-
-        valid, reason = validate_option(option, post, home, today)
-        if valid is None:
-            log.info("feed_post_rejected", url=item.url, reason=reason)
-            await save_feed_extraction(item.url, self.source_id, f"rejected: {reason}")
-            return None
-        await save_feed_extraction(item.url, self.source_id, "deal", json.dumps(valid.to_dict()))
-        return valid
-
     async def scrape_feed(self) -> List[RawFlightResult]:
-        settings = get_settings()
-        home = all_origins(get_preferences())
-        now = _now()
-        today = now.date()
-        results: List[RawFlightResult] = []
+        return await self._collect()
 
-        async with build_client(timeout=25.0) as client:
-            xml = await self._fetch(client, FEED_URL)
-            if xml is None:
-                return []
-            items = [
-                i for i in parse_feed(xml)
-                if i.is_deal_section and (i.published is None or now - i.published <= timedelta(days=FEED_MAX_AGE_DAYS))
-            ]
-            cached = await get_feed_extractions([i.url for i in items])
-            budget = settings.ai_extraction_max_posts_per_cycle
-            ai_client = None
 
-            for item in items:
-                if item.url in cached:
-                    status, payload = cached[item.url]
-                    try:
-                        option = ValidOption(**json.loads(payload)) if status == "deal" and payload else None
-                    except (TypeError, ValueError):  # cached by an older version: skip it
-                        option = None
-                elif budget > 0:
-                    budget -= 1
-                    ai_client = ai_client or _make_client(
-                        settings.anthropic_api_key, max(settings.ai_timeout_seconds, _MIN_EXTRACTION_TIMEOUT_S)
-                    )
-                    option = await self._extract(client, ai_client, item, home, today)
-                else:
-                    log.info("feed_extraction_budget_reached", source=self.source_id, url=item.url)
-                    continue
+class PiratinViaggioHotelScraper(_PostReader, BaseHotelScraper):
+    """Hotel posts (/hotel/) → hotel-only deals (B19)."""
 
-                if option is None:
-                    continue
-                if option.departure_date and date.fromisoformat(option.departure_date) < today:
-                    continue  # a cached offer whose departure has passed
-                results.append(self.result_from(option, item.url))
+    source_id = "piratinviaggio_hotels"
+    capability = SearchCapability.FEED
+    sections = ("/hotel/",)
+    categories = ("HOTEL",)
+    option_type = ValidHotelOption
 
-        log.info("piratinviaggio_deals", posts=len(items), deals=len(results))
-        return results
+    def __init__(self) -> None:
+        self._init_reader()
+
+    async def _read(self, ai_client: Any, post: FeedPost, today: date) -> Tuple[Any, str]:
+        option = await extract_hotel_option(ai_client, get_settings().ai_model, post, today)
+        return validate_hotel_option(option, post, today)
+
+    @staticmethod
+    def _starts(option: ValidHotelOption) -> Optional[date]:
+        return date.fromisoformat(option.check_in) if option.check_in else None
+
+    def _result(self, option: ValidHotelOption, url: str) -> RawHotelResult:
+        check_in = date.fromisoformat(option.check_in) if option.check_in else None
+        check_out = date.fromisoformat(option.check_out) if option.check_out else None
+        return RawHotelResult(
+            name=option.hotel_name,
+            location=option.city,
+            price_per_night=option.price_per_night,
+            currency="EUR",
+            nights=option.nights,
+            rating=option.rating,
+            stars=option.stars,
+            review_count=option.review_count,
+            booking_url=url,
+            source=self.source_id,
+            check_in=check_in,
+            check_out=check_out,
+            is_feed_deal=True,
+            price_basis=option.price_basis,
+            travel_window=option.travel_window,
+        )
+
+    async def scrape(self, tasks: Optional[List[SearchTask]] = None) -> List[RawHotelResult]:
+        return await self._collect()

@@ -67,6 +67,12 @@ def _promotion_reasons(trip: Trip, settings: Settings, prefs: UserPreferences) -
 
     if dest and dest in prefs.priority_destinations:
         reasons.append(f"priority destination {dest}")
+    if trip.deal_type == DealType.HOTEL_ONLY and trip.hotel:
+        # Hotel posts have no price history either: instant only when the hotel's city is a priority
+        city_code = airports.iata_for_city(trip.hotel.location.split(",")[0])
+        if city_code and city_code in prefs.priority_destinations:
+            reasons.append(f"priority destination {city_code}")
+        return reasons
     if trip.deal_type == DealType.PACKAGE:
         return reasons  # packages have no price history to judge: instant only for priority destinations
     if trip.is_error_fare:

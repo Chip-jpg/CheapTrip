@@ -255,22 +255,33 @@ def format_package(trip: Trip) -> str:
 def format_hotel_only(trip: Trip) -> str:
     """Format a hotel-only deal alert."""
     lines = ["🏨 <b>HOTEL DEAL</b>", ""]
-    if trip.hotel:
-        lines.append(f"<b>{_e(trip.hotel.name)}</b>")
-        lines.append(f"📍 {_e(trip.hotel.location)}")
+    hotel = trip.hotel
+    if hotel:
+        name = f"<b>{_e(hotel.name)}</b>" + (f" {'⭐' * hotel.stars}" if hotel.stars else "")
+        lines.append(name)
+        lines.append(f"📍 {_e(hotel.location)}")
         lines.append("")
-        lines.append(f"<b>Price:</b> 💰 <b>€{trip.hotel.price_per_night_eur:.0f}/night</b>")
+        basis = f" {_e(hotel.price_basis)}" if hotel.price_basis else ""
+        lines.append(f"<b>Price:</b> 💰 <b>€{hotel.price_per_night_eur:.0f}/night</b>{basis}")
         if trip.discount_pct:
             lines.append(f"<b>Discount:</b> -{trip.discount_pct:.0f}%")
-        if trip.hotel.rating:
-            lines.append(f"⭐ {trip.hotel.rating:.1f}")
+        if hotel.rating:
+            reviews = f" ({hotel.review_count:,} reviews)" if hotel.review_count else ""
+            lines.append(f"<b>Rating:</b> {hotel.rating:.1f}/10{reviews}")
+        if hotel.check_in and hotel.check_out:
+            lines.append(f"<b>Dates:</b> {hotel.check_in:%a %d %b} – {hotel.check_out:%a %d %b} "
+                         f"({hotel.nights} night{'s' if hotel.nights != 1 else ''})")
+        elif hotel.travel_window:
+            lines.append(f"<b>When:</b> {_e(hotel.travel_window)}")
     lines.append("")
     lines.append(_category_line(trip))
     lines.append(_confidence_line(trip))
     lines.append(_reasons_line(trip))
-    if trip.hotel and trip.hotel.booking_url:
+    if hotel and hotel.is_feed_deal:
+        lines.append("<i>From a PiratinViaggio post, read automatically — check the offer before booking</i>")
+    if hotel and hotel.booking_url:
         lines.append("")
-        lines.append(_link(trip.hotel.booking_url))
+        lines.append(_link(hotel.booking_url, "🏨 See the offer" if hotel.is_feed_deal else "🔗 Book Now"))
     return _join(lines)
 
 
@@ -324,7 +335,8 @@ def digest_lines(trips: List[Trip]) -> List[str]:
         confidence = BookingConfidence(trip.booking_confidence)
         bc_emoji = _BC_EMOJI.get(confidence, "⚪")
         cat_str = f" | {_e(trip.category.value)}" if trip.category else ""
-        link = trip.outbound_flight.booking_url if trip.outbound_flight else None
+        link = (trip.outbound_flight.booking_url if trip.outbound_flight
+                else trip.hotel.booking_url if trip.hotel else None)
         route = _e(trip.route)
         if link:
             route = f'<a href="{_url(link)}">{route}</a>'

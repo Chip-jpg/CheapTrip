@@ -111,6 +111,10 @@ class HotelDeal(BaseModel):
     check_in: Optional[date] = None
     check_out: Optional[date] = None
     meets_quality_threshold: bool = True
+    # From a deal-site post (B19): becomes a hotel-only deal, never paired with flights
+    is_feed_deal: bool = False
+    price_basis: Optional[str] = None     # "per person" / "per room" when the source says
+    travel_window: Optional[str] = None   # when there are no exact dates
 
     @model_validator(mode="after")
     def validate_total(self) -> "HotelDeal":
@@ -267,6 +271,10 @@ class RawHotelResult(BaseModel):
     scraped_at: datetime = Field(default_factory=datetime.utcnow)
     check_in: Optional[date] = None
     check_out: Optional[date] = None
+    # From a deal-site post (B19): becomes a hotel-only deal, never paired with flights
+    is_feed_deal: bool = False
+    price_basis: Optional[str] = None     # "per person" / "per room" when the source says
+    travel_window: Optional[str] = None   # when there are no exact dates
     extra: Dict[str, Any] = Field(default_factory=dict)
 
 

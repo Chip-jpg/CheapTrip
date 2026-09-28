@@ -11,7 +11,7 @@ from scrapers.google_flights import GoogleFlightsScraper
 from scrapers.google_hotels import GoogleHotelsScraper
 from scrapers.health_monitor import get_health_monitor
 from scrapers.holiday_pirates import HolidayPiratesFlightScraper, HolidayPiratesHotelScraper
-from scrapers.piratinviaggio import PiratinViaggioScraper
+from scrapers.piratinviaggio import PiratinViaggioHotelScraper, PiratinViaggioScraper
 from scrapers.ryanair import RyanairScraper
 from scrapers.secret_flying import SecretFlyingScraper
 from scrapers.skyscanner import SkyscannerScraper
@@ -40,6 +40,7 @@ def build_hotel_scrapers() -> List[BaseHotelScraper]:
         GoogleHotelsScraper(),
         BookingComScraper(),
         HolidayPiratesHotelScraper(),
+        PiratinViaggioHotelScraper(),
     ]
 
 
