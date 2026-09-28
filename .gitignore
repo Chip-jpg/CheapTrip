@@ -4,8 +4,8 @@ __pycache__/
 .pytest_cache/
 .env
 *.db
-data/
-logs/
+/data/
+/logs/
 .venv/
 venv/
 *.egg-info/
