@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import random
 import time
 from abc import ABC, abstractmethod
@@ -22,10 +23,18 @@ _USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:124.0) Gecko/20100101 Firefox/124.0",
 ]
 
+
+def _accept_encoding() -> str:
+    """Only advertise encodings httpx can decode: br needs the brotli package."""
+    if any(importlib.util.find_spec(m) for m in ("brotli", "brotlicffi")):
+        return "gzip, deflate, br"
+    return "gzip, deflate"
+
+
 BASE_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9,it;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Encoding": _accept_encoding(),
     "Connection": "keep-alive",
     "DNT": "1",
 }
