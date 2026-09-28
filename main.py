@@ -81,8 +81,11 @@ def status() -> None:
                 prices = (await cur.fetchone())[0]
                 cur = await db.execute("SELECT COUNT(*) FROM alerts_sent")
                 alerts_sent = (await cur.fetchone())[0]
-                cur = await db.execute("SELECT COUNT(*) FROM price_stats")
-                price_stats = (await cur.fetchone())[0]
+                cur = await db.execute(
+                    "SELECT COUNT(DISTINCT origin_city || dest_city || trip_type || nights_bucket || depart_month)"
+                    " FROM price_history WHERE depart_month IS NOT NULL"
+                )
+                price_keys = (await cur.fetchone())[0]
 
                 cur = await db.execute("""
                     SELECT route, COUNT(*) as n,
@@ -103,7 +106,7 @@ Total deals:      {total}
 Alerted:          {alerted}
 Instant-tier:     {instant}
 Price records:    {prices}
-Price stat routes:{price_stats}
+Price keys:       {price_keys}
 Alerts sent:      {alerts_sent}
 """)
             if top_routes:

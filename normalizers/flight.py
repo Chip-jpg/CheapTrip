@@ -17,6 +17,7 @@ async def normalize_flights(raw: List[RawFlightResult]) -> List[FlightLeg]:
     """
     converter = get_converter()
     await converter.ensure_fresh()
+    raw = converter.keep_supported(raw, "flight")
 
     # Group by route+date for confidence scoring
     groups: dict[str, List[RawFlightResult]] = {}
@@ -58,6 +59,7 @@ async def normalize_flights(raw: List[RawFlightResult]) -> List[FlightLeg]:
                 duration_minutes=best.duration_minutes,
                 is_round_trip=best.is_round_trip,
                 price_is_cached=best.price_is_cached,
+                is_feed_deal=best.is_feed_deal,
             )
             legs.append(leg)
         except Exception as exc:

@@ -146,7 +146,7 @@ def format_complete_trip(trip: Trip) -> str:
     if trip.is_historical_low:
         lines.append("🏆 <i>Historical price low!</i>")
     elif trip.historical_deviation_pct and trip.historical_deviation_pct < -15:
-        lines.append(f"📉 <i>{abs(trip.historical_deviation_pct):.0f}% below 30-day average</i>")
+        lines.append(f"📉 <i>{abs(trip.historical_deviation_pct):.0f}% below this route's usual price</i>")
     lines.append(_cached_price_line(trip))
 
     links = []

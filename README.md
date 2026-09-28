@@ -287,8 +287,9 @@ python main.py search --origin MXP --dest NRT --days 30 --nights 7
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EUROPE_TRIP_MAX_EUR` | `120` | Maximum price for a Europe trip to qualify as INSTANT. |
-| `LONGHAUL_TRIP_MAX_EUR` | `450` | Maximum price for a long-haul trip to qualify as INSTANT. |
+| `EUROPE_TRIP_MAX_EUR` | `25` | Backstop: a Europe trip at or under this price always qualifies as INSTANT. |
+| `LONGHAUL_TRIP_MAX_EUR` | `250` | Backstop: a long-haul trip at or under this price always qualifies as INSTANT. |
+| `PRICE_ANOMALY_MIN_DROP_PCT` | `35` | A fare this many % below its route's usual price (built from earlier cycles) qualifies as INSTANT. |
 | `HOTEL_DISCOUNT_MIN_PCT` | `60` | Minimum discount % for a hotel deal to qualify as INSTANT. |
 | `FLIGHT_DISCOUNT_MIN_PCT` | `60` | Minimum discount % for a flight deal to qualify as INSTANT. |
 | `INSTANT_ALERTS_PER_HOUR` | `5` | Maximum Telegram alerts per hour. |
@@ -402,7 +403,7 @@ Yes — use a Telegram group chat ID (negative number). Add the bot to the group
 Run `python main.py health` to see if any scrapers are failing. Check `logs/engine.log` for details. The most common cause is a missing or expired RapidAPI key for the Skyscanner scraper.
 
 **How do I change the alert thresholds?**
-Edit the `EUROPE_TRIP_MAX_EUR` and `LONGHAUL_TRIP_MAX_EUR` values in `.env`. Cheaper threshold = fewer but better deals. Higher threshold = more alerts.
+Most instant alerts come from fares well below a route's usual price: lower `PRICE_ANOMALY_MIN_DROP_PCT` for more alerts, raise it for fewer. `EUROPE_TRIP_MAX_EUR` and `LONGHAUL_TRIP_MAX_EUR` are flat backstops for exceptional prices. For the first cycles after a fresh start there is no price history yet, so almost everything goes to the digest.
 
 ---
 

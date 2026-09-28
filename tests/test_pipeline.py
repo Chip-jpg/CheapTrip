@@ -101,3 +101,38 @@ async def test_deal_without_booking_link_is_not_instant(engine):
     # Held back to the digest (LOW booking confidence): only the cycle summary goes out.
     assert len(engine.telegram.texts) == 1
     assert "Cycle Summary" in engine.telegram.texts[0]
+
+
+async def test_ordinary_cheap_fares_without_history_go_to_the_digest(engine):
+    # Round 1 dry run: a flat €120 cap made 663 of 706 Ryanair fares instant
+    await engine.run_cycle(flights=[
+        flight(destination="KRK", price=35.0), flight(destination="PRG", price=30.0),
+        flight(destination="BUD", price=40.0),
+    ])
+
+    assert not any("FLIGHT DEAL" in t for t in engine.telegram.texts)
+    assert "Cycle Summary" in engine.telegram.texts[0]
+
+
+def _same_month_days_ahead(count: int) -> list:
+    """days_ahead values whose departures all fall in one month (month after next, from the 5th)."""
+    from datetime import date, timedelta
+
+    today = date.today()
+    target = (today.replace(day=1) + timedelta(days=62)).replace(day=5)
+    return [(target - today).days + i for i in range(count)]
+
+
+async def test_price_drop_against_earlier_cycles_alerts_instantly(engine):
+    days = _same_month_days_ahead(4)
+    for _ in range(3):
+        await engine.run_cycle(flights=[
+            flight(destination="KRK", price=price, days_ahead=d) for price, d in zip((58.0, 60.0, 62.0), days)
+        ])
+    sent_before = len(engine.telegram.texts)
+
+    await engine.run_cycle(flights=[flight(destination="KRK", price=35.0, days_ahead=days[3])])
+
+    alerts = [t for t in engine.telegram.texts[sent_before:] if "FLIGHT DEAL" in t]
+    assert len(alerts) == 1
+    assert "€35" in alerts[0] and "below the usual €60" in alerts[0]

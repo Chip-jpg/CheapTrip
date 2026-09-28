@@ -17,6 +17,7 @@ async def normalize_hotels(raw: List[RawHotelResult]) -> List[HotelDeal]:
     """
     converter = get_converter()
     await converter.ensure_fresh()
+    raw = converter.keep_supported(raw, "hotel")
 
     # Group by hotel and stay (the same hotel on other dates is a different offer)
     groups: dict[str, List[RawHotelResult]] = {}

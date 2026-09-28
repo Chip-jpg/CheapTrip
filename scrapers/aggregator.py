@@ -74,6 +74,8 @@ class ScraperAggregator:
     async def collect_feed_flights(self) -> Tuple[List[RawFlightResult], dict]:
         """Deal-feed sources; called once per cycle. Returns (results, stats by source)."""
         results, stats = await self._run([s for s in self._flight_scrapers if s.is_feed], None)
+        for result in results:
+            result.is_feed_deal = True
         log.info("feed_flights_collected", total=len(results), sources=stats)
         return results, stats
 

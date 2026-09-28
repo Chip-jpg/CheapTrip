@@ -49,10 +49,21 @@ SETTINGS = Settings(_env_file=None)
 PREFS = UserPreferences()
 
 
-def test_cheap_short_haul_is_instant():
-    decision = decide_tier(_trip("KRK", 85.0), SETTINGS, PREFS)
+def test_exceptional_short_haul_price_is_instant():
+    decision = decide_tier(_trip("KRK", 22.0), SETTINGS, PREFS)
     assert decision.tier == AlertTier.INSTANT
-    assert any("short-haul threshold" in r for r in decision.reasons)
+    assert any("€25 short-haul backstop" in r for r in decision.reasons)
+
+
+def test_ordinary_cheap_fare_without_history_is_digest():
+    # The dry run had 663/706 deals instant because a flat €120 cap caught every Ryanair fare
+    decision = decide_tier(_trip("KRK", 39.0), SETTINGS, PREFS)
+    assert decision.tier == AlertTier.DIGEST
+
+
+@pytest.mark.parametrize("cost,tier", [(240.0, AlertTier.INSTANT), (400.0, AlertTier.DIGEST)])
+def test_long_haul_backstop(cost, tier):
+    assert decide_tier(_trip("JFK", cost), SETTINGS, PREFS).tier == tier
 
 
 def test_expensive_trip_is_digest():
@@ -85,17 +96,17 @@ def test_flight_discount_threshold():
 
 
 def test_low_booking_confidence_is_held_back():
-    decision = decide_tier(_trip("KRK", 60.0, booking_confidence=BookingConfidence.LOW), SETTINGS, PREFS)
+    decision = decide_tier(_trip("KRK", 20.0, booking_confidence=BookingConfidence.LOW), SETTINGS, PREFS)
     assert decision.tier == AlertTier.DIGEST
     assert any("booking confidence LOW below MEDIUM" in r for r in decision.reasons)
 
 
 def test_confidence_minimum_is_configurable():
     settings = Settings(_env_file=None, booking_confidence_min_for_instant="HIGH")
-    decision = decide_tier(_trip("KRK", 60.0, booking_confidence=BookingConfidence.MEDIUM), settings, PREFS)
+    decision = decide_tier(_trip("KRK", 20.0, booking_confidence=BookingConfidence.MEDIUM), settings, PREFS)
     assert decision.tier == AlertTier.DIGEST
     low = Settings(_env_file=None, booking_confidence_min_for_instant="low")
-    assert decide_tier(_trip("KRK", 60.0, booking_confidence=BookingConfidence.LOW), low, PREFS).tier == AlertTier.INSTANT
+    assert decide_tier(_trip("KRK", 20.0, booking_confidence=BookingConfidence.LOW), low, PREFS).tier == AlertTier.INSTANT
 
 
 def test_infeasible_priority_trip_is_digest():
@@ -106,8 +117,8 @@ def test_infeasible_priority_trip_is_digest():
 
 
 def test_secondary_london_airport_uses_short_haul_threshold():
-    # STN used to be missing from the Europe set, so €300 hit the €450 long-haul threshold.
-    decision = decide_tier(_trip("STN", 300.0), SETTINGS, PREFS)
+    # STN used to be missing from the Europe set, so it got the long-haul threshold.
+    decision = decide_tier(_trip("STN", 200.0), SETTINGS, PREFS)
     assert decision.tier == AlertTier.DIGEST
 
 
@@ -127,6 +138,6 @@ def test_low_rated_hotel_needs_configured_discount(discount, kept, monkeypatch):
 
 
 def test_hard_filters_store_reasons_on_trip():
-    trip = _trip("KRK", 85.0)
+    trip = _trip("KRK", 20.0)
     instant, _ = apply_hard_filters([trip])
     assert instant and instant[0].alert_reasons
