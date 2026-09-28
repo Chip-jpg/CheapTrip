@@ -1,55 +1,44 @@
 from __future__ import annotations
 
-import os
-import re
-from datetime import date
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set
 
 import httpx
 from bs4 import BeautifulSoup
 
-from scrapers.base import BaseFlightScraper, build_client, random_headers
-from storage.models import RawFlightResult, ScraperParams
+from config import get_settings
+from preferences import get_preferences
+from scrapers.base import BaseFeedScraper, build_client, random_headers
+from storage.models import RawFlightResult
+from utils import airports
+from utils.airport_clusters import expand_list_to_clusters
+from utils.iata_extract import extract_price, extract_route, extract_travel_window
 from utils.logging_config import get_logger
 from utils.retry import async_retry
 
 log = get_logger(__name__)
 
 _BASE_URL = "https://www.secretflying.com"
+_ERROR_FARE_PATH = "/posts/category/error-fares"
 _DEALS_PATHS = [
     "/posts/category/europe",
     "/posts/category/us-deals",
-    "/posts/category/error-fares",
+    _ERROR_FARE_PATH,
     "/posts/",
 ]
 
-# IATA codes we care about
-_MILAN_AIRPORTS = {"MXP", "LIN", "BGY"}
-_ITALY_AIRPORTS = {"MXP", "LIN", "BGY", "VCE", "VRN", "BLQ", "FCO", "CIA"}
 
-_AIRPORT_PATTERN = re.compile(r"\b([A-Z]{3})\b")
-_PRICE_PATTERN = re.compile(r"[€\$£]?\s*(\d{1,4}(?:[.,]\d{2})?)\s*(?:€|USD|GBP|EUR)?")
-
-
-def _extract_airports(text: str) -> Tuple[Optional[str], Optional[str]]:
-    codes = _AIRPORT_PATTERN.findall(text.upper())
-    valid = [c for c in codes if len(c) == 3 and c.isalpha()]
-    if len(valid) >= 2:
-        return valid[0], valid[1]
-    return None, None
+def home_countries() -> Set[str]:
+    """Countries of the user's home airports (deals from/to them are relevant)."""
+    codes = expand_list_to_clusters(get_preferences().home_airports)
+    return {a.country for a in (airports.get(c) for c in codes) if a}
 
 
-def _extract_price(text: str) -> Optional[float]:
-    m = _PRICE_PATTERN.search(text)
-    if m:
-        try:
-            return float(m.group(1).replace(",", "."))
-        except ValueError:
-            return None
-    return None
+def _country(code: str) -> Optional[str]:
+    airport = airports.get(code)
+    return airport.country if airport else None
 
 
-class SecretFlyingScraper(BaseFlightScraper):
+class SecretFlyingScraper(BaseFeedScraper):
     """Scrapes Secret Flying deal posts via HTML parsing.
 
     Disabled by default — site is behind Cloudflare protection.
@@ -59,7 +48,7 @@ class SecretFlyingScraper(BaseFlightScraper):
     source_id = "secret_flying"
 
     def __init__(self) -> None:
-        self.enabled = os.getenv("ENABLE_SECRET_FLYING", "").lower() in ("true", "1", "yes")
+        self.enabled = get_settings().enable_secret_flying
         if not self.enabled:
             log.info(
                 "scraper_disabled",
@@ -76,16 +65,16 @@ class SecretFlyingScraper(BaseFlightScraper):
         resp.raise_for_status()
         return resp.text
 
-    def _parse_deal(
-        self, card: BeautifulSoup, dep_date: date
-    ) -> Optional[RawFlightResult]:
-        text = card.get_text(separator=" ")
-        origin, dest = _extract_airports(text)
-        if not origin or not dest:
-            return None
+    def _parse_deal(self, card: BeautifulSoup, is_error_fare_page: bool) -> Optional[RawFlightResult]:
+        heading = card.find(["h1", "h2", "h3"])
+        title = heading.get_text(" ", strip=True) if heading else ""
+        text = card.get_text(" ", strip=True)
 
-        price = _extract_price(text)
-        if not price or price < 10 or price > 3000:
+        route = extract_route(title) or extract_route(text)
+        if not route:
+            return None
+        price = extract_price(title) or extract_price(text)
+        if not price or not (10 <= price[0] <= 3000):
             return None
 
         link = card.find("a", href=True)
@@ -94,47 +83,45 @@ class SecretFlyingScraper(BaseFlightScraper):
             href = link["href"]
             booking_url = href if href.startswith("http") else f"{_BASE_URL}{href}"
 
-        currency = "GBP" if "£" in text else "USD" if "$" in text else "EUR"
-
         return RawFlightResult(
-            origin=origin,
-            destination=dest,
-            price=price,
-            currency=currency,
-            departure_date=dep_date,
+            origin=route[0],
+            destination=route[1],
+            price=price[0],
+            currency=price[1],
+            departure_date=None,
+            travel_window=extract_travel_window(text),
+            is_error_fare_hint=is_error_fare_page or "error fare" in title.lower(),
             booking_url=booking_url,
             source=self.source_id,
         )
 
-    def _parse_page(self, html: str, dep_date: date) -> List[RawFlightResult]:
+    def _parse_page(self, html: str, is_error_fare_page: bool = False) -> List[RawFlightResult]:
         soup = BeautifulSoup(html, "lxml")
-        cards = soup.find_all("article") or soup.find_all(
-            "div", class_=re.compile(r"deal|card|post|entry", re.I)
-        )
         results = []
-        for card in cards:
-            r = self._parse_deal(card, dep_date)
+        for card in soup.find_all("article"):
+            r = self._parse_deal(card, is_error_fare_page)
             if r:
                 results.append(r)
         return results
 
-    async def scrape(self, params: ScraperParams) -> List[RawFlightResult]:
+    async def scrape_feed(self) -> List[RawFlightResult]:
         results: List[RawFlightResult] = []
-        dep_date = params.departure_date_from
-
         async with build_client(timeout=20.0) as client:
             for path in _DEALS_PATHS:
                 try:
                     html = await self._fetch_page(client, f"{_BASE_URL}{path}")
                     if html:
-                        found = self._parse_page(html, dep_date)
-                        results.extend(found)
+                        results.extend(self._parse_page(html, is_error_fare_page=path == _ERROR_FARE_PATH))
                 except Exception as exc:
                     log.warning("sf_page_failed", path=path, error=str(exc))
 
-        # Filter to deals with relevant origins
-        italy_relevant = [
-            r for r in results
-            if r.origin in _ITALY_AIRPORTS or r.destination in _ITALY_AIRPORTS
-        ]
-        return italy_relevant
+        # Keep deals that start or end in the user's home country
+        countries = home_countries()
+        relevant = [r for r in results if _country(r.origin) in countries or _country(r.destination) in countries]
+        # The same post appears on several category pages; keep the error-fare flag if any copy has it
+        unique: dict = {}
+        for r in relevant:
+            key = (r.origin, r.destination, r.price, r.booking_url)
+            if key not in unique or r.is_error_fare_hint:
+                unique[key] = r
+        return list(unique.values())

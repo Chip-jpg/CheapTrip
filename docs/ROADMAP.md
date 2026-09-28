@@ -188,6 +188,7 @@ Decision: we are not investing further in Skyscanner. This branch only stops it 
 - Store these preference overrides in the DB.
 
 **B21 `feat/ai-feed-extraction`** (M, optional) — depends on B08
+- **Found in B08:** holidaypirates.com is the UK edition (GBP package deals from UK airports), so it rarely yields flights for an Italy-based user. The Italian sister site piratinviaggio.it fits better, but its posts are Italian ("Voli da Milano a Cracovia a 19€"), which suits AI extraction rather than regex.
 - Use Claude Haiku to extract structured deals (origin, dest, date range, price, currency) from feed posts instead of regex. Cache by URL, and validate IATA codes against the registry.
 
 **B22 `feat/generalize-preferences`** (S–M) — depends on B03
@@ -239,7 +240,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B05 | `fix/alert-tier-logic` | done |
 | B06 | `fix/telegram-delivery` | done |
 | B07 | `fix/skyscanner-demote` | done |
-| B08 | `fix/feed-scrapers` | todo |
+| B08 | `fix/feed-scrapers` | done |
 | B09 | `fix/health-monitor` | todo |
 | B10 | `feat/search-planner` | todo |
 | B11 | `feat/source-ryanair-wizz` | todo |

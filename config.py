@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     enable_skyscanner: bool = Field(default=False)
     skyscanner_max_calls_per_cycle: int = Field(default=20)
 
+    # Deal feeds behind bot protection (Cloudflare / JS SPA) — off unless you have a workaround
+    enable_secret_flying: bool = Field(default=False)
+    enable_going: bool = Field(default=False)
+
     # Currency
     exchange_rate_api_key: str = Field(default="")
 

@@ -74,7 +74,8 @@ def _reasons_line(trip: Trip) -> str:
 
 def _dates_line(trip: Trip) -> str:
     if not trip.departure_date:
-        return ""
+        window = trip.outbound_flight.travel_window if trip.outbound_flight else None
+        return f"<b>Dates:</b> {_e(window) if window else 'various'} — see the deal post"
     dep = trip.departure_date.strftime("%a %d %b")
     if trip.return_date:
         return f"<b>Dates:</b> {dep} – {trip.return_date.strftime('%a %d %b')}"

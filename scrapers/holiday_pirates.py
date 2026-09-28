@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import re
-from datetime import date
 from typing import List, Optional, Tuple
 from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
 
-from scrapers.base import BaseFlightScraper, BaseHotelScraper, build_client, random_headers
+from scrapers.base import BaseFeedScraper, BaseHotelScraper, build_client, random_headers
 from storage.models import RawFlightResult, RawHotelResult, ScraperParams
+from utils.iata_extract import extract_price, extract_route, extract_travel_window
 from utils.logging_config import get_logger
 from utils.retry import async_retry
 
@@ -17,7 +17,6 @@ log = get_logger(__name__)
 
 _BASE = "https://www.holidaypirates.com"
 
-_AIRPORT_RE = re.compile(r"\b([A-Z]{3})\b")
 _PRICE_RE = re.compile(r"(?:from\s+)?[€\$£]?\s*(\d{1,4}(?:[.,]\d{2})?)\s*(?:€|EUR|USD|GBP)?", re.I)
 _DISCOUNT_RE = re.compile(r"-\s*(\d{1,3})\s*%")
 
@@ -141,8 +140,8 @@ async def _discover_deal_urls(
     return flight_urls, hotel_urls
 
 
-class HolidayPiratesFlightScraper(BaseFlightScraper):
-    """Scrapes HolidayPirates flight deals.
+class HolidayPiratesFlightScraper(BaseFeedScraper):
+    """Scrapes HolidayPirates flight deals (once per cycle).
 
     Tries RSS feed first (bypasses bot protection), then homepage discovery,
     then known deal paths as fallback.
@@ -159,21 +158,11 @@ class HolidayPiratesFlightScraper(BaseFlightScraper):
         resp.raise_for_status()
         return resp.text
 
-    def _parse_flight_card(
-        self, card: BeautifulSoup, dep_date: date
-    ) -> Optional[RawFlightResult]:
-        text = card.get_text(separator=" ")
-        airports = _AIRPORT_RE.findall(text.upper())
-        valid = [a for a in airports if a.isalpha()]
-
-        origin, dest = None, None
-        if len(valid) >= 2:
-            origin, dest = valid[0], valid[1]
-        if not origin or not dest:
-            return None
-
-        price = _first_price(text)
-        if not price:
+    def _parse_flight_card(self, card: BeautifulSoup) -> Optional[RawFlightResult]:
+        text = card.get_text(" ", strip=True)
+        route = extract_route(text)
+        price = extract_price(text)
+        if not route or not price or not (5 < price[0] < 5000):
             return None
 
         link = card.find("a", href=True)
@@ -182,31 +171,30 @@ class HolidayPiratesFlightScraper(BaseFlightScraper):
             href = link["href"]
             booking_url = href if href.startswith("http") else urljoin(_BASE, href)
 
-        currency = "GBP" if "£" in text else "USD" if "$" in text else "EUR"
-
         return RawFlightResult(
-            origin=origin,
-            destination=dest,
-            price=price,
-            currency=currency,
-            departure_date=dep_date,
+            origin=route[0],
+            destination=route[1],
+            price=price[0],
+            currency=price[1],
+            departure_date=None,
+            travel_window=extract_travel_window(text),
             booking_url=booking_url,
             source=self.source_id,
         )
 
-    def _extract_from_html(self, html: str, dep_date: date) -> List[RawFlightResult]:
+    def _extract_from_html(self, html: str) -> List[RawFlightResult]:
         soup = BeautifulSoup(html, "lxml")
         cards = soup.find_all("article") or soup.find_all(
             "div", class_=re.compile(r"deal|card|offer|item", re.I)
         )
         results = []
         for card in cards:
-            r = self._parse_flight_card(card, dep_date)
+            r = self._parse_flight_card(card)
             if r:
                 results.append(r)
         return results
 
-    async def scrape(self, params: ScraperParams) -> List[RawFlightResult]:
+    async def scrape_feed(self) -> List[RawFlightResult]:
         results: List[RawFlightResult] = []
         async with build_client(timeout=20.0) as client:
             discovered_flights, _ = await _discover_deal_urls(client)
@@ -215,8 +203,7 @@ class HolidayPiratesFlightScraper(BaseFlightScraper):
                 try:
                     html = await self._fetch(client, url)
                     if html:
-                        found = self._extract_from_html(html, params.departure_date_from)
-                        results.extend(found)
+                        results.extend(self._extract_from_html(html))
                         if results:
                             break
                 except Exception as exc:

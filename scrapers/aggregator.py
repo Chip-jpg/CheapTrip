@@ -68,14 +68,25 @@ class ScraperAggregator:
     async def collect_flights(
         self, params: ScraperParams
     ) -> Tuple[List[RawFlightResult], dict]:
-        """Returns (results, stats) where stats maps source → count."""
+        """Search-based flight sources for one search window. Returns (results, stats by source)."""
         expanded = _expand_params(params)
-        tasks = [s.safe_scrape(expanded) for s in self._flight_scrapers]
+        scrapers = [s for s in self._flight_scrapers if not s.is_feed]
+        return await self._run_flight_scrapers(scrapers, expanded)
+
+    async def collect_feed_flights(self) -> Tuple[List[RawFlightResult], dict]:
+        """Deal-feed sources; called once per cycle. Returns (results, stats by source)."""
+        scrapers = [s for s in self._flight_scrapers if s.is_feed]
+        return await self._run_flight_scrapers(scrapers, None)
+
+    async def _run_flight_scrapers(
+        self, scrapers: List[BaseFlightScraper], params: Optional[ScraperParams]
+    ) -> Tuple[List[RawFlightResult], dict]:
+        tasks = [s.safe_scrape(params) for s in scrapers]
         gathered = await asyncio.gather(*tasks, return_exceptions=True)
 
         results: List[RawFlightResult] = []
         stats: dict = {}
-        for scraper, outcome in zip(self._flight_scrapers, gathered):
+        for scraper, outcome in zip(scrapers, gathered):
             if isinstance(outcome, list):
                 count = len(outcome)
                 stats[scraper.source_id] = count
