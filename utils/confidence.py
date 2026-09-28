@@ -17,6 +17,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "momondo": 0.85,
     "secret_flying": 0.80,
     "holiday_pirates": 0.80,
+    "piratinviaggio": 0.75,   # deal-site posts read by Claude, validated against the text
     "going": 0.80,
     "travelzoo": 0.78,
     "agoda": 0.82,

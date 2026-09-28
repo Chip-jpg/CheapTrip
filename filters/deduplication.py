@@ -48,6 +48,8 @@ def fingerprint(trip: Trip) -> DedupKey:
         kind = f"stay:{trip.hotel.name.lower()}"
     elif deal_type == DealType.HOTEL_ONLY and trip.hotel:
         kind = f"hotel:{trip.hotel.name.lower()}"
+    elif deal_type == DealType.PACKAGE:
+        kind = f"package:{(leg.package_hotel or '').lower() if leg else ''}"
     elif deal_type == DealType.REPOSITIONED and trip.repositioning_legs:
         kind = f"via:{trip.repositioning_legs[0].hub}"
     else:

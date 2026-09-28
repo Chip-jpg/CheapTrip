@@ -32,6 +32,7 @@ def _trip(
         deal_type=deal_type,
         route=f"{origin} → {dest}",
         outbound_flight=leg,
+        departure_date=leg.departure_date,
         flight_cost_eur=cost,
         total_cost_eur=cost,
         discount_pct=discount,

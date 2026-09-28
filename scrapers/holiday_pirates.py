@@ -7,6 +7,7 @@ from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup
 
+from config import get_settings
 from scrapers.base import BaseFeedScraper, BaseHotelScraper, SearchCapability, build_client, random_headers
 from storage.models import RawFlightResult, RawHotelResult, SearchTask
 from utils.iata_extract import extract_price, extract_route, extract_travel_window
@@ -152,6 +153,10 @@ class HolidayPiratesFlightScraper(BaseFeedScraper):
 
     source_id = "holiday_pirates"
 
+    def __init__(self) -> None:
+        # holidaypirates.com is the UK edition (GBP packages from UK airports); B21 reads the Italian site
+        self.enabled = get_settings().enable_holiday_pirates
+
     @async_retry(
         max_attempts=3, min_wait=2.0, max_wait=15.0,
         retry_on=(httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError),
@@ -226,6 +231,9 @@ class HolidayPiratesHotelScraper(BaseHotelScraper):
 
     source_id = "holiday_pirates"
     capability = SearchCapability.FEED
+
+    def __init__(self) -> None:
+        self.enabled = get_settings().enable_holiday_pirates
 
     @async_retry(
         max_attempts=3, min_wait=2.0, max_wait=15.0,

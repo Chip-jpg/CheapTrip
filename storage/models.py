@@ -14,6 +14,7 @@ class DealType(str, Enum):
     COMPLETE_TRIP = "complete_trip"
     REPOSITIONED = "repositioned"
     ERROR_FARE = "error_fare"
+    PACKAGE = "package"  # flight + hotel sold together, from a deal-site post (B21)
 
 
 class AlertTier(str, Enum):
@@ -75,6 +76,9 @@ class FlightLeg(BaseModel):
     price_is_cached: bool = False
     # From a deal feed (a post, not a search): never part of the price history
     is_feed_deal: bool = False
+    # Flight + hotel package: price_eur is the whole package per person
+    is_package: bool = False
+    package_hotel: Optional[str] = None
 
     @field_validator("origin", "destination")
     @classmethod
@@ -242,6 +246,9 @@ class RawFlightResult(BaseModel):
     price_is_cached: bool = False
     # From a deal feed (a post, not a search): never part of the price history
     is_feed_deal: bool = False
+    # Flight + hotel package: `price` is the whole package per person
+    is_package: bool = False
+    package_hotel: Optional[str] = None
     extra: Dict[str, Any] = Field(default_factory=dict)
 
 

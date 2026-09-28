@@ -67,6 +67,8 @@ def _promotion_reasons(trip: Trip, settings: Settings, prefs: UserPreferences) -
 
     if dest and dest in prefs.priority_destinations:
         reasons.append(f"priority destination {dest}")
+    if trip.deal_type == DealType.PACKAGE:
+        return reasons  # packages have no price history to judge: instant only for priority destinations
     if trip.is_error_fare:
         reasons.append("possible error fare")
     if trip.is_anomaly:
@@ -74,7 +76,8 @@ def _promotion_reasons(trip: Trip, settings: Settings, prefs: UserPreferences) -
 
     short_haul = is_short_haul_trip(trip)
     threshold = settings.europe_trip_max_eur if short_haul else settings.longhaul_trip_max_eur
-    if trip.total_cost_eur <= threshold:
+    # "From" prices of undated feed posts aren't bookable fares: backstop only dated trips
+    if trip.departure_date and trip.total_cost_eur <= threshold:
         label = "short-haul" if short_haul else "long-haul"
         reasons.append(f"at or under the €{threshold:.0f} {label} backstop price")
 

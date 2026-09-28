@@ -93,12 +93,20 @@ async def test_feeds_are_collected_once_per_cycle(engine):
 
 
 async def test_undated_feed_deal_alert_shows_travel_window(engine):
+    engine.set_prefs(priority_destinations=["KRK"])
     await engine.run_cycle(feeds=[_feed_deal(destination="KRK", price=25.0, is_error_fare_hint=False)])
 
     assert len(engine.telegram.texts) == 1
     text = engine.telegram.texts[0]
     assert "November – March 2027" in text
     assert "see the deal post" in text
+
+
+async def test_undated_from_price_does_not_trigger_the_backstop(engine):
+    # "From €25" on a feed post isn't a bookable fare: only dated trips hit the €25 backstop
+    await engine.run_cycle(feeds=[_feed_deal(destination="KRK", price=25.0, is_error_fare_hint=False)])
+
+    assert not any("FLIGHT DEAL" in t for t in engine.telegram.texts)
 
 
 async def test_error_fare_hint_marks_the_trip(engine):

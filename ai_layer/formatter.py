@@ -219,6 +219,28 @@ def format_flight_only(trip: Trip) -> str:
     return _join(lines)
 
 
+def format_package(trip: Trip) -> str:
+    """A flight + hotel package from a deal-site post (one price per person)."""
+    leg = trip.outbound_flight
+    lines = ["📦 <b>PACKAGE DEAL</b>", ""]
+    lines.append(f"<b>Route:</b> {_e(trip.route)}")
+    lines.append(_airports_line(trip))
+    lines.append("")
+    stay = f"flight + {trip.nights} nights" if trip.nights else "flight + hotel"
+    lines.append(f"<b>Price:</b> 💰 <b>€{trip.total_cost_eur:.0f}</b> per person · {stay}")
+    if leg and leg.package_hotel:
+        lines.append(f"<b>Hotel:</b> <i>{_e(leg.package_hotel)}</i>")
+    lines.append(_dates_line(trip))
+    lines.append("")
+    lines.append(_category_line(trip))
+    lines.append(_reasons_line(trip))
+    lines.append("<i>From a PiratinViaggio post, read automatically — check the offer before booking</i>")
+    if leg and leg.booking_url:
+        lines.append("")
+        lines.append(_link(leg.booking_url, "📦 See the offer"))
+    return _join(lines)
+
+
 def format_hotel_only(trip: Trip) -> str:
     """Format a hotel-only deal alert."""
     lines = ["🏨 <b>HOTEL DEAL</b>", ""]
@@ -280,6 +302,8 @@ def format_digest(trips: List[Trip]) -> str:
     for i, trip in enumerate(trips[:15], 1):
         discount_str = f" (-{trip.discount_pct:.0f}%)" if trip.discount_pct else ""
         deal_icon = "🏨+✈️" if trip.hotel and trip.outbound_flight else ("🏨" if trip.hotel else "✈️")
+        if trip.deal_type == DealType.PACKAGE:
+            deal_icon = "📦"
         confidence = BookingConfidence(trip.booking_confidence)
         bc_emoji = _BC_EMOJI.get(confidence, "⚪")
         cat_str = f" | {_e(trip.category.value)}" if trip.category else ""
@@ -321,6 +345,8 @@ def select_formatter(trip: Trip):
         return format_hotel_only
     if trip.deal_type == DealType.REPOSITIONED:
         return format_repositioned
+    if trip.deal_type == DealType.PACKAGE:
+        return format_package
     return format_flight_only
 
 

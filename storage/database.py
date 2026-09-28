@@ -80,6 +80,16 @@ CREATE TABLE IF NOT EXISTS scraper_health (
 )
 """
 
+_CREATE_FEED_EXTRACTIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS feed_extractions (
+    url         TEXT PRIMARY KEY,
+    source      TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    payload     TEXT,
+    created_at  TEXT NOT NULL
+)
+"""
+
 _CREATE_SEARCH_CURSOR_TABLE = """
 CREATE TABLE IF NOT EXISTS search_cursor (
     cursor_key  TEXT PRIMARY KEY,
@@ -132,6 +142,7 @@ async def init_db() -> None:
         await _add_missing_columns(db, "price_history", _PRICE_HISTORY_KEY_COLUMNS)
         await db.execute(_CREATE_SCRAPER_HEALTH_TABLE)
         await db.execute(_CREATE_SEARCH_CURSOR_TABLE)
+        await db.execute(_CREATE_FEED_EXTRACTIONS_TABLE)
         for idx_sql in _CREATE_INDEXES:
             await db.execute(idx_sql)
         await db.commit()
@@ -365,6 +376,7 @@ async def purge_old_rows(
         prices = await db.execute("DELETE FROM price_history WHERE recorded_at < ?", (history_cutoff,))
         deals = await db.execute("DELETE FROM deals WHERE expires_at < ?", (expired_cutoff,))
         alerts = await db.execute("DELETE FROM alerts_sent WHERE sent_at < ?", (alerts_cutoff,))
+        await db.execute("DELETE FROM feed_extractions WHERE created_at < ?", (alerts_cutoff,))
         await db.commit()
     return {"price_history": prices.rowcount, "deals": deals.rowcount, "alerts_sent": alerts.rowcount}
 
@@ -398,6 +410,33 @@ async def was_route_alerted_recently(route: str, within_hours: float = 6.0) -> b
         )
         row = await cursor.fetchone()
     return row is not None
+
+
+async def get_feed_extractions(urls: Sequence[str]) -> Dict[str, Tuple[str, Optional[str]]]:
+    """Cached AI extractions of deal-site posts: url → (status, payload JSON)."""
+    if not urls:
+        return {}
+    path = await get_db_path()
+    marks = ",".join("?" * len(urls))
+    async with aiosqlite.connect(path) as db:
+        cursor = await db.execute(
+            f"SELECT url, status, payload FROM feed_extractions WHERE url IN ({marks})", tuple(urls)
+        )
+        return {url: (status, payload) for url, status, payload in await cursor.fetchall()}
+
+
+async def save_feed_extraction(url: str, source: str, status: str, payload: Optional[str] = None) -> None:
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            """
+            INSERT INTO feed_extractions (url, source, status, payload, created_at) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(url) DO UPDATE SET status = excluded.status, payload = excluded.payload,
+                                           created_at = excluded.created_at
+            """,
+            (url, source, status, payload, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
 
 
 async def get_search_cursor(cursor_key: str) -> int:
