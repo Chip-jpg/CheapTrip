@@ -13,6 +13,11 @@ a fare that moves by €1 between cycles is not a new deal.
   is a duplicate unless it is at least DEDUP_PRICE_TOLERANCE_PCT cheaper.
   Then it is a new deal ("price dropped from €X") and older unsent copies
   are archived, so only the better price can alert.
+- One exception: a deal that qualifies for an instant alert for the first
+  time (no similar deal was ever instant or sent) is offered again even at
+  the same price. Fares seen on a cold start land in the digest because
+  there is no history yet; once history shows them to be unusually cheap,
+  they should alert once.
 """
 from __future__ import annotations
 
@@ -20,8 +25,16 @@ from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from config import DEDUP_DATE_TOLERANCE_DAYS, DEDUP_PRICE_TOLERANCE_PCT, DEDUP_WINDOW_DAYS
-from storage.database import DedupKey, archive_unsent, find_similar_deals, is_duplicate, save_deal
-from storage.models import DealType, Trip
+from storage.database import (
+    DedupKey,
+    SimilarDeal,
+    archive_unsent,
+    find_similar_deals,
+    is_duplicate,
+    promote_deal,
+    save_deal,
+)
+from storage.models import AlertTier, DealType, Trip
 from trip_builder.feasibility import get_trip_profile
 from utils.airport_clusters import cluster_city_code
 from utils.confidence import compute_booking_confidence
@@ -97,13 +110,16 @@ def collapse_similar(trips: List[Trip]) -> List[Trip]:
     return kept
 
 
-async def _previous_price(trip: Trip, key: DedupKey) -> Tuple[Optional[float], List[str]]:
-    """Cheapest similar deal saved within the window, and the hashes of all similar ones."""
+async def _similar_saved(trip: Trip, key: DedupKey) -> List[SimilarDeal]:
+    """Similar deals saved within the window, departing within the date tolerance."""
     since = datetime.utcnow() - timedelta(days=DEDUP_WINDOW_DAYS)
-    similar = [(h, cost) for h, cost, dep in await find_similar_deals(key, since) if _close(dep, trip.departure_date)]
-    if not similar:
-        return None, []
-    return min(cost for _, cost in similar), [h for h, _ in similar]
+    return [d for d in await find_similar_deals(key, since) if _close(d.depart_date, trip.departure_date)]
+
+
+def _first_time_instant(trip: Trip, similar: List[SimilarDeal]) -> bool:
+    return AlertTier(trip.alert_tier) == AlertTier.INSTANT and not any(
+        d.alert_tier == AlertTier.INSTANT.value or d.is_alerted for d in similar
+    )
 
 
 async def deduplicate_trips(trips: List[Trip]) -> Tuple[List[Trip], List[Trip]]:
@@ -121,21 +137,35 @@ async def deduplicate_trips(trips: List[Trip]) -> Tuple[List[Trip], List[Trip]]:
         if not trip.hash:
             trip.hash = trip.compute_hash()
 
-        if trip.hash in seen_hashes or await is_duplicate(trip.hash):
+        if trip.hash in seen_hashes:
             dupes.append(trip)
             continue
         seen_hashes.add(trip.hash)
 
         key = fingerprint(trip)
-        previous, similar_hashes = await _previous_price(trip, key)
-        if previous is not None:
-            if trip.total_cost_eur > previous * (1 - DEDUP_PRICE_TOLERANCE_PCT):
+        similar = await _similar_saved(trip, key)
+        if similar:
+            previous = min(d.total_cost for d in similar)
+            if trip.total_cost_eur <= previous * (1 - DEDUP_PRICE_TOLERANCE_PCT):
+                trip.previous_price_eur = previous
+                trip.alert_reasons = trip.alert_reasons + [f"price dropped from €{previous:.0f}"]
+            elif _first_time_instant(trip, similar):
+                trip.alert_reasons = trip.alert_reasons + ["now unusually cheap for this route"]
+            else:
                 dupes.append(trip)
                 log.debug("dedup_similar_skipped", route=trip.route, price=trip.total_cost_eur, previous=previous)
                 continue
-            trip.previous_price_eur = previous
-            trip.alert_reasons = trip.alert_reasons + [f"price dropped from €{previous:.0f}"]
-            await archive_unsent(similar_hashes)
+            await archive_unsent([d.hash for d in similar if d.hash != trip.hash])
+            if any(d.hash == trip.hash for d in similar):
+                # The very same fare is already saved (unsent digest): offer it as instant now
+                if await promote_deal(trip):
+                    new_trips.append(trip)
+                else:
+                    dupes.append(trip)
+                continue
+        elif await is_duplicate(trip.hash):  # rows saved before the dedup key existed
+            dupes.append(trip)
+            continue
 
         if await save_deal(trip, key):
             new_trips.append(trip)

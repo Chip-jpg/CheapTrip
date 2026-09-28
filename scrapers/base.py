@@ -99,6 +99,8 @@ class _OutcomeReporting:
 
     source_id: str = "unknown"
     enabled: bool = True
+    # Shown in health reports while the source is disabled (e.g. a cooldown)
+    disabled_reason: Optional[str] = None
     capability: SearchCapability = SearchCapability.ROUTE_DATE
 
     def begin_cycle(self) -> None:
@@ -121,7 +123,7 @@ class _OutcomeReporting:
 
     async def safe_scrape(self, tasks: List[SearchTask]) -> ScrapeOutcome:
         if not self.enabled:
-            return ScrapeOutcome(self.source_id, ScrapeStatus.DISABLED)
+            return ScrapeOutcome(self.source_id, ScrapeStatus.DISABLED, error=self.disabled_reason)
 
         self.__dict__["_errors"] = []
         self.__dict__["_status_override"] = None

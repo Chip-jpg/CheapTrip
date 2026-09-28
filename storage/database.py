@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 import aiosqlite
 
@@ -185,20 +185,53 @@ async def save_deal(trip: Trip, dedup_key: Optional[DedupKey] = None) -> bool:
             return False
 
 
-async def find_similar_deals(key: DedupKey, since: datetime) -> List[Tuple[str, float, Optional[date]]]:
-    """Deals saved since `since` with the same dedup key: (hash, total_cost, departure date)."""
+class SimilarDeal(NamedTuple):
+    hash: str
+    total_cost: float
+    depart_date: Optional[date]
+    alert_tier: str
+    is_alerted: bool
+
+
+async def find_similar_deals(key: DedupKey, since: datetime) -> List[SimilarDeal]:
+    """Deals saved since `since` with the same dedup key."""
     path = await get_db_path()
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
             """
-            SELECT hash, total_cost, depart_date FROM deals
+            SELECT hash, total_cost, depart_date, alert_tier, is_alerted FROM deals
             WHERE dedup_origin = ? AND dedup_dest = ? AND dedup_kind = ? AND dedup_nights = ?
               AND created_at >= ?
             """,
             (*key, since.isoformat()),
         )
         rows = await cursor.fetchall()
-    return [(h, cost, date.fromisoformat(dep) if dep else None) for h, cost, dep in rows]
+    return [
+        SimilarDeal(h, cost, date.fromisoformat(dep) if dep else None, tier, bool(alerted))
+        for h, cost, dep, tier, alerted in rows
+    ]
+
+
+async def promote_deal(trip: Trip) -> bool:
+    """
+    Re-offer a saved, never-sent deal as instant (same hash: same price and
+    dates) — e.g. a fare saved to the digest on a cold start that now stands
+    out against the route's history. Resets created_at so the stale-instant
+    sweep treats it as fresh.
+    """
+    now = datetime.utcnow()
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        cursor = await db.execute(
+            """
+            UPDATE deals SET alert_tier = ?, created_at = ?, expires_at = ?, payload = ?
+             WHERE hash = ? AND is_alerted = 0
+            """,
+            (AlertTier(trip.alert_tier).value, now.isoformat(), (now + timedelta(days=7)).isoformat(),
+             trip.model_dump_json(), trip.hash),
+        )
+        await db.commit()
+    return bool(cursor.rowcount)
 
 
 async def archive_unsent(hashes: Sequence[str]) -> int:

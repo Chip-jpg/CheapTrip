@@ -112,3 +112,38 @@ async def test_consent_page_is_reported_as_blocked():
             return_value=httpx.Response(200, text="<html><h1>Before you continue to Google</h1></html>"))
         outcome = await GoogleFlightsScraper().safe_scrape([_task()])
     assert outcome.status == ScrapeStatus.BLOCKED
+
+
+async def test_block_starts_a_cooldown_then_the_source_comes_back():
+    from datetime import datetime, timedelta
+
+    scraper = GoogleFlightsScraper()
+    with respx.mock() as router:
+        route = router.get(url__startswith="https://www.google.com/travel/flights").mock(
+            return_value=httpx.Response(429))
+        await scraper.safe_scrape([_task()])
+        scraper.begin_cycle()
+        cooling = await scraper.safe_scrape([_task()])
+    assert route.call_count == 1, "no requests while cooling down"
+    assert cooling.status == ScrapeStatus.DISABLED and "cooling down until" in cooling.error
+
+    scraper._cooldown_until = datetime.utcnow() - timedelta(minutes=1)
+    scraper.begin_cycle()
+    html = (FIXTURES / "google_flights_mxp_krk_rt.html").read_text()
+    with respx.mock() as router:
+        router.get(url__startswith="https://www.google.com/travel/flights").mock(
+            return_value=httpx.Response(200, text=html))
+        back = await scraper.safe_scrape([_task()])
+    assert back.status == ScrapeStatus.OK
+
+
+async def test_health_shows_why_a_source_is_off(engine):
+    from scrapers.base import ScrapeOutcome
+    from scrapers.health_monitor import ScraperHealthMonitor
+    from storage.database import init_db
+
+    await init_db()
+    monitor = ScraperHealthMonitor()
+    await monitor.record(ScrapeOutcome("google_flights", ScrapeStatus.DISABLED, error="cooling down until 18:00 UTC"))
+
+    assert "note: cooling down until 18:00 UTC" in await monitor.get_summary()

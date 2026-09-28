@@ -96,7 +96,9 @@ class ScraperHealth:
             f"last={self.last_status or '-'}:{self.last_count}  "
             f"last_ok={last}"
         )
-        if self.last_error and self.status not in ("OK", "DISABLED"):
+        if self.last_error and self.status == "DISABLED":
+            line += f"\n{'':24s}note: {self.last_error[:120]}"
+        elif self.last_error and self.status != "OK":
             line += f"\n{'':24s}error: {self.last_error[:120]}"
         return line
 
@@ -116,7 +118,9 @@ class ScraperHealthMonitor:
         async with aiosqlite.connect(await get_db_path()) as db:
             h = await self._load(db, outcome.source_id)
             h.last_status = outcome.status.value
-            if outcome.status != ScrapeStatus.DISABLED:
+            if outcome.status == ScrapeStatus.DISABLED:
+                h.last_error = outcome.error  # why it is off (e.g. a cooldown), or None
+            else:
                 h.last_run_at = now
                 h.total_runs += 1
                 h.last_count = outcome.count
