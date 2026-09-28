@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from config import FEASIBILITY_MAX_TRAVEL_HOURS, FEASIBILITY_MIN_NIGHTS
+from config import FEASIBILITY_MAX_TRAVEL_HOURS, FEASIBILITY_MIN_NIGHTS, TRIP_LENGTH_NIGHTS
 from storage.models import Trip, TripLengthProfile
 from utils import airports
 from utils.logging_config import get_logger
@@ -21,16 +21,17 @@ def estimate_travel_hours(origin: str, destination: str) -> float:
     return airports.estimate_flight_hours(origin, destination)
 
 
-def get_trip_profile(nights: Optional[int]) -> TripLengthProfile:
-    """Infer trip length profile from number of nights."""
+def get_trip_profile(nights: Optional[int]) -> Optional[TripLengthProfile]:
+    """
+    Trip length profile for a number of nights: the shortest profile whose
+    TRIP_LENGTH_NIGHTS range reaches it (the same ranges the planner searches).
+    None when the length is unknown (one-way fares, deal-feed posts).
+    """
     if nights is None:
-        return TripLengthProfile.SHORT
-    if nights <= 4:
-        return TripLengthProfile.WEEKEND
-    if nights <= 7:
-        return TripLengthProfile.SHORT
-    if nights <= 14:
-        return TripLengthProfile.MEDIUM
+        return None
+    for profile in TripLengthProfile:
+        if nights <= TRIP_LENGTH_NIGHTS[profile.value][1]:
+            return profile
     return TripLengthProfile.LONG
 
 
@@ -52,10 +53,15 @@ def check_feasibility(
     if profile is None:
         profile = get_trip_profile(trip.nights)
 
-    profile_key = profile.value if hasattr(profile, "value") else str(profile)
+    if profile is None:
+        # Unknown length: only the most lenient travel-time cap applies
+        profile_key = "any-length"
+        max_hours = max(FEASIBILITY_MAX_TRAVEL_HOURS.values())
+    else:
+        profile_key = profile.value if hasattr(profile, "value") else str(profile)
+        max_hours = FEASIBILITY_MAX_TRAVEL_HOURS.get(profile_key, 24.0)
 
     # Travel time check
-    max_hours = FEASIBILITY_MAX_TRAVEL_HOURS.get(profile_key, 24.0)
     if trip.outbound_flight:
         travel_hours = estimate_travel_hours(
             trip.outbound_flight.origin, trip.outbound_flight.destination

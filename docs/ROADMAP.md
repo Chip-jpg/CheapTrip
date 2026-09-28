@@ -224,6 +224,15 @@ Decision: we are not investing further in Skyscanner. This branch only stops it 
 - Secret Flying and Going are listed as working free sources.
 - The "~130 tests" count is out of date.
 
+### Added in Round 2
+
+**B25 `fix/city-names`** (S)
+- Some airports resolve to a suburb or municipality instead of the city travellers know: "Jasionka" (RZE, Rzeszów), "Rinas" (TIA, Tirana), "Oulad Yaich" (BEM, Beni Mellal), "Nottingham, Leicestershire" (EMA, East Midlands).
+- Diff the registry against the city names Ryanair's fare API returns and curate `_CITY_OVERRIDES`.
+
+**B26 `feat/hotel-search-link`** (S)
+- No free hotel source works yet (B14), so flight alerts with a return date get a Booking.com search link pre-filled with the city and the trip dates.
+
 ---
 
 ## 4. Suggested order
@@ -254,7 +263,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B12 | `feat/source-travelpayouts` | done (needs a token to go live) |
 | B13 | `fix/google-flights` | done |
 | B14 | `fix/hotel-sources` | done (no working hotel source yet — re-plan) |
-| B15 | `fix/trip-assembly` | todo |
+| B15 | `fix/trip-assembly` | done |
 | B16 | `fix/price-history-anomaly` | todo |
 | B17 | `feat/fuzzy-dedup` | todo |
 | B18 | `fix/repositioning` | todo |
@@ -264,3 +273,5 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B22 | `feat/generalize-preferences` | todo |
 | B23 | `chore/ops-hardening` | todo |
 | B24 | `docs/sync` | todo |
+| B25 | `fix/city-names` | todo |
+| B26 | `feat/hotel-search-link` | todo |

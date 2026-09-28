@@ -87,7 +87,8 @@ async def test_only_one_digest_per_day(engine):
 
 async def test_priority_destination_alerts_instantly_despite_price(engine):
     engine.set_prefs(priority_destinations=["JFK"])
-    await engine.run_cycle(flights=[flight(destination="JFK", price=900.0)])
+    # 10 nights = MEDIUM profile (16h cap); a 3-night weekend to New York would be held back
+    await engine.run_cycle(flights=[flight(destination="JFK", price=900.0, nights=10)])
 
     assert len(engine.telegram.texts) == 1
     assert "FLIGHT DEAL" in engine.telegram.texts[0]

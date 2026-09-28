@@ -65,11 +65,23 @@ class TestGetTripProfile:
     def test_20_nights_is_long(self):
         assert get_trip_profile(20) == TripLengthProfile.LONG
 
-    def test_none_returns_short(self):
-        assert get_trip_profile(None) == TripLengthProfile.SHORT
+    def test_unknown_length_has_no_profile(self):
+        assert get_trip_profile(None) is None
+
+    def test_boundaries_follow_the_planner_ranges(self):
+        # TRIP_LENGTH_NIGHTS upper bounds: weekend ≤4, short ≤7, medium ≤14
+        assert get_trip_profile(4) == TripLengthProfile.WEEKEND
+        assert get_trip_profile(7) == TripLengthProfile.SHORT
+        assert get_trip_profile(14) == TripLengthProfile.MEDIUM
+        assert get_trip_profile(15) == TripLengthProfile.LONG
 
 
 class TestCheckFeasibility:
+    def test_unknown_length_only_applies_the_longest_cap(self):
+        trip = _make_trip("MXP", "JFK", nights=None)
+        feasible, notes = check_feasibility(trip)
+        assert feasible, notes
+
     def test_short_european_trip_is_feasible(self):
         trip = _make_trip("MXP", "KRK", nights=3)
         feasible, notes = check_feasibility(trip, TripLengthProfile.WEEKEND)
