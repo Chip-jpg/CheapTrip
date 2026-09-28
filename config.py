@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     enable_skyscanner: bool = Field(default=False)
     skyscanner_max_calls_per_cycle: int = Field(default=20)
 
+    # Search budgets: tasks per scrape cycle for each source (see scheduler/planner.py)
+    google_flights_calls_per_cycle: int = Field(default=20)
+    booking_calls_per_cycle: int = Field(default=5)
+
     # Deal feeds behind bot protection (Cloudflare / JS SPA) — off unless you have a workaround
     enable_secret_flying: bool = Field(default=False)
     enable_going: bool = Field(default=False)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import List, Optional, Tuple
 
+from scheduler.planner import CyclePlan
 from scrapers.base import BaseFlightScraper, BaseHotelScraper, ScrapeOutcome, ScrapeStatus
 from scrapers.booking_com import BookingComScraper
 from scrapers.going import GoingScraper
@@ -11,8 +12,7 @@ from scrapers.health_monitor import get_health_monitor
 from scrapers.holiday_pirates import HolidayPiratesFlightScraper, HolidayPiratesHotelScraper
 from scrapers.secret_flying import SecretFlyingScraper
 from scrapers.skyscanner import SkyscannerScraper
-from storage.models import RawFlightResult, RawHotelResult, ScraperParams
-from utils.airport_clusters import expand_list_to_clusters
+from storage.models import RawFlightResult, RawHotelResult
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -35,21 +35,11 @@ def build_hotel_scrapers() -> List[BaseHotelScraper]:
     ]
 
 
-def _expand_params(params: ScraperParams) -> ScraperParams:
-    """Return a copy of params with origins and destinations cluster-expanded."""
-    expanded_origins = expand_list_to_clusters(params.origins)
-    expanded_destinations = expand_list_to_clusters(params.destinations)
-    return params.model_copy(update={
-        "origins": expanded_origins,
-        "destinations": expanded_destinations,
-    })
-
-
 class ScraperAggregator:
     """
-    Runs all scrapers concurrently.
-    Any scraper failure is isolated — pipeline continues with remaining results.
-    Automatically expands airport clusters before dispatching.
+    Runs scrapers concurrently with the tasks the search planner assigned them.
+    Any scraper failure is isolated — the pipeline continues with the rest —
+    and every outcome is recorded with the health monitor.
     """
 
     def __init__(
@@ -65,39 +55,46 @@ class ScraperAggregator:
         for scraper in [*self._flight_scrapers, *self._hotel_scrapers]:
             scraper.begin_cycle()
 
-    async def collect_flights(
-        self, params: ScraperParams
-    ) -> Tuple[List[RawFlightResult], dict]:
-        """Search-based flight sources for one search window. Returns (results, stats by source)."""
-        expanded = _expand_params(params)
-        scrapers = [s for s in self._flight_scrapers if not s.is_feed]
-        return await self._run_flight_scrapers(scrapers, expanded)
+    @property
+    def sources(self) -> list:
+        return [*self._flight_scrapers, *self._hotel_scrapers]
 
-    async def collect_feed_flights(self) -> Tuple[List[RawFlightResult], dict]:
-        """Deal-feed sources; called once per cycle. Returns (results, stats by source)."""
-        scrapers = [s for s in self._flight_scrapers if s.is_feed]
-        return await self._run_flight_scrapers(scrapers, None)
-
-    async def _run_flight_scrapers(
-        self, scrapers: List[BaseFlightScraper], params: Optional[ScraperParams]
-    ) -> Tuple[List[RawFlightResult], dict]:
-        results, stats = await self._run(scrapers, params)
+    async def collect_flights(self, plan: CyclePlan) -> Tuple[List[RawFlightResult], dict]:
+        """Search-based flight sources with this cycle's planned tasks. Returns (results, stats)."""
+        results, stats = await self._run([s for s in self._flight_scrapers if not s.is_feed], plan)
         log.info("flights_collected", total=len(results), sources=stats)
         return results, stats
 
-    async def collect_hotels(
-        self, params: ScraperParams
-    ) -> Tuple[List[RawHotelResult], dict]:
-        results, stats = await self._run(self._hotel_scrapers, _expand_params(params))
+    async def collect_feed_flights(self) -> Tuple[List[RawFlightResult], dict]:
+        """Deal-feed sources; called once per cycle. Returns (results, stats by source)."""
+        results, stats = await self._run([s for s in self._flight_scrapers if s.is_feed], None)
+        log.info("feed_flights_collected", total=len(results), sources=stats)
+        return results, stats
+
+    async def collect_hotels(self, plan: CyclePlan) -> Tuple[List[RawHotelResult], dict]:
+        results, stats = await self._run(self._hotel_scrapers, plan)
         log.info("hotels_collected", total=len(results), sources=stats)
         return results, stats
 
-    async def _run(self, scrapers: list, params: Optional[ScraperParams]) -> Tuple[list, dict]:
-        """Run scrapers concurrently; record every outcome with the health monitor."""
-        outcomes = await asyncio.gather(*(s.safe_scrape(params) for s in scrapers), return_exceptions=True)
+    async def _run(self, scrapers: list, plan: Optional[CyclePlan]) -> Tuple[list, dict]:
+        """
+        Run scrapers concurrently with their planned tasks (feeds take none) and
+        record every outcome with the health monitor. Enabled search sources
+        with no tasks this cycle are skipped.
+        """
+        runnable = []
+        for scraper in scrapers:
+            tasks = [] if plan is None or scraper.is_feed else plan.for_source(scraper.source_id)
+            if scraper.enabled and not scraper.is_feed and not tasks:
+                continue
+            runnable.append((scraper, tasks))
+
+        outcomes = await asyncio.gather(
+            *(s.safe_scrape(tasks) for s, tasks in runnable), return_exceptions=True
+        )
         results: list = []
         stats: dict = {}
-        for scraper, outcome in zip(scrapers, outcomes):
+        for (scraper, _), outcome in zip(runnable, outcomes):
             if isinstance(outcome, BaseException):
                 # safe_scrape never raises; this is a bug guard, not a normal path
                 outcome = ScrapeOutcome(scraper.source_id, ScrapeStatus.ERROR, error=str(outcome))

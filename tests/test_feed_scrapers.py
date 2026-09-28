@@ -87,7 +87,8 @@ async def test_feeds_are_collected_once_per_cycle(engine):
     aggregator = await engine.run_cycle(flights=[flight(price=300.0)], feeds=[_feed_deal()])
 
     search_fake, feed_fake = aggregator._flight_scrapers
-    assert len(search_fake.calls) > 1   # one call per search window
+    assert len(search_fake.calls) == 1   # planned tasks, one run per cycle
+    assert len(search_fake.calls[0]) > 1
     assert feed_fake.calls == 1
 
 

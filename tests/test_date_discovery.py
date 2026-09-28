@@ -1,84 +1,59 @@
-"""Tests for flexible date discovery / search window generation."""
+"""Departure date slots used by the search planner."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 from preferences import UserPreferences
-from trip_builder.date_discovery import _CHUNK_DAYS, _MAX_CHUNKS, generate_search_windows
+from storage.models import TripLengthProfile
+from trip_builder.date_discovery import (
+    date_chunks,
+    departure_slots,
+    month_windows,
+    nights_range,
+    profiles_from_prefs,
+)
+
+TODAY = date(2026, 9, 28)  # a Monday
 
 
-def _prefs(**kwargs) -> UserPreferences:
-    defaults = dict(
-        home_airports=["MXP"],
-        preferred_trip_lengths=["weekend"],
-        search_window_days=30,
-    )
-    defaults.update(kwargs)
-    return UserPreferences(**defaults)
+def test_weekend_slots_are_fridays():
+    slots = departure_slots(TripLengthProfile.WEEKEND, TODAY, 90)
+    assert slots and all(d.weekday() == 4 for d in slots)
+    assert slots[0] == date(2026, 10, 9)  # first Friday at least a week out
 
 
-class TestGenerateSearchWindows:
-    def test_returns_list_of_scraper_params(self):
-        prefs = _prefs()
-        results = generate_search_windows(prefs, ["MXP"], ["KRK", "WAW"])
-        assert len(results) > 0
+def test_longer_trips_depart_on_saturdays():
+    for profile in (TripLengthProfile.SHORT, TripLengthProfile.MEDIUM, TripLengthProfile.LONG):
+        assert all(d.weekday() == 5 for d in departure_slots(profile, TODAY, 90))
 
-    def test_departure_dates_after_today_plus_7(self):
-        prefs = _prefs()
-        results = generate_search_windows(prefs, ["MXP"], ["KRK"])
-        today = date.today()
-        min_dep = today + timedelta(days=7)
-        for p in results:
-            assert p.departure_date_from >= min_dep
 
-    def test_covers_full_window(self):
-        prefs = _prefs(search_window_days=60)
-        results = generate_search_windows(prefs, ["MXP"], ["KRK"])
-        today = date.today()
-        window_end = today + timedelta(days=60)
-        # Last chunk should reach (or be close to) window end
-        last_end = max(p.departure_date_to for p in results)
-        assert last_end >= window_end - timedelta(days=_CHUNK_DAYS)
+def test_slots_stay_inside_the_window():
+    slots = departure_slots(TripLengthProfile.WEEKEND, TODAY, 30)
+    assert all(date(2026, 10, 5) <= d <= date(2026, 10, 28) for d in slots)
+    assert len(slots) == 3
 
-    def test_weekend_profile_short_nights(self):
-        prefs = _prefs(preferred_trip_lengths=["weekend"])
-        results = generate_search_windows(prefs, ["MXP"], ["KRK"])
-        for p in results:
-            assert p.nights_min <= 4
-            assert p.nights_max <= 4
 
-    def test_long_profile_longer_nights(self):
-        prefs = _prefs(preferred_trip_lengths=["long"])
-        results = generate_search_windows(prefs, ["MXP"], ["KRK"])
-        for p in results:
-            assert p.nights_min >= 14
+def test_date_chunks_cover_the_window_without_gaps():
+    chunks = date_chunks(TODAY, 90)
+    assert chunks[0][0] == date(2026, 10, 5)
+    assert chunks[-1][1] == date(2026, 12, 27)
+    for (_, end), (start, _) in zip(chunks, chunks[1:]):
+        assert (start - end).days == 1
 
-    def test_multiple_profiles_generate_more_params(self):
-        prefs_one = _prefs(preferred_trip_lengths=["weekend"])
-        prefs_two = _prefs(preferred_trip_lengths=["weekend", "short"])
-        one = generate_search_windows(prefs_one, ["MXP"], ["KRK"])
-        two = generate_search_windows(prefs_two, ["MXP"], ["KRK"])
-        assert len(two) > len(one)
 
-    def test_chunk_count_does_not_exceed_max(self):
-        prefs = _prefs(search_window_days=365, preferred_trip_lengths=["short"])
-        results = generate_search_windows(prefs, ["MXP"], ["KRK"])
-        assert len(results) <= _MAX_CHUNKS
+def test_month_windows_are_clipped():
+    months = month_windows(TODAY, 90)
+    assert months[0] == (date(2026, 10, 5), date(2026, 10, 31))
+    assert months[1] == (date(2026, 11, 1), date(2026, 11, 30))
+    assert months[-1] == (date(2026, 12, 1), date(2026, 12, 27))
 
-    def test_fallback_when_no_valid_profiles(self):
-        prefs = _prefs(preferred_trip_lengths=["invalid_profile_xyz"])
-        results = generate_search_windows(prefs, ["MXP"], ["KRK"])
-        assert len(results) == 1  # fallback default window
 
-    def test_flexible_dates_set_true(self):
-        prefs = _prefs()
-        results = generate_search_windows(prefs, ["MXP"], ["KRK"])
-        for p in results:
-            assert p.flexible_dates is True
+def test_profiles_from_prefs_ignores_unknown_and_duplicates():
+    prefs = UserPreferences(preferred_trip_lengths=["weekend", "bogus", "WEEKEND", "long"])
+    assert profiles_from_prefs(prefs) == [TripLengthProfile.WEEKEND, TripLengthProfile.LONG]
+    assert profiles_from_prefs(UserPreferences(preferred_trip_lengths=["nope"])) == [TripLengthProfile.SHORT]
 
-    def test_origins_and_destinations_passed_through(self):
-        prefs = _prefs()
-        results = generate_search_windows(prefs, ["MXP", "LIN"], ["WAW", "KRK"])
-        for p in results:
-            assert "MXP" in p.origins
-            assert "LIN" in p.origins
+
+def test_nights_range():
+    assert nights_range(TripLengthProfile.WEEKEND) == (2, 4)
+    assert nights_range(TripLengthProfile.LONG) == (14, 30)

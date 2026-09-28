@@ -18,6 +18,7 @@ from normalizers.flight import normalize_flights
 from normalizers.hotel import normalize_hotels
 from notifier.telegram import TelegramNotifier
 from preferences import get_preferences
+from scheduler.planner import SearchPlanner
 from scrapers.aggregator import ScraperAggregator
 from scrapers.health_monitor import get_health_monitor
 from storage.database import (
@@ -28,8 +29,6 @@ from storage.database import (
 )
 from storage.models import Trip
 from trip_builder.builder import build_trips
-from trip_builder.date_discovery import generate_search_windows
-from utils.airport_clusters import expand_list_to_clusters
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -44,6 +43,7 @@ PENDING_INSTANT_LIMIT = 20
 _notifier = TelegramNotifier()
 # Built lazily so importing this module doesn't instantiate every scraper.
 _aggregator: Optional[ScraperAggregator] = None
+_planner = SearchPlanner()
 
 
 def _get_aggregator() -> ScraperAggregator:
@@ -85,51 +85,27 @@ async def run_pipeline_cycle(
         prefs = get_preferences()
         aggregator.begin_cycle()
 
-        # Cluster-expand home airports from preferences
-        origins = expand_list_to_clusters(prefs.home_airports)
-        excluded = set(prefs.excluded_destinations)
-        destinations = [d for d in POPULAR_DESTINATIONS if d not in excluded]
+        # Plan this cycle's searches (budgets + rotation) for every source
+        plan = await _planner.plan(prefs, aggregator.sources)
 
-        # Generate flexible date windows based on preferred trip lengths
-        param_batches = generate_search_windows(
-            prefs=prefs,
-            origins=origins,
-            destinations=destinations,
-            max_price_eur=prefs.max_trip_budget or 2000.0,
+        # Deal feeds (no search params) run once; search sources run their planned tasks
+        feed_result, flight_result, hotel_result = await asyncio.gather(
+            aggregator.collect_feed_flights(),
+            aggregator.collect_flights(plan),
+            aggregator.collect_hotels(plan),
+            return_exceptions=True,
         )
-
-        log.info(
-            "search_windows_generated",
-            batches=len(param_batches),
-            origins=len(origins),
-            destinations=len(destinations),
-        )
-
-        # Deal feeds are date-independent: collect them once per cycle.
         all_raw_flights = []
         all_raw_hotels = []
-        try:
-            feed_flights, _ = await aggregator.collect_feed_flights()
-            all_raw_flights.extend(feed_flights)
-        except Exception as exc:
-            log.warning("collect_feed_flights_failed", error=str(exc))
-
-        # Search-based scrapers run once per date window
-
-        for params in param_batches:
-            flight_result, hotel_result = await asyncio.gather(
-                aggregator.collect_flights(params),
-                aggregator.collect_hotels(params),
-                return_exceptions=True,
-            )
-            if isinstance(flight_result, Exception):
-                log.warning("collect_flights_failed", error=str(flight_result))
+        for name, result, bucket in (
+            ("feed_flights", feed_result, all_raw_flights),
+            ("flights", flight_result, all_raw_flights),
+            ("hotels", hotel_result, all_raw_hotels),
+        ):
+            if isinstance(result, Exception):
+                log.warning("collect_failed", kind=name, error=str(result))
             else:
-                all_raw_flights.extend(flight_result[0])
-            if isinstance(hotel_result, Exception):
-                log.warning("collect_hotels_failed", error=str(hotel_result))
-            else:
-                all_raw_hotels.extend(hotel_result[0])
+                bucket.extend(result[0])
 
         log.info(
             "raw_collected",

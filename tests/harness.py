@@ -21,9 +21,9 @@ from config import get_settings
 from notifier.telegram import TelegramNotifier
 from preferences import get_preferences
 from scrapers.aggregator import ScraperAggregator
-from scrapers.base import BaseFeedScraper, BaseFlightScraper, BaseHotelScraper
+from scrapers.base import BaseFeedScraper, BaseFlightScraper, BaseHotelScraper, SearchCapability
 from storage.database import init_db
-from storage.models import RawFlightResult, RawHotelResult, ScraperParams
+from storage.models import RawFlightResult, RawHotelResult, SearchTask
 
 TEST_BOT_TOKEN = "123456:TEST-TOKEN"
 TEST_CHAT_ID = "4242"
@@ -97,26 +97,40 @@ def hotel(
     )
 
 
-ResultsSpec = Union[Sequence[Any], Callable[[ScraperParams], Sequence[Any]]]
+ResultsSpec = Union[Sequence[Any], Callable[[List[SearchTask]], Sequence[Any]]]
 
 
-def _materialize(spec: ResultsSpec, params: ScraperParams) -> List[Any]:
-    results = spec(params) if callable(spec) else spec
+def _materialize(spec: ResultsSpec, tasks: List[SearchTask]) -> List[Any]:
+    results = spec(tasks) if callable(spec) else spec
     return [r.model_copy() for r in results]
 
 
 class FakeFlightScraper(BaseFlightScraper):
-    """Returns canned flight results and records every call."""
+    """
+    Returns canned flight results once per cycle and records the planned
+    tasks it received. Defaults to an 'anywhere' source with a large budget.
+    """
 
-    def __init__(self, results: ResultsSpec = (), source_id: str = "fake_flights") -> None:
+    def __init__(
+        self,
+        results: ResultsSpec = (),
+        source_id: str = "fake_flights",
+        capability: SearchCapability = SearchCapability.ANYWHERE,
+        budget: int = 1000,
+    ) -> None:
         self.source_id = source_id
         self.enabled = True
+        self.capability = capability
+        self._budget = budget
         self._results = results
-        self.calls: List[ScraperParams] = []
+        self.calls: List[List[SearchTask]] = []
 
-    async def scrape(self, params: ScraperParams) -> List[RawFlightResult]:
-        self.calls.append(params)
-        return _materialize(self._results, params)
+    def calls_per_cycle(self) -> int:
+        return self._budget
+
+    async def scrape(self, tasks: List[SearchTask]) -> List[RawFlightResult]:
+        self.calls.append(tasks)
+        return _materialize(self._results, tasks)
 
 
 class FakeFeedScraper(BaseFeedScraper):
@@ -134,17 +148,21 @@ class FakeFeedScraper(BaseFeedScraper):
 
 
 class FakeHotelScraper(BaseHotelScraper):
-    """Returns canned hotel results and records every call."""
+    """Returns canned hotel results once per cycle and records the planned tasks."""
 
-    def __init__(self, results: ResultsSpec = (), source_id: str = "fake_hotels") -> None:
+    def __init__(self, results: ResultsSpec = (), source_id: str = "fake_hotels", budget: int = 1000) -> None:
         self.source_id = source_id
         self.enabled = True
+        self._budget = budget
         self._results = results
-        self.calls: List[ScraperParams] = []
+        self.calls: List[List[SearchTask]] = []
 
-    async def scrape(self, params: ScraperParams) -> List[RawHotelResult]:
-        self.calls.append(params)
-        return _materialize(self._results, params)
+    def calls_per_cycle(self) -> int:
+        return self._budget
+
+    async def scrape(self, tasks: List[SearchTask]) -> List[RawHotelResult]:
+        self.calls.append(tasks)
+        return _materialize(self._results, tasks)
 
 
 @dataclass

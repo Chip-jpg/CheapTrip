@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 from datetime import date, timedelta
 from typing import List, Optional
@@ -9,8 +8,9 @@ from typing import List, Optional
 import httpx
 from bs4 import BeautifulSoup
 
+from config import get_settings
 from scrapers.base import BaseHotelScraper, build_client, random_headers
-from storage.models import RawHotelResult, ScraperParams
+from storage.models import RawHotelResult, SearchTask
 from utils import airports
 from utils.logging_config import get_logger
 from utils.retry import async_retry
@@ -30,8 +30,10 @@ class BookingComScraper(BaseHotelScraper):
     source_id = "booking_com_api"
 
     def __init__(self) -> None:
-        self._affiliate_key = os.getenv("BOOKING_COM_API_KEY", "")
         self.enabled = True
+
+    def calls_per_cycle(self) -> int:
+        return get_settings().booking_calls_per_cycle
 
     @async_retry(
         max_attempts=3, min_wait=2.0, max_wait=20.0,
@@ -133,23 +135,17 @@ class BookingComScraper(BaseHotelScraper):
 
         return results
 
-    async def scrape(self, params: ScraperParams) -> List[RawHotelResult]:
+    async def scrape(self, tasks: List[SearchTask]) -> List[RawHotelResult]:
         results: List[RawHotelResult] = []
-        nights = params.nights_min or 3
-        checkin = params.departure_date_from
-        checkout = checkin + timedelta(days=nights)
-
-        locations = []
-        for dest in params.destinations[:5]:
-            city = airports.city_of(dest)
-            locations.append(city)
-
         async with build_client(timeout=25.0) as client:
-            for location in locations:
+            for task in tasks:
+                if not task.destination:
+                    continue
+                location = airports.city_of(task.destination)
+                nights = task.nights_min or 3
+                checkin, checkout = task.depart_from, task.return_date
                 try:
-                    html = await self._search_html(
-                        client, location, checkin, checkout, params.adults
-                    )
+                    html = await self._search_html(client, location, checkin, checkout, task.adults)
                     if html:
                         found = self._parse_html_results(html, location, nights, checkin)
                         results.extend(found)

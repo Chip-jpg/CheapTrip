@@ -37,12 +37,13 @@ async def test_no_results_sends_nothing(engine):
     assert engine.telegram.texts == []
 
 
-async def test_scrapers_receive_cluster_expanded_origins(engine):
+async def test_anywhere_sources_search_every_home_airport(engine):
     aggregator = await engine.run_cycle(flights=[])
 
     fake = aggregator._flight_scrapers[0]
-    assert fake.calls, "flight scraper was never called"
-    assert set(fake.calls[0].origins) == {"MXP", "LIN", "BGY"}
+    assert len(fake.calls) == 1, "search sources run once per cycle with their planned tasks"
+    assert {t.origin for t in fake.calls[0]} == {"MXP", "LIN", "BGY"}
+    assert all(t.destination is None for t in fake.calls[0])
 
 
 async def test_excluded_destination_is_never_alerted(engine):

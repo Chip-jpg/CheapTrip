@@ -1,94 +1,87 @@
 """
-Flexible Date Discovery
+Flexible date discovery — the departure dates the search planner draws from.
 
-Generates multiple ScraperParams objects covering all valid departure windows
-for each preferred trip length profile, within the user's search window.
+Goal: "find the cheapest trips anywhere in the next N days", covered over
+successive cycles, rather than one arbitrary date per two-week chunk.
 
-Goal: "Find cheapest trips anywhere in the next 90 days"
-NOT: "Find a trip for a specific date"
+- Weekend trips depart on Fridays (Fri → Sun), longer trips on Saturdays.
+- "Anywhere" sources take 14-day departure ranges; month sources take
+  calendar months clipped to the search window.
+- Nothing departs sooner than a week out.
 """
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import List
+from typing import List, Tuple
 
 from config import TRIP_LENGTH_NIGHTS
 from preferences import UserPreferences
-from storage.models import ScraperParams, TripLengthProfile
+from storage.models import TripLengthProfile
 
-# Chunk size: each ScraperParams covers this many departure days.
-# Smaller = more API calls but finer-grained; 14 is a good default.
-_CHUNK_DAYS = 14
+FIRST_DEPARTURE_OFFSET_DAYS = 7
+CHUNK_DAYS = 14
 
-# Maximum number of param chunks to generate (cap to prevent explosion).
-_MAX_CHUNKS = 25
+_FRIDAY, _SATURDAY = 4, 5
+_DEPARTURE_WEEKDAY = {
+    TripLengthProfile.WEEKEND: _FRIDAY,
+    TripLengthProfile.SHORT: _SATURDAY,
+    TripLengthProfile.MEDIUM: _SATURDAY,
+    TripLengthProfile.LONG: _SATURDAY,
+}
 
 
-def generate_search_windows(
-    prefs: UserPreferences,
-    origins: List[str],
-    destinations: List[str],
-    adults: int = 1,
-    max_price_eur: float = 2000.0,
-) -> List[ScraperParams]:
-    """
-    Return a list of concrete ScraperParams, one per (profile × date-chunk).
-
-    For WEEKEND profile: prioritizes Friday departures within each chunk.
-    For all profiles: departure windows cover today+7 → today+search_window_days.
-    """
-    params_list: List[ScraperParams] = []
-    today = date.today()
-    window_end = today + timedelta(days=prefs.search_window_days)
-
-    for profile_str in prefs.preferred_trip_lengths:
-        # Normalize to enum
+def profiles_from_prefs(prefs: UserPreferences) -> List[TripLengthProfile]:
+    """Valid trip-length profiles in preference order (unknown names are ignored)."""
+    profiles: List[TripLengthProfile] = []
+    for name in prefs.preferred_trip_lengths:
         try:
-            profile = TripLengthProfile(profile_str.lower())
+            profile = TripLengthProfile(name.lower())
         except ValueError:
             continue
+        if profile not in profiles:
+            profiles.append(profile)
+    return profiles or [TripLengthProfile.SHORT]
 
-        nights_min, nights_max = TRIP_LENGTH_NIGHTS.get(profile.value, (3, 7))
 
-        # Walk through the search window in chunks
-        cursor = today + timedelta(days=7)  # never depart today
-        chunks_generated = 0
+def nights_range(profile: TripLengthProfile) -> Tuple[int, int]:
+    return TRIP_LENGTH_NIGHTS.get(profile.value, (3, 7))
 
-        while cursor < window_end and chunks_generated < _MAX_CHUNKS:
-            chunk_end = min(cursor + timedelta(days=_CHUNK_DAYS - 1), window_end)
 
-            params_list.append(
-                ScraperParams(
-                    origins=origins,
-                    destinations=destinations,
-                    departure_date_from=cursor,
-                    departure_date_to=chunk_end,
-                    nights_min=nights_min,
-                    nights_max=nights_max,
-                    adults=adults,
-                    max_price_eur=max_price_eur,
-                    trip_length_profile=profile,
-                    flexible_dates=True,
-                )
-            )
-            cursor = chunk_end + timedelta(days=1)
-            chunks_generated += 1
+def _window(today: date, window_days: int) -> Tuple[date, date]:
+    return today + timedelta(days=FIRST_DEPARTURE_OFFSET_DAYS), today + timedelta(days=window_days)
 
-    # If no valid profiles, fall back to a single default window
-    if not params_list:
-        dep = today + timedelta(days=7)
-        params_list.append(
-            ScraperParams(
-                origins=origins,
-                destinations=destinations,
-                departure_date_from=dep,
-                departure_date_to=dep + timedelta(days=30),
-                nights_min=3,
-                nights_max=7,
-                adults=adults,
-                max_price_eur=max_price_eur,
-                flexible_dates=True,
-            )
-        )
 
-    return params_list
+def departure_slots(profile: TripLengthProfile, today: date, window_days: int) -> List[date]:
+    """Departure dates for exact-date searches: Fridays for weekends, Saturdays otherwise."""
+    start, end = _window(today, window_days)
+    weekday = _DEPARTURE_WEEKDAY[profile]
+    day = start + timedelta(days=(weekday - start.weekday()) % 7)
+    slots = []
+    while day <= end:
+        slots.append(day)
+        day += timedelta(days=7)
+    return slots
+
+
+def date_chunks(today: date, window_days: int, chunk_days: int = CHUNK_DAYS) -> List[Tuple[date, date]]:
+    """Consecutive departure ranges covering the window (for 'anywhere' searches)."""
+    start, end = _window(today, window_days)
+    chunks = []
+    cursor = start
+    while cursor <= end:
+        chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
+        chunks.append((cursor, chunk_end))
+        cursor = chunk_end + timedelta(days=1)
+    return chunks
+
+
+def month_windows(today: date, window_days: int) -> List[Tuple[date, date]]:
+    """Calendar months overlapping the window, clipped to it (for month-calendar searches)."""
+    start, end = _window(today, window_days)
+    months = []
+    cursor = start
+    while cursor <= end:
+        next_month = (cursor.replace(day=1) + timedelta(days=32)).replace(day=1)
+        months.append((cursor, min(next_month - timedelta(days=1), end)))
+        cursor = next_month
+    return months
