@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from datetime import time as dtime
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -74,7 +75,7 @@ _KNOWN_ENTITIES: Dict[str, str] = {
     "ATH": "95673624", "DUB": "95673529",
     # Turkey / Middle East
     "IST": "27542903", "DXB": "27540839", "DOH": "95673852",
-    "AUH": "95673509", "TLV": "27547236",  # reuse TPE slot — resolve at runtime
+    "AUH": "95673509",
     "JED": "95673390", "RUH": "95673362",
     # Americas
     "JFK": "95565058", "EWR": "95565059", "NYC": "27537542",
@@ -91,9 +92,6 @@ _KNOWN_ENTITIES: Dict[str, str] = {
     "DEL": "95673498", "SYD": "27547097", "MEL": "27544894",
     "AKL": "95673805", "TPE": "27547236",
     # Africa
-    "JNB": "27536671",  # resolve at runtime for accuracy
-    "CPT": "27536671",  # resolve at runtime for accuracy
-    "NBO": "27536671",  # resolve at runtime for accuracy
     "CAI": "27539681",
 }
 
@@ -153,13 +151,17 @@ class SkyscannerScraper(BaseFlightScraper):
     def __init__(self) -> None:
         settings = get_settings()
         self._key = settings.rapidapi_key
+        self._max_calls_per_cycle = settings.skyscanner_max_calls_per_cycle
+        self._calls_this_cycle = 0
+        self._paused_until: Optional[datetime] = None
         self._host = settings.rapidapi_skyscanner_host
         self._configured_endpoint = settings.rapidapi_skyscanner_endpoint
         self._search_endpoint: Optional[str] = None
         self._airport_endpoint: Optional[str] = None
         self._entity_cache: Dict[str, str] = {}
         self._probed = False
-        self.enabled = bool(self._key)
+        # Opt-in: RapidAPI quotas are small and this source is no longer invested in.
+        self.enabled = bool(self._key) and settings.enable_skyscanner
         self._logged_sample = False
         self._logged_airport_sample = False
 
@@ -209,6 +211,37 @@ class SkyscannerScraper(BaseFlightScraper):
             "host": self._host,
         })
 
+    # ── Budget and rate-limit handling ──────────────────────────────────────
+
+    def begin_cycle(self) -> None:
+        self._calls_this_cycle = 0
+
+    def _is_paused(self) -> bool:
+        return self._paused_until is not None and datetime.utcnow() < self._paused_until
+
+    def _pause_until_next_utc_midnight(self) -> None:
+        tomorrow = datetime.utcnow().date() + timedelta(days=1)
+        self._paused_until = datetime.combine(tomorrow, dtime.min)
+        log.warning("skyscanner_rate_limited_paused", until=self._paused_until.isoformat())
+
+    async def _api_get(
+        self, client: httpx.AsyncClient, path: str, params: dict
+    ) -> Optional[httpx.Response]:
+        """
+        Every RapidAPI call goes through here: None when the source is paused
+        or this cycle's call budget is spent; a 429 pauses it until tomorrow.
+        """
+        if self._is_paused():
+            return None
+        if self._calls_this_cycle >= self._max_calls_per_cycle:
+            log.info("skyscanner_cycle_budget_spent", calls=self._calls_this_cycle)
+            return None
+        self._calls_this_cycle += 1
+        resp = await client.get(f"https://{self._host}{path}", params=params, headers=self._headers())
+        if resp.status_code == 429:
+            self._pause_until_next_utc_midnight()
+        return resp
+
     def _headers(self) -> dict:
         return {
             "X-RapidAPI-Key": self._key,
@@ -235,13 +268,10 @@ class SkyscannerScraper(BaseFlightScraper):
 
     async def _find_airport_endpoint(self, client: httpx.AsyncClient) -> Optional[str]:
         for path in _AIRPORT_SEARCH_PATHS:
-            url = f"https://{self._host}{path}"
             try:
-                resp = await client.get(
-                    url,
-                    params={"query": "London", "locale": "en-US"},
-                    headers=self._headers(),
-                )
+                resp = await self._api_get(client, path, {"query": "London", "locale": "en-US"})
+                if resp is None:
+                    return None
                 if resp.status_code in (200, 429):
                     log.info("skyscanner_airport_endpoint", path=path, status=resp.status_code)
                     return path
@@ -273,14 +303,9 @@ class SkyscannerScraper(BaseFlightScraper):
         return None
 
     async def _try_resolve(self, client: httpx.AsyncClient, query: str) -> Optional[str]:
-        url = f"https://{self._host}{self._airport_endpoint}"
         try:
-            resp = await client.get(
-                url,
-                params={"query": query, "locale": "en-US"},
-                headers=self._headers(),
-            )
-            if resp.status_code != 200:
+            resp = await self._api_get(client, self._airport_endpoint, {"query": query, "locale": "en-US"})
+            if resp is None or resp.status_code != 200:
                 return None
             data = resp.json()
             places = data.get("data") or data.get("results") or data.get("places") or []
@@ -387,14 +412,16 @@ class SkyscannerScraper(BaseFlightScraper):
 
         best_422_path: Optional[str] = None
 
+        probe_date = date.today() + timedelta(days=30)
         for path in paths:
-            url = f"https://{self._host}{path}"
             params = self._build_search_params(
-                "MXP", "LHR", date(2026, 7, 1), None, 1,
+                "MXP", "LHR", probe_date, None, 1,
                 origin_entity, dest_entity,
             )
             try:
-                resp = await client.get(url, params=params, headers=self._headers())
+                resp = await self._api_get(client, path, params)
+                if resp is None:
+                    break
                 if resp.status_code == 404:
                     continue
                 if resp.status_code == 200:
@@ -482,13 +509,14 @@ class SkyscannerScraper(BaseFlightScraper):
             )
             return []
 
-        url = f"https://{self._host}{self._search_endpoint}"
         params = self._build_search_params(
             origin, destination, dep_date, return_date, adults,
             origin_entity, dest_entity,
         )
 
-        resp = await client.get(url, params=params, headers=self._headers())
+        resp = await self._api_get(client, self._search_endpoint, params)
+        if resp is None or resp.status_code == 429:
+            return []
         resp.raise_for_status()
         data = resp.json()
 
@@ -497,7 +525,7 @@ class SkyscannerScraper(BaseFlightScraper):
             top_keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
             log.info(
                 "skyscanner_response_sample",
-                url=url,
+                path=self._search_endpoint,
                 top_level_keys=top_keys,
                 preview=str(data)[:300],
             )
@@ -568,6 +596,9 @@ class SkyscannerScraper(BaseFlightScraper):
 
     async def scrape(self, params: ScraperParams) -> List[RawFlightResult]:
         results: List[RawFlightResult] = []
+        if self._is_paused():
+            log.info("skyscanner_paused", until=self._paused_until.isoformat())
+            return results
         async with build_client(timeout=30.0) as client:
             if not self._probed:
                 self._probed = True
@@ -585,24 +616,21 @@ class SkyscannerScraper(BaseFlightScraper):
             if not self._search_endpoint:
                 return results
 
-            tasks = []
+            # Sequential so a 429 or an exhausted budget stops further calls at once.
             for origin in params.origins[:3]:
                 for dest in params.destinations[:10]:
+                    if self._is_paused() or self._calls_this_cycle >= self._max_calls_per_cycle:
+                        return results
                     dep = params.departure_date_from
                     ret_date = (
                         dep + timedelta(days=params.nights_min + 1)
                         if params.nights_min
                         else None
                     )
-                    tasks.append(
-                        self._search_one_pair(
-                            client, origin, dest, dep, ret_date, params.adults,
+                    try:
+                        results.extend(
+                            await self._search_one_pair(client, origin, dest, dep, ret_date, params.adults)
                         )
-                    )
-            gathered = await asyncio.gather(*tasks, return_exceptions=True)
-            for r in gathered:
-                if isinstance(r, list):
-                    results.extend(r)
-                elif isinstance(r, Exception):
-                    log.warning("skyscanner_pair_failed", error=str(r))
+                    except Exception as exc:
+                        log.warning("skyscanner_pair_failed", origin=origin, dest=dest, error=str(exc))
         return results
