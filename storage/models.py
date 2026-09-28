@@ -63,6 +63,14 @@ class FlightLeg(BaseModel):
     raw_price: float = 0.0
     travel_window: Optional[str] = None
     is_error_fare_hint: bool = False
+    # Itinerary details when the source provides them (local times)
+    departure_time: Optional[datetime] = None
+    arrival_time: Optional[datetime] = None
+    flight_number: Optional[str] = None
+    stops: Optional[int] = None
+    duration_minutes: Optional[int] = None
+    # True when price_eur covers the return flight too
+    is_round_trip: bool = False
 
     @field_validator("origin", "destination")
     @classmethod
@@ -209,6 +217,14 @@ class RawFlightResult(BaseModel):
     # Deal feeds: free-text travel window ("Nov–Mar") and error-fare flag from the source
     travel_window: Optional[str] = None
     is_error_fare_hint: bool = False
+    # Itinerary details when the source provides them (local times)
+    departure_time: Optional[datetime] = None
+    arrival_time: Optional[datetime] = None
+    flight_number: Optional[str] = None
+    stops: Optional[int] = None
+    duration_minutes: Optional[int] = None
+    # True when `price` covers the return flight too
+    is_round_trip: bool = False
     extra: Dict[str, Any] = Field(default_factory=dict)
 
 

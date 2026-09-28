@@ -13,7 +13,7 @@ log = get_logger(__name__)
 async def normalize_flights(raw: List[RawFlightResult]) -> List[FlightLeg]:
     """
     Convert raw flight results to normalized FlightLeg objects with EUR prices.
-    Groups results by (origin, dest, date) to compute confidence scores.
+    Groups results by (origin, dest, departure, return) to compute confidence scores.
     """
     converter = get_converter()
     await converter.ensure_fresh()
@@ -21,7 +21,8 @@ async def normalize_flights(raw: List[RawFlightResult]) -> List[FlightLeg]:
     # Group by route+date for confidence scoring
     groups: dict[str, List[RawFlightResult]] = {}
     for r in raw:
-        key = f"{r.origin}_{r.destination}_{r.departure_date}"
+        # Different return dates are different trips (e.g. a weekend vs a week away)
+        key = f"{r.origin}_{r.destination}_{r.departure_date}_{r.return_date}"
         groups.setdefault(key, []).append(r)
 
     legs: List[FlightLeg] = []
@@ -50,6 +51,12 @@ async def normalize_flights(raw: List[RawFlightResult]) -> List[FlightLeg]:
                 raw_price=best.price,
                 travel_window=best.travel_window,
                 is_error_fare_hint=any(r.is_error_fare_hint for r in group),
+                departure_time=best.departure_time,
+                arrival_time=best.arrival_time,
+                flight_number=best.flight_number,
+                stops=best.stops,
+                duration_minutes=best.duration_minutes,
+                is_round_trip=best.is_round_trip,
             )
             legs.append(leg)
         except Exception as exc:

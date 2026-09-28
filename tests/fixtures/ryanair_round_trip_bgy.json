@@ -1,0 +1,273 @@
+{
+ "arrivalAirportCategories": null,
+ "fares": [
+  {
+   "outbound": {
+    "departureAirport": {
+     "countryName": "Italia",
+     "iataCode": "BGY",
+     "name": "Milano Bergamo",
+     "seoName": "milano-bergamo",
+     "city": {
+      "code": "BERGAMO",
+      "countryCode": "it",
+      "name": "Bergamo"
+     }
+    },
+    "arrivalAirport": {
+     "countryName": "Polonia",
+     "iataCode": "KRK",
+     "name": "Cracovia",
+     "seoName": "cracovia",
+     "city": {
+      "code": "KRAKOW",
+      "countryCode": "pl",
+      "name": "Cracovia"
+     }
+    },
+    "departureDate": "2026-10-13T15:35:00",
+    "arrivalDate": "2026-10-13T17:20:00",
+    "price": {
+     "value": 19.99,
+     "valueMainUnit": "19",
+     "valueFractionalUnit": "99",
+     "currencyCode": "EUR",
+     "currencySymbol": "€"
+    },
+    "flightKey": "FR~3504~ ~~BGY~10/13/2026 15:35~KRK~10/13/2026 17:20~~",
+    "flightNumber": "FR3504",
+    "previousPrice": null,
+    "priceUpdated": 1790590700000
+   },
+   "inbound": {
+    "departureAirport": {
+     "countryName": "Polonia",
+     "iataCode": "KRK",
+     "name": "Cracovia",
+     "seoName": "cracovia",
+     "city": {
+      "code": "KRAKOW",
+      "countryCode": "pl",
+      "name": "Cracovia"
+     }
+    },
+    "arrivalAirport": {
+     "countryName": "Italia",
+     "iataCode": "BGY",
+     "name": "Milano Bergamo",
+     "seoName": "milano-bergamo",
+     "city": {
+      "code": "BERGAMO",
+      "countryCode": "it",
+      "name": "Bergamo"
+     }
+    },
+    "departureDate": "2026-10-17T21:05:00",
+    "arrivalDate": "2026-10-17T22:50:00",
+    "price": {
+     "value": 23.99,
+     "valueMainUnit": "23",
+     "valueFractionalUnit": "99",
+     "currencyCode": "EUR",
+     "currencySymbol": "€"
+    },
+    "flightKey": "FR~3536~ ~~KRK~10/17/2026 21:05~BGY~10/17/2026 22:50~~",
+    "flightNumber": "FR3536",
+    "previousPrice": null,
+    "priceUpdated": 1790591840000
+   },
+   "summary": {
+    "price": {
+     "value": 43.98,
+     "valueMainUnit": "43",
+     "valueFractionalUnit": "98",
+     "currencyCode": "EUR",
+     "currencySymbol": "€"
+    },
+    "previousPrice": null,
+    "newRoute": false,
+    "tripDurationDays": 4
+   }
+  },
+  {
+   "outbound": {
+    "departureAirport": {
+     "countryName": "Italia",
+     "iataCode": "BGY",
+     "name": "Milano Bergamo",
+     "seoName": "milano-bergamo",
+     "city": {
+      "code": "BERGAMO",
+      "countryCode": "it",
+      "name": "Bergamo"
+     }
+    },
+    "arrivalAirport": {
+     "countryName": "Italia",
+     "iataCode": "AHO",
+     "name": "Alghero",
+     "seoName": "alghero",
+     "city": {
+      "code": "ALGHERO",
+      "countryCode": "it",
+      "name": "Alghero"
+     }
+    },
+    "departureDate": "2026-10-17T05:45:00",
+    "arrivalDate": "2026-10-17T07:00:00",
+    "price": {
+     "value": 14.99,
+     "valueMainUnit": "14",
+     "valueFractionalUnit": "99",
+     "currencyCode": "EUR",
+     "currencySymbol": "€"
+    },
+    "flightKey": "FR~2254~ ~~BGY~10/17/2026 05:45~AHO~10/17/2026 07:00~~",
+    "flightNumber": "FR2254",
+    "previousPrice": null,
+    "priceUpdated": 1790590694000
+   },
+   "inbound": {
+    "departureAirport": {
+     "countryName": "Italia",
+     "iataCode": "AHO",
+     "name": "Alghero",
+     "seoName": "alghero",
+     "city": {
+      "code": "ALGHERO",
+      "countryCode": "it",
+      "name": "Alghero"
+     }
+    },
+    "arrivalAirport": {
+     "countryName": "Italia",
+     "iataCode": "BGY",
+     "name": "Milano Bergamo",
+     "seoName": "milano-bergamo",
+     "city": {
+      "code": "BERGAMO",
+      "countryCode": "it",
+      "name": "Bergamo"
+     }
+    },
+    "departureDate": "2026-10-21T22:30:00",
+    "arrivalDate": "2026-10-21T23:45:00",
+    "price": {
+     "value": 14.99,
+     "valueMainUnit": "14",
+     "valueFractionalUnit": "99",
+     "currencyCode": "EUR",
+     "currencySymbol": "€"
+    },
+    "flightKey": "FR~2255~ ~~AHO~10/21/2026 22:30~BGY~10/21/2026 23:45~~",
+    "flightNumber": "FR2255",
+    "previousPrice": null,
+    "priceUpdated": 1790590691000
+   },
+   "summary": {
+    "price": {
+     "value": 29.98,
+     "valueMainUnit": "29",
+     "valueFractionalUnit": "98",
+     "currencyCode": "EUR",
+     "currencySymbol": "€"
+    },
+    "previousPrice": null,
+    "newRoute": false,
+    "tripDurationDays": 4
+   }
+  },
+  {
+   "outbound": {
+    "departureAirport": {
+     "countryName": "Italia",
+     "iataCode": "BGY",
+     "name": "Milano Bergamo",
+     "seoName": "milano-bergamo",
+     "city": {
+      "code": "BERGAMO",
+      "countryCode": "it",
+      "name": "Bergamo"
+     }
+    },
+    "arrivalAirport": {
+     "countryName": "Spagna",
+     "iataCode": "BCN",
+     "name": "Barcellona El Prat",
+     "seoName": "barcelona-el-prat",
+     "city": {
+      "code": "BARCELONA",
+      "countryCode": "es",
+      "macCode": "BAR",
+      "name": "Barcellona"
+     }
+    },
+    "departureDate": "2026-10-20T21:15:00",
+    "arrivalDate": "2026-10-20T22:55:00",
+    "price": {
+     "value": 14.99,
+     "valueMainUnit": "14",
+     "valueFractionalUnit": "99",
+     "currencyCode": "EUR",
+     "currencySymbol": "€"
+    },
+    "flightKey": "FR~3319~ ~~BGY~10/20/2026 21:15~BCN~10/20/2026 22:55~~",
+    "flightNumber": "FR3319",
+    "previousPrice": null,
+    "priceUpdated": 1790590697000
+   },
+   "inbound": {
+    "departureAirport": {
+     "countryName": "Spagna",
+     "iataCode": "BCN",
+     "name": "Barcellona El Prat",
+     "seoName": "barcelona-el-prat",
+     "city": {
+      "code": "BARCELONA",
+      "countryCode": "es",
+      "macCode": "BAR",
+      "name": "Barcellona"
+     }
+    },
+    "arrivalAirport": {
+     "countryName": "Italia",
+     "iataCode": "BGY",
+     "name": "Milano Bergamo",
+     "seoName": "milano-bergamo",
+     "city": {
+      "code": "BERGAMO",
+      "countryCode": "it",
+      "name": "Bergamo"
+     }
+    },
+    "departureDate": "2026-10-24T11:00:00",
+    "arrivalDate": "2026-10-24T12:45:00",
+    "price": {
+     "value": 14.99,
+     "valueMainUnit": "14",
+     "valueFractionalUnit": "99",
+     "currencyCode": "EUR",
+     "currencySymbol": "€"
+    },
+    "flightKey": "FR~ 846~ ~~BCN~10/24/2026 11:00~BGY~10/24/2026 12:45~~",
+    "flightNumber": "FR846",
+    "previousPrice": null,
+    "priceUpdated": 1790590707000
+   },
+   "summary": {
+    "price": {
+     "value": 29.98,
+     "valueMainUnit": "29",
+     "valueFractionalUnit": "98",
+     "currencyCode": "EUR",
+     "currencySymbol": "€"
+    },
+    "previousPrice": null,
+    "newRoute": false,
+    "tripDurationDays": 4
+   }
+  }
+ ],
+ "nextPage": 1,
+ "size": 3
+}

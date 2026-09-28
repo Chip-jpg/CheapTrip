@@ -205,6 +205,7 @@ class Engine:
     tmp_path: Path
     prefs_path: Path
     telegram: TelegramCapture
+    router: Any = None  # the respx router: add routes to mock other HTTP APIs
 
     def set_prefs(self, **overrides: Any) -> None:
         data = dict(DEFAULT_PREFS)
@@ -217,6 +218,7 @@ class Engine:
         flights: ResultsSpec = (),
         hotels: ResultsSpec = (),
         feeds: Sequence[Any] = (),
+        extra_flight_scrapers: Sequence[BaseFlightScraper] = (),
     ) -> ScraperAggregator:
         """
         Run one full pipeline cycle; returns the aggregator. Its scrapers are
@@ -226,7 +228,7 @@ class Engine:
 
         await init_db()
         aggregator = ScraperAggregator(
-            flight_scrapers=[FakeFlightScraper(flights), FakeFeedScraper(feeds)],
+            flight_scrapers=[FakeFlightScraper(flights), FakeFeedScraper(feeds), *extra_flight_scrapers],
             hotel_scrapers=[FakeHotelScraper(hotels)],
         )
         notifier = await TelegramNotifier.create()
