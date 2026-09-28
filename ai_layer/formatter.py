@@ -84,7 +84,8 @@ def _dates_line(trip: Trip) -> str:
         return f"<b>Dates:</b> {_e(window) if window else 'various'} — see the deal post"
     dep = trip.departure_date.strftime("%a %d %b")
     if trip.return_date:
-        return f"<b>Dates:</b> {dep} – {trip.return_date.strftime('%a %d %b')}"
+        nights = f" ({trip.nights} night{'s' if trip.nights != 1 else ''})" if trip.nights else ""
+        return f"<b>Dates:</b> {dep} – {trip.return_date.strftime('%a %d %b')}{nights}"
     return f"<b>Departure:</b> {dep}"
 
 

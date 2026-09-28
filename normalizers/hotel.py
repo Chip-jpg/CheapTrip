@@ -18,10 +18,10 @@ async def normalize_hotels(raw: List[RawHotelResult]) -> List[HotelDeal]:
     converter = get_converter()
     await converter.ensure_fresh()
 
-    # Group by name+location for dedup / confidence
+    # Group by hotel and stay (the same hotel on other dates is a different offer)
     groups: dict[str, List[RawHotelResult]] = {}
     for r in raw:
-        key = f"{r.name.lower().strip()}_{r.location.lower().strip()}"
+        key = f"{r.name.lower().strip()}_{r.location.lower().strip()}_{r.check_in}_{r.check_out}"
         groups.setdefault(key, []).append(r)
 
     deals: List[HotelDeal] = []

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from typing import List, Optional
 
-from config import LAYER_1_AIRPORTS, LAYER_2_AIRPORTS, LAYER_3_HUBS
+from preferences import get_preferences
+from scheduler.planner import all_origins
 from storage.database import get_price_median, record_price
 from storage.models import (
     DealType,
@@ -26,6 +28,14 @@ from utils.confidence import compute_booking_confidence, compute_trip_confidence
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
+
+
+def _nights_between(departure: Optional[date], return_date: Optional[date]) -> Optional[int]:
+    """Stay length of a dated round trip; None for one-way or undated fares."""
+    if departure and return_date and return_date > departure:
+        return (return_date - departure).days
+    return None
+
 
 def _is_short_haul(origin: str, destination: str) -> bool:
     """Short/medium-haul trips use the Europe price thresholds."""
@@ -116,16 +126,20 @@ async def build_trips(
     for route in routes_seen:
         await update_price_stats(route)
 
+    # Trips start from the user's home airports (and their cluster mates);
+    # legs from other airports only feed repositioning.
+    home_origins = set(all_origins(get_preferences()))
+
     # ── 1. Direct flight-only deals ──────────────────────────────────────────
     for leg in flight_legs:
-        if leg.origin not in (LAYER_1_AIRPORTS + LAYER_2_AIRPORTS + LAYER_3_HUBS):
+        if leg.origin not in home_origins:
             continue
         trip = await _build_flight_only_trip(leg)
         if trip:
             trips.append(trip)
 
     # ── 2. Complete trip (flight + hotel) ────────────────────────────────────
-    # Index quality hotels by destination city (skip hotels below quality threshold)
+    # Index quality hotels by destination airport (skip hotels below quality threshold)
     hotel_by_dest: dict[str, List[HotelDeal]] = {}
     for hotel in hotel_deals:
         if not hotel.meets_quality_threshold:
@@ -133,17 +147,20 @@ async def build_trips(
         for airport in _hotel_airports(hotel.location):
             hotel_by_dest.setdefault(airport, []).append(hotel)
 
-    # Also index by cluster membership
     from utils.airport_clusters import expand_to_cluster
     for leg in flight_legs:
-        if leg.origin not in (LAYER_1_AIRPORTS + LAYER_2_AIRPORTS):
+        if leg.origin not in home_origins:
             continue
-        # Check destination and all cluster-mates
-        dest_airports = expand_to_cluster(leg.destination)
+        nights = _nights_between(leg.departure_date, leg.return_date)
+        if nights is None:
+            continue  # a hotel stay needs the flight's dates
+        # Hotels at the destination or a cluster mate, for exactly the flight's stay
         dest_hotels: List[HotelDeal] = []
         seen_hotels = set()
-        for da in dest_airports:
+        for da in expand_to_cluster(leg.destination):
             for h in hotel_by_dest.get(da, []):
+                if h.check_in != leg.departure_date or h.nights != nights:
+                    continue
                 key = f"{h.name}_{h.location}"
                 if key not in seen_hotels:
                     seen_hotels.add(key)
@@ -157,7 +174,7 @@ async def build_trips(
                 trips.append(trip)
 
     # ── 3. Repositioned trips ────────────────────────────────────────────────
-    repo_opportunities = find_repositioning_opportunities(flight_legs)
+    repo_opportunities = find_repositioning_opportunities(flight_legs, primary_origins=sorted(home_origins))
     for repo_leg, onward_flight, total_cost in repo_opportunities:
         trip = await _build_repositioned_trip(repo_leg, onward_flight, total_cost)
         if trip:
@@ -186,6 +203,7 @@ async def _build_flight_only_trip(leg: FlightLeg) -> Optional[Trip]:
         discount_pct=discount,
         departure_date=leg.departure_date,
         return_date=leg.return_date,
+        nights=_nights_between(leg.departure_date, leg.return_date),
         data_confidence_score=leg.data_confidence_score,
         source_list=[leg.source],
         verdict=verdict,
@@ -226,10 +244,6 @@ async def _build_complete_trip(leg: FlightLeg, hotel: HotelDeal) -> Optional[Tri
     is_europe = _is_short_haul(leg.origin, leg.destination)
     confidence = compute_trip_confidence([leg.data_confidence_score, hotel.data_confidence_score])
     verdict = assign_verdict(total_cost, discount, confidence, is_europe)
-
-    # Skip trips with avg_historical vs total_cost if hotel doesn't meet quality threshold
-    if not hotel.meets_quality_threshold:
-        return None
 
     trip = Trip(
         trip_id=str(uuid.uuid4())[:8],
@@ -286,6 +300,7 @@ async def _build_repositioned_trip(
         total_cost_eur=total_cost,
         departure_date=onward_flight.departure_date,
         return_date=onward_flight.return_date,
+        nights=_nights_between(onward_flight.departure_date, onward_flight.return_date),
         data_confidence_score=confidence,
         source_list=list({repo_leg.source, onward_flight.source}),
         verdict=verdict,
