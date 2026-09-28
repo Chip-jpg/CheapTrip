@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -8,7 +9,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from config import POPULAR_DESTINATIONS, get_settings
+from ai_layer.formatter import format_best_finds_summary
+from config import DECAY_INSTANT_CUTOFF, POPULAR_DESTINATIONS, get_settings
 from filters.deduplication import deduplicate_trips
 from filters.hard_filters import apply_hard_filters
 from filters.time_decay import apply_time_decay
@@ -18,7 +20,12 @@ from notifier.telegram import TelegramNotifier
 from preferences import get_preferences
 from scrapers.aggregator import ScraperAggregator
 from scrapers.health_monitor import get_health_monitor
-from storage.database import get_digest_deals, init_db
+from storage.database import (
+    downgrade_stale_instants,
+    get_digest_deals,
+    get_pending_instant_alerts,
+    init_db,
+)
 from storage.models import Trip
 from trip_builder.builder import build_trips
 from trip_builder.date_discovery import generate_search_windows
@@ -29,6 +36,8 @@ log = get_logger(__name__)
 
 # The digest lists at most this many routes (best deal per route).
 DIGEST_MAX_ROUTES = 15
+# Unsent instant deals offered to the notifier per cycle (it stops at the hourly quota).
+PENDING_INSTANT_LIMIT = 20
 
 # Notifier is initialized async in run_forever() to restore rate-limiter state from DB.
 # Fallback sync init is used for cycle/search commands that don't go through run_forever().
@@ -135,32 +144,38 @@ async def run_pipeline_cycle(
 
         # ── Build trips ───────────────────────────────────────────────────────
         trips = await build_trips(flight_legs, hotel_deals)
-        if not trips:
+        new_instant: List[Trip] = []
+        new_digest: List[Trip] = []
+        if trips:
+            # ── Hard filters ──────────────────────────────────────────────────
+            instant_candidates, digest_candidates = apply_hard_filters(trips)
+
+            # ── Time decay ────────────────────────────────────────────────────
+            instant_fresh, digest_fresh, _ = apply_time_decay(instant_candidates)
+            all_digest = digest_fresh + digest_candidates
+
+            # ── Deduplication (new deals are saved unsent) ────────────────────
+            new_instant, _ = await deduplicate_trips(instant_fresh)
+            new_digest, _ = await deduplicate_trips(all_digest)
+
+            log.info(
+                "pipeline_filtered",
+                new_instant=len(new_instant),
+                new_digest=len(new_digest),
+            )
+        else:
             log.info("no_trips_built_this_cycle")
-            await _log_health_summary()
-            return
-
-        # ── Hard filters ──────────────────────────────────────────────────────
-        instant_candidates, digest_candidates = apply_hard_filters(trips)
-
-        # ── Time decay ────────────────────────────────────────────────────────
-        instant_fresh, digest_fresh, _ = apply_time_decay(instant_candidates)
-        all_digest = digest_fresh + digest_candidates
-
-        # ── Deduplication ─────────────────────────────────────────────────────
-        new_instant, _ = await deduplicate_trips(instant_fresh)
-        new_digest, _ = await deduplicate_trips(all_digest)
-
-        log.info(
-            "pipeline_filtered",
-            new_instant=len(new_instant),
-            new_digest=len(new_digest),
-        )
 
         # ── Send instant alerts ───────────────────────────────────────────────
-        if new_instant:
-            sent = await notifier.process_instant_queue(new_instant)
-            log.info("instant_alerts_sent", count=sent)
+        # New instant deals were just saved unsent; the pending queue also
+        # re-offers earlier ones held back by the rate limit or a failed send.
+        stale = await downgrade_stale_instants(DECAY_INSTANT_CUTOFF)
+        if stale:
+            log.info("stale_instants_moved_to_digest", count=stale)
+        pending = await get_pending_instant_alerts(limit=PENDING_INSTANT_LIMIT)
+        if pending:
+            sent = await notifier.process_instant_queue(pending)
+            log.info("instant_alerts_sent", count=sent, queued=len(pending))
 
         # ── Send cycle summary of best cheap finds ───────────────────────────
         all_found = new_instant + new_digest
@@ -178,20 +193,11 @@ async def run_pipeline_cycle(
 
 
 async def _send_best_finds_summary(trips: list, notifier: TelegramNotifier) -> None:
-    """Send a Telegram summary of the cheapest flights found this cycle."""
+    """Send a Telegram summary of the cheapest deals found this cycle."""
     try:
-        sorted_trips = sorted(trips, key=lambda t: t.total_cost_eur)[:10]
-        lines = ["🔍 *Cycle Summary — Cheapest Finds*\n"]
-        for t in sorted_trips:
-            emoji = "🏨+✈️" if t.hotel and t.outbound_flight else ("🏨" if t.hotel else "✈️")
-            lines.append(f"{emoji} {t.route} — *€{t.total_cost_eur:.0f}*")
-            airline = t.outbound_flight.airline if t.outbound_flight else None
-            if airline:
-                lines[-1] += f" ({airline})"
-        lines.append(f"\n_{len(trips)} total deals found this cycle_")
-        await notifier.send_system_message("\n".join(lines))
+        await notifier.send_system_message(format_best_finds_summary(trips, total_found=len(trips)))
     except Exception as exc:
-        log.debug("best_finds_summary_failed", error=str(exc))
+        log.warning("best_finds_summary_failed", error=str(exc))
 
 
 async def _log_health_summary() -> None:
@@ -293,9 +299,9 @@ async def run_forever() -> None:
     )
 
     await _notifier.send_system_message(
-        "🚀 Travel Deal Intelligence Engine started\n"
-        f"Origins: {', '.join(prefs.home_airports)}\n"
-        f"Profiles: {', '.join(prefs.preferred_trip_lengths)}\n"
+        "🚀 <b>Travel Deal Intelligence Engine started</b>\n"
+        f"Origins: {html.escape(', '.join(prefs.home_airports))}\n"
+        f"Profiles: {html.escape(', '.join(prefs.preferred_trip_lengths))}\n"
         f"Monitoring {len(POPULAR_DESTINATIONS)} destinations"
     )
 

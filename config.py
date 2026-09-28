@@ -19,8 +19,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str = Field(default="")
     telegram_chat_id: str = Field(default="")
 
-    # AI
+    # AI (optional alert polish; prices/dates/links are verified unchanged)
     anthropic_api_key: str = Field(default="")
+    ai_model: str = Field(default="claude-haiku-4-5")
+    ai_timeout_seconds: float = Field(default=15.0)
 
     # Skyscanner via RapidAPI
     rapidapi_key: str = Field(default="")

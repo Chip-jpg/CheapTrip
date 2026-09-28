@@ -79,6 +79,18 @@ class RateLimiter:
                 return True
             return False
 
+    async def release_instant(self) -> None:
+        """Give back the most recent instant slot (the send it was reserved for failed)."""
+        async with self._lock:
+            if self._instant_sent:
+                self._instant_sent.pop()
+
+    async def release_digest(self) -> None:
+        """Give back the digest slot (the digest send failed)."""
+        async with self._lock:
+            if self._digest_sent:
+                self._digest_sent.pop()
+
     async def instant_remaining(self) -> int:
         async with self._lock:
             self._prune_old(self._instant_sent, timedelta(hours=1))
