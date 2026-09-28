@@ -26,6 +26,7 @@ from storage.database import (
     get_digest_deals,
     get_pending_instant_alerts,
     init_db,
+    purge_old_rows,
 )
 from storage.models import Trip
 from trip_builder.builder import build_trips
@@ -84,6 +85,12 @@ async def run_pipeline_cycle(
     try:
         prefs = get_preferences()
         aggregator.begin_cycle()
+        try:
+            purged = await purge_old_rows()
+            if any(purged.values()):
+                log.info("retention_purged", **purged)
+        except Exception as exc:
+            log.warning("retention_purge_failed", error=str(exc))
 
         # Plan this cycle's searches (budgets + rotation) for every source
         plan = await _planner.plan(prefs, aggregator.sources)

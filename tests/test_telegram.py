@@ -157,7 +157,7 @@ async def test_rate_limited_deal_is_sent_next_cycle(engine, monkeypatch):
     from config import get_settings
     get_settings.cache_clear()
 
-    await engine.run_cycle(flights=[flight(destination="KRK", price=25.0), flight(destination="PRG", price=30.0)])
+    await engine.run_cycle(flights=[flight(destination="KRK", price=25.0), flight(destination="PRG", price=24.0)])
     assert len(engine.telegram.texts) == 1
 
     await _age_alerts(hours=2)  # the hourly quota frees up

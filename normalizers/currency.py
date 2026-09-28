@@ -41,6 +41,10 @@ _FALLBACK_RATES: Dict[str, float] = {
     "MXN": 18.5,
 }
 
+class UnknownCurrencyError(ValueError):
+    """No exchange rate for this currency: the amount can't be compared in EUR."""
+
+
 class CurrencyConverter:
     """
     Async currency converter.
@@ -77,15 +81,27 @@ class CurrencyConverter:
         except Exception as exc:
             log.warning("currency_fetch_failed", error=str(exc), fallback="static_rates")
 
+    def supports(self, currency: str) -> bool:
+        currency = (currency or "").upper().strip()
+        return currency == "EUR" or bool((self._live_rates or _FALLBACK_RATES).get(currency))
+
     def to_eur(self, amount: float, currency: str) -> float:
-        currency = currency.upper().strip()
+        currency = (currency or "").upper().strip()
         if currency == "EUR":
             return round(amount, 2)
 
         rates = self._live_rates or _FALLBACK_RATES
-        rate = rates.get(currency, 1.0) or 1.0
-        eur_per_currency = 1.0 / rate
-        return round(amount * eur_per_currency, 2)
+        rate = rates.get(currency)
+        if not rate:
+            raise UnknownCurrencyError(currency)
+        return round(amount / rate, 2)
+
+    def keep_supported(self, results: list, kind: str) -> list:
+        """Drop results priced in a currency without a rate (logged once per currency)."""
+        unknown = {r.currency for r in results if not self.supports(r.currency)}
+        for currency in sorted(unknown):
+            log.warning("unknown_currency_skipped", kind=kind, currency=currency)
+        return [r for r in results if r.currency not in unknown]
 
     async def ensure_fresh(self) -> None:
         if self._is_stale():

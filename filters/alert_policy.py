@@ -9,7 +9,7 @@ Promotion rules (any):
   - destination is on the user's priority list (bypasses price)
   - possible error fare
   - historical price anomaly
-  - price under the short-haul / long-haul threshold
+  - price at or under the short-haul / long-haul backstop (exceptional fares)
   - discount at or above the flight / hotel discount threshold
 
 Gates (all must pass for INSTANT):
@@ -74,9 +74,9 @@ def _promotion_reasons(trip: Trip, settings: Settings, prefs: UserPreferences) -
 
     short_haul = is_short_haul_trip(trip)
     threshold = settings.europe_trip_max_eur if short_haul else settings.longhaul_trip_max_eur
-    if trip.total_cost_eur < threshold:
+    if trip.total_cost_eur <= threshold:
         label = "short-haul" if short_haul else "long-haul"
-        reasons.append(f"under the €{threshold:.0f} {label} threshold")
+        reasons.append(f"at or under the €{threshold:.0f} {label} backstop price")
 
     discount = trip.discount_pct or 0.0
     if trip.deal_type == DealType.FLIGHT_ONLY and discount >= settings.flight_discount_min_pct:

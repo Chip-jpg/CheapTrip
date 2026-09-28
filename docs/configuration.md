@@ -11,8 +11,8 @@
 | `SCRAPE_INTERVAL_MINUTES` | No | Scrape cycle frequency (default: 30) |
 | `DIGEST_HOUR` | No | Daily digest send hour in Europe/Rome TZ (default: 8) |
 | `DIGEST_MINUTE` | No | Digest minute (default: 0) |
-| `EUROPE_TRIP_MAX_EUR` | No | Instant alert threshold for EU trips (default: 120) |
-| `LONGHAUL_TRIP_MAX_EUR` | No | Instant alert threshold for long-haul (default: 450) |
+| `EUROPE_TRIP_MAX_EUR` | No | Backstop: short-haul trips at or under this always alert instantly (default: 25) |
+| `LONGHAUL_TRIP_MAX_EUR` | No | Backstop: long-haul trips at or under this always alert instantly (default: 250) |
 | `FLIGHT_DISCOUNT_MIN_PCT` | No | Min discount % for flight instant alert (default: 60) |
 | `HOTEL_DISCOUNT_MIN_PCT` | No | Min discount % for hotel instant alert (default: 60) |
 
@@ -67,7 +67,6 @@ These can be overridden via environment variables (uppercase with underscores):
 | `minimum_hotel_rating` | 7.0 | Hotel quality floor |
 | `preferred_hotel_rating` | 8.0 | Preferred quality level |
 | `hotel_low_rating_max_discount` | 70.0 | Discount % that overrides low rating |
-| `price_anomaly_std_dev_threshold` | 2.0 | Std deviations below avg = anomaly |
-| `price_sudden_drop_pct` | 30.0 | % drop from recent median = sudden drop |
+| `price_anomaly_min_drop_pct` | 35.0 | % below the route's usual price (same trip length and month, earlier cycles) = anomaly |
 | `booking_confidence_min_for_instant` | MEDIUM | Min booking confidence for instant alert |
 | `search_window_days` | 90 | Default search horizon in days |

@@ -73,9 +73,10 @@ class Settings(BaseSettings):
     # IANA time zone for the daily digest schedule (DIGEST_HOUR/DIGEST_MINUTE are local to it)
     timezone: str = Field(default="Europe/Rome")
 
-    # Alert thresholds
-    europe_trip_max_eur: float = Field(default=120.0)
-    longhaul_trip_max_eur: float = Field(default=450.0)
+    # Alert thresholds. The flat prices are backstops for exceptional fares:
+    # most instant alerts come from prices well below a route's usual price.
+    europe_trip_max_eur: float = Field(default=25.0)
+    longhaul_trip_max_eur: float = Field(default=250.0)
     hotel_discount_min_pct: float = Field(default=60.0)
     flight_discount_min_pct: float = Field(default=60.0)
     instant_alerts_per_hour: int = Field(default=5)
@@ -83,9 +84,8 @@ class Settings(BaseSettings):
     # Booking confidence: minimum tier (LOW / MEDIUM / HIGH) for an instant alert
     booking_confidence_min_for_instant: str = Field(default="MEDIUM")
 
-    # Historical price analytics
-    price_anomaly_std_dev_threshold: float = Field(default=2.0)
-    price_sudden_drop_pct: float = Field(default=30.0)
+    # Historical price analytics: a fare this far below its route's usual price is an anomaly
+    price_anomaly_min_drop_pct: float = Field(default=35.0)
 
     # Flexible date search
     preferred_trip_lengths: List[str] = Field(default=["weekend", "short", "medium"])

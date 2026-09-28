@@ -92,6 +92,8 @@ async def test_rate_limit_is_reported(token):
 
 
 async def test_pipeline_alert_says_the_price_is_cached(engine, token):
+    # Priority destination: without price history ordinary fares only reach the digest
+    engine.set_prefs(priority_destinations=["KRK"])
     engine.router.get(API).mock(return_value=httpx.Response(200, json=FIXTURE))
     await engine.run_cycle(extra_flight_scrapers=[TravelpayoutsScraper()])
 

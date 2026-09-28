@@ -1,191 +1,143 @@
 """
-Historical price analytics and anomaly detection.
+Price history and anomaly detection.
 
-Computes statistics from the price_history table and detects:
-- Prices below the historical average by ≥ N standard deviations
-- New all-time lows
-- Sudden drops vs. the most recent recorded price
+Every dated search fare is recorded under a key: origin city, destination
+city, round trip or one way, stay-length bucket (the trip profile) and
+departure month, e.g. "Milan → Krakow, weekend round trips, November".
+A fare is only ever compared with the same key's prices from *earlier*
+cycles, so a cycle can never be its own baseline.
+
+A key has a baseline once it holds at least MIN_SAMPLES observations from
+at least MIN_CYCLES earlier cycles within LOOKBACK_DAYS. A fare is an
+anomaly when it is PRICE_ANOMALY_MIN_DROP_PCT below the baseline median,
+or a new low (NEW_LOW_MARGIN under the cheapest earlier observation).
+Deal-feed posts and undated fares are never recorded or judged.
 """
 from __future__ import annotations
 
-import math
+import statistics
+from dataclasses import astuple, dataclass
 from datetime import datetime, timedelta
-from typing import List, Optional
-
-import aiosqlite
-from pydantic import BaseModel
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from config import get_settings
-from storage.database import get_db_path
+from storage.database import load_price_history, record_prices
+from storage.models import FlightLeg
+from trip_builder.feasibility import get_trip_profile
+from utils.airport_clusters import cluster_city_code
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
 
-
-class PriceStats(BaseModel):
-    route: str
-    avg_30d: Optional[float] = None
-    avg_90d: Optional[float] = None
-    all_time_low: Optional[float] = None
-    std_dev_30d: Optional[float] = None
-    sample_count_30d: int = 0
-    last_price: Optional[float] = None
-    last_recorded_at: Optional[datetime] = None
+LOOKBACK_DAYS = 30
+MIN_SAMPLES = 6
+MIN_CYCLES = 2
+NEW_LOW_MARGIN = 0.05
 
 
-class AnomalyResult(BaseModel):
+@dataclass(frozen=True)
+class PriceKey:
+    origin_city: str
+    dest_city: str
+    trip_type: str      # "rt" | "ow"
+    nights_bucket: str  # trip profile ("weekend", "short", ...) or "ow"
+    depart_month: str   # "YYYY-MM"
+
+    def describe(self) -> str:
+        month = datetime.strptime(self.depart_month, "%Y-%m").strftime("%B")
+        kind = "one-way" if self.trip_type == "ow" else f"{self.nights_bucket} trips"
+        return f"{kind}, {month}"
+
+
+def _city(code: str) -> str:
+    return cluster_city_code(code) or code
+
+
+def price_key(leg: FlightLeg) -> Optional[PriceKey]:
+    """The history key for a fare; None when it doesn't belong in the history."""
+    if leg.departure_date is None or leg.is_feed_deal:
+        return None
+    nights = leg.stay_nights
+    if nights is not None:
+        trip_type, bucket = "rt", get_trip_profile(nights).value
+    elif leg.is_round_trip:
+        return None  # a round-trip price without a return date can't be compared
+    else:
+        trip_type = bucket = "ow"
+    return PriceKey(_city(leg.origin), _city(leg.destination), trip_type, bucket,
+                    leg.departure_date.strftime("%Y-%m"))
+
+
+@dataclass
+class Baseline:
+    median: float
+    low: float
+    samples: int
+    cycles: int
+
+
+@dataclass
+class AnomalyResult:
     is_anomaly: bool = False
     is_all_time_low: bool = False
-    is_sudden_drop: bool = False
-    is_below_avg: bool = False
-    deviation_pct: Optional[float] = None  # negative = below avg
+    deviation_pct: Optional[float] = None  # vs the baseline median; negative = cheaper
+    normal_price: Optional[float] = None   # the baseline median, when there is one
     description: Optional[str] = None
 
 
-async def _fetch_prices(
-    route: str,
-    lookback_days: Optional[int] = None,
-) -> List[float]:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
-        if lookback_days:
-            cutoff = (datetime.utcnow() - timedelta(days=lookback_days)).isoformat()
-            cursor = await db.execute(
-                "SELECT price_eur FROM price_history WHERE route = ? AND recorded_at >= ? ORDER BY price_eur",
-                (route, cutoff),
-            )
-        else:
-            cursor = await db.execute(
-                "SELECT price_eur FROM price_history WHERE route = ? ORDER BY price_eur",
-                (route,),
-            )
-        rows = await cursor.fetchall()
-    return [r[0] for r in rows]
+class PriceIndex:
+    """Baselines per key, built from earlier cycles' observations."""
 
+    def __init__(self, observations: Iterable[Tuple[PriceKey, float, str]]) -> None:
+        prices: Dict[PriceKey, List[float]] = {}
+        cycles: Dict[PriceKey, Set[str]] = {}
+        for key, price, cycle_id in observations:
+            prices.setdefault(key, []).append(price)
+            cycles.setdefault(key, set()).add(cycle_id)
+        self._baselines: Dict[PriceKey, Baseline] = {
+            key: Baseline(statistics.median(values), min(values), len(values), len(cycles[key]))
+            for key, values in prices.items()
+            if len(values) >= MIN_SAMPLES and len(cycles[key]) >= MIN_CYCLES
+        }
 
-async def _fetch_last_price(route: str) -> Optional[float]:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
-        cursor = await db.execute(
-            "SELECT price_eur FROM price_history WHERE route = ? ORDER BY recorded_at DESC LIMIT 1",
-            (route,),
-        )
-        row = await cursor.fetchone()
-    return row[0] if row else None
+    @classmethod
+    async def load(cls, exclude_cycle: str) -> "PriceIndex":
+        since = datetime.utcnow() - timedelta(days=LOOKBACK_DAYS)
+        rows = await load_price_history(since, exclude_cycle)
+        index = cls((PriceKey(*row[:5]), row[5], row[6]) for row in rows)
+        log.info("price_index_loaded", observations=len(rows), baselines=len(index._baselines))
+        return index
 
+    def baseline(self, leg: FlightLeg) -> Optional[Baseline]:
+        key = price_key(leg)
+        return self._baselines.get(key) if key else None
 
-def _std_dev(prices: List[float]) -> Optional[float]:
-    if len(prices) < 2:
-        return None
-    mean = sum(prices) / len(prices)
-    variance = sum((p - mean) ** 2 for p in prices) / (len(prices) - 1)
-    return math.sqrt(variance)
+    def check(self, leg: FlightLeg) -> AnomalyResult:
+        key = price_key(leg)
+        base = self._baselines.get(key) if key else None
+        if key is None or base is None:
+            return AnomalyResult()
 
-
-def _mean(prices: List[float]) -> Optional[float]:
-    return sum(prices) / len(prices) if prices else None
-
-
-def _round_opt(value: Optional[float]) -> Optional[float]:
-    return round(value, 2) if value is not None else None
-
-
-async def get_price_stats(route: str) -> PriceStats:
-    prices_30d = await _fetch_prices(route, 30)
-    prices_90d = await _fetch_prices(route, 90)
-    all_prices = await _fetch_prices(route)
-    last_price = await _fetch_last_price(route)
-
-    return PriceStats(
-        route=route,
-        avg_30d=_round_opt(_mean(prices_30d)),
-        avg_90d=_round_opt(_mean(prices_90d)),
-        all_time_low=_round_opt(min(all_prices)) if all_prices else None,
-        std_dev_30d=_round_opt(_std_dev(prices_30d)),
-        sample_count_30d=len(prices_30d),
-        last_price=last_price,
-    )
-
-
-async def update_price_stats(route: str) -> None:
-    """Recompute and upsert aggregated stats for a route into the price_stats table."""
-    prices_30d = await _fetch_prices(route, 30)
-    prices_90d = await _fetch_prices(route, 90)
-    all_prices = await _fetch_prices(route)
-    if not all_prices:
-        return
-
-    avg_30d = _mean(prices_30d)
-    avg_90d = _mean(prices_90d)
-    all_time_low = min(all_prices)
-    std_dev_30d = _std_dev(prices_30d)
-    now = datetime.utcnow().isoformat()
-
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
-        await db.execute(
-            """
-            INSERT INTO price_stats
-                (route, all_time_low, avg_30d, avg_90d, std_dev_30d, sample_count, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(route) DO UPDATE SET
-                all_time_low  = excluded.all_time_low,
-                avg_30d       = excluded.avg_30d,
-                avg_90d       = excluded.avg_90d,
-                std_dev_30d   = excluded.std_dev_30d,
-                sample_count  = excluded.sample_count,
-                last_updated  = excluded.last_updated
-            """,
-            (route, all_time_low,
-             round(avg_30d, 2) if avg_30d else None,
-             round(avg_90d, 2) if avg_90d else None,
-             round(std_dev_30d, 2) if std_dev_30d else None,
-             len(all_prices), now),
-        )
-        await db.commit()
-
-
-async def detect_anomaly(route: str, current_price: float) -> AnomalyResult:
-    settings = get_settings()
-    stats = await get_price_stats(route)
-
-    if stats.sample_count_30d < 3:
-        # Not enough history — can't declare an anomaly
-        return AnomalyResult(is_anomaly=False)
-
-    result = AnomalyResult()
-
-    # Check all-time low
-    if stats.all_time_low and current_price < stats.all_time_low * 1.02:
-        result.is_all_time_low = True
-        result.is_anomaly = True
-        result.description = f"Matches or beats all-time low of €{stats.all_time_low:.0f}"
-
-    # Check vs 30-day average
-    if stats.avg_30d and stats.std_dev_30d:
-        threshold = stats.avg_30d - settings.price_anomaly_std_dev_threshold * stats.std_dev_30d
-        if current_price < threshold:
-            result.is_below_avg = True
+        deviation = (leg.price_eur - base.median) / base.median * 100
+        result = AnomalyResult(deviation_pct=round(deviation, 1), normal_price=round(base.median, 2))
+        reasons: List[str] = []
+        if -deviation >= get_settings().price_anomaly_min_drop_pct:
+            reasons.append(f"{-deviation:.0f}% below the usual €{base.median:.0f} ({key.describe()})")
+        if leg.price_eur < base.low * (1 - NEW_LOW_MARGIN):
+            result.is_all_time_low = True
+            reasons.append(f"new low, under the previous best of €{base.low:.0f}")
+        if reasons:
             result.is_anomaly = True
-            deviation = (current_price - stats.avg_30d) / stats.avg_30d * 100
-            result.deviation_pct = round(deviation, 1)
-            desc = f"{abs(deviation):.0f}% below 30-day avg of €{stats.avg_30d:.0f}"
-            result.description = (result.description + "; " + desc) if result.description else desc
+            result.description = "; ".join(reasons)
+        return result
 
-    # Check sudden drop vs last recorded price
-    if stats.last_price and stats.last_price > 0:
-        drop_pct = (stats.last_price - current_price) / stats.last_price * 100
-        if drop_pct >= settings.price_sudden_drop_pct:
-            result.is_sudden_drop = True
-            result.is_anomaly = True
-            desc = f"Sudden drop of {drop_pct:.0f}% vs last recorded €{stats.last_price:.0f}"
-            result.description = (result.description + "; " + desc) if result.description else desc
 
-    log.debug(
-        "anomaly_check",
-        route=route,
-        price=current_price,
-        is_anomaly=result.is_anomaly,
-        desc=result.description,
-    )
-    return result
+async def record_fares(legs: Iterable[FlightLeg], cycle_id: str) -> int:
+    """Add this cycle's dated search fares to the history; returns how many were recorded."""
+    rows = []
+    for leg in legs:
+        key = price_key(leg)
+        if key:
+            rows.append((f"{leg.origin}-{leg.destination}", leg.price_eur, leg.source, *astuple(key)))
+    await record_prices(rows, cycle_id)
+    return len(rows)

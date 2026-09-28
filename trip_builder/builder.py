@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
 from typing import List, Optional
 
 from preferences import get_preferences
 from scheduler.planner import all_origins
-from storage.database import get_price_median, record_price
 from storage.models import (
     DealType,
     FlightLeg,
     HotelDeal,
     Trip,
 )
-from storage.price_analytics import detect_anomaly, update_price_stats
+from storage.price_analytics import AnomalyResult, PriceIndex, record_fares
 from trip_builder.categorizer import categorize_trip
 from trip_builder.cost_calculator import (
     assign_verdict,
@@ -28,13 +26,6 @@ from utils.confidence import compute_booking_confidence, compute_trip_confidence
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
-
-
-def _nights_between(departure: Optional[date], return_date: Optional[date]) -> Optional[int]:
-    """Stay length of a dated round trip; None for one-way or undated fares."""
-    if departure and return_date and return_date > departure:
-        return (return_date - departure).days
-    return None
 
 
 def _is_short_haul(origin: str, destination: str) -> bool:
@@ -59,7 +50,7 @@ def _hotel_airports(location: str) -> List[str]:
     return codes
 
 
-def _apply_anomaly_to_trip(trip: Trip, anomaly) -> None:
+def _apply_anomaly_to_trip(trip: Trip, anomaly: AnomalyResult) -> None:
     """Decorate a trip with historical anomaly data (the alert policy uses it for the tier)."""
     if anomaly.is_anomaly:
         trip.is_anomaly = True
@@ -106,25 +97,20 @@ def _finalize_trip(trip: Trip) -> None:
 async def build_trips(
     flight_legs: List[FlightLeg],
     hotel_deals: List[HotelDeal],
+    cycle_id: Optional[str] = None,
 ) -> List[Trip]:
     """
     Core trip assembly. Produces:
     1. Flight-only deals (direct)
     2. Complete trips (flight + hotel)
     3. Repositioned multi-leg trips
+
+    Fares are judged against baselines from earlier cycles only, then this
+    cycle's fares are added to the price history under `cycle_id`.
     """
     trips: List[Trip] = []
-
-    # Record prices for historical tracking and keep price_stats fresh
-    routes_seen: set[str] = set()
-    for leg in flight_legs:
-        if leg.departure_date is None:
-            continue  # deal-feed "from" prices would skew route history
-        route = f"{leg.origin}-{leg.destination}"
-        await record_price(route, leg.price_eur, leg.source)
-        routes_seen.add(route)
-    for route in routes_seen:
-        await update_price_stats(route)
+    cycle_id = cycle_id or uuid.uuid4().hex[:12]
+    price_index = await PriceIndex.load(exclude_cycle=cycle_id)
 
     # Trips start from the user's home airports (and their cluster mates);
     # legs from other airports only feed repositioning.
@@ -134,7 +120,7 @@ async def build_trips(
     for leg in flight_legs:
         if leg.origin not in home_origins:
             continue
-        trip = await _build_flight_only_trip(leg)
+        trip = _build_flight_only_trip(leg, price_index)
         if trip:
             trips.append(trip)
 
@@ -151,7 +137,7 @@ async def build_trips(
     for leg in flight_legs:
         if leg.origin not in home_origins:
             continue
-        nights = _nights_between(leg.departure_date, leg.return_date)
+        nights = leg.stay_nights
         if nights is None:
             continue  # a hotel stay needs the flight's dates
         # Hotels at the destination or a cluster mate, for exactly the flight's stay
@@ -169,7 +155,7 @@ async def build_trips(
         # Sort by price and take top 3
         dest_hotels.sort(key=lambda h: h.total_price_eur)
         for hotel in dest_hotels[:3]:
-            trip = await _build_complete_trip(leg, hotel)
+            trip = _build_complete_trip(leg, hotel, price_index)
             if trip:
                 trips.append(trip)
 
@@ -180,14 +166,15 @@ async def build_trips(
         if trip:
             trips.append(trip)
 
-    log.info("trips_built", count=len(trips))
+    recorded = await record_fares(flight_legs, cycle_id)
+    log.info("trips_built", count=len(trips), fares_recorded=recorded)
     return trips
 
 
-async def _build_flight_only_trip(leg: FlightLeg) -> Optional[Trip]:
+def _build_flight_only_trip(leg: FlightLeg, price_index: PriceIndex) -> Optional[Trip]:
     route = _make_route_string(leg.origin, leg.destination)
-    median = await get_price_median(f"{leg.origin}-{leg.destination}")
-    normal = estimate_normal_price(route, median, None, 0)
+    anomaly = price_index.check(leg)
+    normal = anomaly.normal_price  # the route's usual price; None until there is history
     discount = compute_discount_pct(leg.price_eur, normal)
     is_europe = _is_short_haul(leg.origin, leg.destination)
 
@@ -200,45 +187,38 @@ async def _build_flight_only_trip(leg: FlightLeg) -> Optional[Trip]:
         outbound_flight=leg,
         flight_cost_eur=leg.price_eur,
         normal_price_eur=normal,
+        avg_historical_price_eur=normal,
         discount_pct=discount,
         departure_date=leg.departure_date,
         return_date=leg.return_date,
-        nights=_nights_between(leg.departure_date, leg.return_date),
+        nights=leg.stay_nights,
         data_confidence_score=leg.data_confidence_score,
         source_list=[leg.source],
         verdict=verdict,
     )
     trip.compute_totals()
 
-    # Flag potential error fares: flagged by the source, or a dated fare far below the
-    # route median (feed "from" prices aren't comparable to dated history).
-    far_below_median = bool(leg.departure_date and normal and leg.price_eur < normal * 0.40)
-    if leg.is_error_fare_hint or far_below_median:
+    # Possible error fare: flagged by the source, or under 40% of the route's usual price
+    far_below_usual = bool(normal and leg.price_eur < normal * 0.40)
+    if leg.is_error_fare_hint or far_below_usual:
         trip.is_error_fare = True
         trip.deal_type = DealType.ERROR_FARE
 
-    # Historical anomaly check (dated fares only)
-    try:
-        if leg.departure_date:
-            anomaly = await detect_anomaly(f"{leg.origin}-{leg.destination}", leg.price_eur)
-            if anomaly.is_anomaly:
-                _apply_anomaly_to_trip(trip, anomaly)
-                if anomaly.description:
-                    trip.verdict = f"{trip.verdict} (Historical anomaly: {anomaly.description})"
-    except Exception:
-        log.warning("anomaly_check_failed", route=f"{leg.origin}-{leg.destination}")
+    if anomaly.is_anomaly:
+        _apply_anomaly_to_trip(trip, anomaly)
+        trip.verdict = f"{trip.verdict} (Historical anomaly: {anomaly.description})"
 
     _finalize_trip(trip)
     return trip
 
 
-async def _build_complete_trip(leg: FlightLeg, hotel: HotelDeal) -> Optional[Trip]:
+def _build_complete_trip(leg: FlightLeg, hotel: HotelDeal, price_index: PriceIndex) -> Optional[Trip]:
     nights = hotel.nights
     route = _make_route_string(leg.origin, leg.destination)
 
-    flight_median = await get_price_median(f"{leg.origin}-{leg.destination}")
+    anomaly = price_index.check(leg)
     total_cost = calculate_trip_total(leg, None, hotel, [])
-    normal = estimate_normal_price(route, flight_median, None, nights)
+    normal = estimate_normal_price(route, anomaly.normal_price, None, nights)
 
     discount = compute_discount_pct(total_cost, normal)
     is_europe = _is_short_haul(leg.origin, leg.destination)
@@ -255,6 +235,7 @@ async def _build_complete_trip(leg: FlightLeg, hotel: HotelDeal) -> Optional[Tri
         hotel_cost_eur=hotel.total_price_eur,
         total_cost_eur=total_cost,
         normal_price_eur=normal,
+        avg_historical_price_eur=anomaly.normal_price,
         discount_pct=discount,
         departure_date=leg.departure_date,
         return_date=leg.return_date,
@@ -265,12 +246,8 @@ async def _build_complete_trip(leg: FlightLeg, hotel: HotelDeal) -> Optional[Tri
     )
 
     # Historical anomaly on the flight leg
-    try:
-        anomaly = await detect_anomaly(f"{leg.origin}-{leg.destination}", leg.price_eur)
-        if anomaly.is_anomaly:
-            _apply_anomaly_to_trip(trip, anomaly)
-    except Exception:
-        log.warning("anomaly_check_failed", route=f"{leg.origin}-{leg.destination}")
+    if anomaly.is_anomaly:
+        _apply_anomaly_to_trip(trip, anomaly)
 
     _finalize_trip(trip)
     return trip
@@ -300,7 +277,7 @@ async def _build_repositioned_trip(
         total_cost_eur=total_cost,
         departure_date=onward_flight.departure_date,
         return_date=onward_flight.return_date,
-        nights=_nights_between(onward_flight.departure_date, onward_flight.return_date),
+        nights=onward_flight.stay_nights,
         data_confidence_score=confidence,
         source_list=list({repo_leg.source, onward_flight.source}),
         verdict=verdict,

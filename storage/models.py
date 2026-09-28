@@ -73,11 +73,20 @@ class FlightLeg(BaseModel):
     is_round_trip: bool = False
     # Price from a cache of recent searches (e.g. Travelpayouts) — verify before booking
     price_is_cached: bool = False
+    # From a deal feed (a post, not a search): never part of the price history
+    is_feed_deal: bool = False
 
     @field_validator("origin", "destination")
     @classmethod
     def upper_airport_code(cls, v: str) -> str:
         return v.upper().strip()
+
+    @property
+    def stay_nights(self) -> Optional[int]:
+        """Stay length of a dated round trip; None for one-way or undated fares."""
+        if self.departure_date and self.return_date and self.return_date > self.departure_date:
+            return (self.return_date - self.departure_date).days
+        return None
 
 
 class HotelDeal(BaseModel):
@@ -229,6 +238,8 @@ class RawFlightResult(BaseModel):
     is_round_trip: bool = False
     # Price from a cache of recent searches (e.g. Travelpayouts) — verify before booking
     price_is_cached: bool = False
+    # From a deal feed (a post, not a search): never part of the price history
+    is_feed_deal: bool = False
     extra: Dict[str, Any] = Field(default_factory=dict)
 
 

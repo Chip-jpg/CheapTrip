@@ -44,7 +44,7 @@ def _make_flight_trip(
 
 class TestHardFilters:
     def test_cheap_europe_trip_is_instant(self):
-        trip = _make_flight_trip("MXP", "KRK", 85.0)
+        trip = _make_flight_trip("MXP", "KRK", 22.0)
         instant, digest = apply_hard_filters([trip])
         assert len(instant) == 1
         assert instant[0].alert_tier == AlertTier.INSTANT
@@ -62,7 +62,7 @@ class TestHardFilters:
         assert len(digest) == 1
 
     def test_cheap_longhaul_is_instant(self):
-        trip = _make_flight_trip("MXP", "JFK", 320.0)
+        trip = _make_flight_trip("MXP", "JFK", 240.0)
         instant, digest = apply_hard_filters([trip])
         assert len(instant) == 1
 
@@ -84,7 +84,7 @@ class TestBudgetFilter:
         assert len(digest) == 0
 
     def test_trip_below_max_budget_passes(self):
-        trip = _make_flight_trip("MXP", "KRK", 85.0)
+        trip = _make_flight_trip("MXP", "KRK", 22.0)
         with patch("filters.hard_filters.get_preferences") as mock_prefs:
             mock_prefs.return_value.max_trip_budget = 200.0
             mock_prefs.return_value.excluded_destinations = []
@@ -92,7 +92,7 @@ class TestBudgetFilter:
         assert len(instant) == 1
 
     def test_no_budget_cap_allows_all(self):
-        trip = _make_flight_trip("MXP", "KRK", 85.0)
+        trip = _make_flight_trip("MXP", "KRK", 22.0)
         with patch("filters.hard_filters.get_preferences") as mock_prefs:
             mock_prefs.return_value.max_trip_budget = None
             mock_prefs.return_value.excluded_destinations = []

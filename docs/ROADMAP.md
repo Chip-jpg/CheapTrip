@@ -264,7 +264,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B13 | `fix/google-flights` | done |
 | B14 | `fix/hotel-sources` | done (no working hotel source yet — re-plan) |
 | B15 | `fix/trip-assembly` | done |
-| B16 | `fix/price-history-anomaly` | todo |
+| B16 | `fix/price-history-anomaly` | done (7-day price trend dropped: nothing would use it) |
 | B17 | `feat/fuzzy-dedup` | todo |
 | B18 | `fix/repositioning` | todo |
 | B19 | `feat/hotel-only-deals` | todo |

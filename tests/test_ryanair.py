@@ -90,6 +90,8 @@ async def test_unserved_airport_is_empty_not_an_error():
 
 
 async def test_pipeline_alerts_real_ryanair_fares(engine):
+    # Priority destination: without price history ordinary fares only reach the digest
+    engine.set_prefs(priority_destinations=["KRK"])
     engine.router.get(API).mock(return_value=httpx.Response(200, json=FIXTURE))
     await engine.run_cycle(extra_flight_scrapers=[RyanairScraper()])
 
