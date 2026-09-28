@@ -11,7 +11,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from ai_layer.formatter import format_best_finds_summary
 from config import DECAY_INSTANT_CUTOFF, POPULAR_DESTINATIONS, get_settings
-from filters.deduplication import deduplicate_trips
+from filters.deduplication import collapse_similar, deduplicate_trips
 from filters.hard_filters import apply_hard_filters
 from filters.time_decay import apply_time_decay
 from normalizers.flight import normalize_flights
@@ -134,7 +134,7 @@ async def run_pipeline_cycle(
             log.warning("normalize_hotels_failed", error=str(normalize_result[1]))
 
         # ── Build trips ───────────────────────────────────────────────────────
-        trips = await build_trips(flight_legs, hotel_deals)
+        trips = collapse_similar(await build_trips(flight_legs, hotel_deals))
         new_instant: List[Trip] = []
         new_digest: List[Trip] = []
         if trips:

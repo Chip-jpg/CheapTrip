@@ -168,7 +168,10 @@ def format_flight_only(trip: Trip) -> str:
     lines.append(_airports_line(trip))
     lines.append("")
 
-    lines.append(f"<b>Price:</b> 💰 <b>€{trip.total_cost_eur:.0f}</b>")
+    price = f"<b>Price:</b> 💰 <b>€{trip.total_cost_eur:.0f}</b>"
+    if trip.previous_price_eur:
+        price += f" <s>€{trip.previous_price_eur:.0f}</s>"
+    lines.append(price)
     if trip.normal_price_eur:
         normal = f"<b>Normal:</b> ~€{trip.normal_price_eur:.0f}+"
         if trip.discount_pct:

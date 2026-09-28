@@ -175,6 +175,8 @@ class Trip(BaseModel):
 
     # Why the alert policy chose this tier (filters.alert_policy)
     alert_reasons: List[str] = Field(default_factory=list)
+    # Price of the same deal seen earlier, when this one is a real drop (filters.deduplication)
+    previous_price_eur: Optional[float] = None
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     hash: str = ""

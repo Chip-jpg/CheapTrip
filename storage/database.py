@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
-from typing import Dict, List, Sequence, Tuple
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import aiosqlite
 
@@ -58,6 +58,11 @@ CREATE TABLE IF NOT EXISTS price_history (
 
 # Columns added after the first release: added to existing databases by init_db
 _PRICE_HISTORY_KEY_COLUMNS = ("origin_city", "dest_city", "trip_type", "nights_bucket", "depart_month", "cycle_id")
+# Similarity key for fuzzy dedup (filters/deduplication.py) and the departure date
+_DEALS_DEDUP_COLUMNS = ("dedup_origin", "dedup_dest", "dedup_kind", "dedup_nights", "depart_date")
+
+DedupKey = Tuple[str, str, str, str]
+"""(origin city, destination city, kind, length profile or '') — see filters.deduplication.fingerprint"""
 
 _CREATE_SCRAPER_HEALTH_TABLE = """
 CREATE TABLE IF NOT EXISTS scraper_health (
@@ -91,6 +96,7 @@ _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_prices_route ON price_history(route)",
     "CREATE INDEX IF NOT EXISTS idx_prices_recorded ON price_history(recorded_at)",
     "CREATE INDEX IF NOT EXISTS idx_deals_expires ON deals(expires_at)",
+    "CREATE INDEX IF NOT EXISTS idx_deals_dedup ON deals(dedup_origin, dedup_dest, dedup_kind, created_at)",
 ]
 
 
@@ -120,6 +126,7 @@ async def init_db() -> None:
     path = await get_db_path()
     async with aiosqlite.connect(path) as db:
         await db.execute(_CREATE_DEALS_TABLE)
+        await _add_missing_columns(db, "deals", _DEALS_DEDUP_COLUMNS)
         await db.execute(_CREATE_ALERTS_TABLE)
         await db.execute(_CREATE_PRICES_TABLE)
         await _add_missing_columns(db, "price_history", _PRICE_HISTORY_KEY_COLUMNS)
@@ -130,18 +137,20 @@ async def init_db() -> None:
         await db.commit()
 
 
-async def save_deal(trip: Trip) -> bool:
+async def save_deal(trip: Trip, dedup_key: Optional[DedupKey] = None) -> bool:
     """Insert a deal; returns True if new, False if duplicate hash."""
     path = await get_db_path()
     expires = datetime.utcnow() + timedelta(days=7)
+    key = dedup_key or (None, None, None, None)
     async with aiosqlite.connect(path) as db:
         try:
             await db.execute(
                 """
                 INSERT INTO deals
                     (hash, trip_id, route, deal_type, total_cost, discount_pct,
-                     confidence, alert_tier, is_alerted, created_at, expires_at, payload)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                     confidence, alert_tier, is_alerted, created_at, expires_at, payload,
+                     dedup_origin, dedup_dest, dedup_kind, dedup_nights, depart_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     trip.hash,
@@ -155,12 +164,45 @@ async def save_deal(trip: Trip) -> bool:
                     trip.created_at.isoformat(),
                     expires.isoformat(),
                     trip.model_dump_json(),
+                    *key,
+                    trip.departure_date.isoformat() if trip.departure_date else "",
                 ),
             )
             await db.commit()
             return True
         except aiosqlite.IntegrityError:
             return False
+
+
+async def find_similar_deals(key: DedupKey, since: datetime) -> List[Tuple[str, float, Optional[date]]]:
+    """Deals saved since `since` with the same dedup key: (hash, total_cost, departure date)."""
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        cursor = await db.execute(
+            """
+            SELECT hash, total_cost, depart_date FROM deals
+            WHERE dedup_origin = ? AND dedup_dest = ? AND dedup_kind = ? AND dedup_nights = ?
+              AND created_at >= ?
+            """,
+            (*key, since.isoformat()),
+        )
+        rows = await cursor.fetchall()
+    return [(h, cost, date.fromisoformat(dep) if dep else None) for h, cost, dep in rows]
+
+
+async def archive_unsent(hashes: Sequence[str]) -> int:
+    """Retire unsent deals superseded by a cheaper copy, so only the better price can alert."""
+    if not hashes:
+        return 0
+    path = await get_db_path()
+    marks = ",".join("?" * len(hashes))
+    async with aiosqlite.connect(path) as db:
+        cursor = await db.execute(
+            f"UPDATE deals SET alert_tier = ? WHERE is_alerted = 0 AND hash IN ({marks})",
+            (AlertTier.ARCHIVE.value, *hashes),
+        )
+        await db.commit()
+    return cursor.rowcount
 
 
 async def is_duplicate(trip_hash: str) -> bool:

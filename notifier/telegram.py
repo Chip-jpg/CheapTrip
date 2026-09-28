@@ -130,7 +130,9 @@ class TelegramNotifier:
             log.info("telegram_disabled_dry_run", route=trip.route, cost=trip.total_cost_eur)
             return False
 
-        if await was_route_alerted_recently(trip.route, within_hours=6.0):
+        # One alert per route every 6h, unless this is the same deal at a clearly lower price
+        is_price_drop = trip.previous_price_eur is not None and trip.total_cost_eur < trip.previous_price_eur
+        if not is_price_drop and await was_route_alerted_recently(trip.route, within_hours=6.0):
             log.info("route_recently_alerted_suppressed", route=trip.route)
             return False
 
