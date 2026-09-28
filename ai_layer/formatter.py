@@ -15,6 +15,8 @@ from collections import Counter
 from typing import Any, List, Optional
 
 from storage.models import BookingConfidence, DealType, Trip
+from utils import airports
+from utils.links import booking_search_url, stay_label
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -87,6 +89,16 @@ def _dates_line(trip: Trip) -> str:
         nights = f" ({trip.nights} night{'s' if trip.nights != 1 else ''})" if trip.nights else ""
         return f"<b>Dates:</b> {dep} – {trip.return_date.strftime('%a %d %b')}{nights}"
     return f"<b>Departure:</b> {dep}"
+
+
+def _hotel_search_link(trip: Trip) -> str:
+    """No hotel prices yet (B14): link a hotel search for the trip's city and dates instead."""
+    leg = trip.outbound_flight
+    if not (leg and trip.departure_date and trip.return_date and trip.return_date > trip.departure_date):
+        return ""
+    city = airports.city_of(leg.destination)
+    url = booking_search_url(city, trip.departure_date, trip.return_date)
+    return _link(url, f"🏨 Hotels in {city} · {stay_label(trip.departure_date, trip.return_date)}")
 
 
 def _join(lines: List[str]) -> str:
@@ -194,9 +206,15 @@ def format_flight_only(trip: Trip) -> str:
         lines.append("🏆 <i>Historical price low!</i>")
     lines.append(_cached_price_line(trip))
 
+    links = []
     if trip.outbound_flight and trip.outbound_flight.booking_url:
+        links.append(_link(trip.outbound_flight.booking_url))
+    hotels = _hotel_search_link(trip)
+    if hotels:
+        links.append(hotels)
+    if links:
         lines.append("")
-        lines.append(_link(trip.outbound_flight.booking_url))
+        lines.extend(links)
 
     return _join(lines)
 

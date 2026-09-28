@@ -274,4 +274,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B23 | `chore/ops-hardening` | todo |
 | B24 | `docs/sync` | todo |
 | B25 | `fix/city-names` | done |
-| B26 | `feat/hotel-search-link` | todo |
+| B26 | `feat/hotel-search-link` | done |
