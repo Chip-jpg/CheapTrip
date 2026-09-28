@@ -63,6 +63,7 @@ def booking_url(market: str, origin: str, dest: str, out_date: str, in_date: str
 class RyanairScraper(BaseFlightScraper):
     source_id = "ryanair"
     capability = SearchCapability.ANYWHERE
+    long_haul = False  # Europe and North Africa only: nothing to gain from hub searches
 
     def __init__(self) -> None:
         settings = get_settings()

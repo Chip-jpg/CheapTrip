@@ -272,7 +272,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B15 | `fix/trip-assembly` | done |
 | B16 | `fix/price-history-anomaly` | done (7-day price trend dropped: nothing would use it) |
 | B17 | `feat/fuzzy-dedup` | done |
-| B18 | `fix/repositioning` | todo |
+| B18 | `fix/repositioning` | done (useful once a long-haul source such as Travelpayouts is on) |
 | B19 | `feat/hotel-only-deals` | done |
 | B20 | `feat/telegram-commands` | done |
 | B21 | `feat/ai-feed-extraction` | done (live model run needs ANTHROPIC_API_KEY) |

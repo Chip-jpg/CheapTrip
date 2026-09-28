@@ -28,6 +28,7 @@ from trip_builder.date_discovery import (
     nights_range,
     profiles_from_prefs,
 )
+from utils import airports
 from utils.airport_clusters import expand_list_to_clusters, get_cluster_name
 from utils.logging_config import get_logger
 
@@ -35,6 +36,8 @@ log = get_logger(__name__)
 
 # Share of a source's budget reserved for priority destinations each cycle.
 PRIORITY_SHARE = 0.5
+# Share of a long-haul source's budget for searches from repositioning hubs (allow_repositioning)
+REPOSITIONING_SHARE = 0.2
 # Hotel searches use the shorter trip profiles (B15 will derive them from flight results).
 _HOTEL_PROFILES = (TripLengthProfile.WEEKEND, TripLengthProfile.SHORT)
 
@@ -136,6 +139,23 @@ class SearchPlanner:
                     ))
         return tasks
 
+    def _hub_universe(self, capability: SearchCapability, prefs: UserPreferences) -> List[SearchTask]:
+        """Searches from the repositioning hubs (one airport per hub city) to long-haul destinations."""
+        hubs = [h.upper() for h in prefs.repositioning_hubs if airports.is_known(h)]
+        if not hubs:
+            return []
+        hub_prefs = prefs.model_copy(update={"home_airports": hubs})
+        home = origin_representatives(prefs)[0]
+        if capability == SearchCapability.ANYWHERE:
+            return [
+                t for t in self._anywhere_universe(hub_prefs)
+                if t.origin in origin_representatives(hub_prefs)
+            ]
+        long_haul = [d for d in destinations(prefs) if airports.is_long_haul(d, home) and d not in hubs]
+        if capability in (SearchCapability.ROUTE_DATE, SearchCapability.ROUTE_MONTH):
+            return self._universe(capability, hub_prefs, long_haul)
+        return []
+
     def _hotel_universe(self, prefs: UserPreferences, dests: Sequence[str]) -> List[SearchTask]:
         profiles = [p for p in profiles_from_prefs(prefs) if p in _HOTEL_PROFILES] or [TripLengthProfile.SHORT]
         tasks = []
@@ -190,6 +210,15 @@ class SearchPlanner:
             capability = source.capability
             tasks: List[SearchTask] = []
 
+            # Repositioning: part of a long-haul source's budget searches from the hubs
+            if prefs.allow_repositioning and getattr(source, "long_haul", False) and budget > 1:
+                hub_budget = max(1, int(budget * REPOSITIONING_SHARE))
+                hub_tasks = await self._take(f"{source.source_id}:hubs", self._hub_universe(capability, prefs),
+                                             hub_budget)
+                budget -= len(hub_tasks)
+            else:
+                hub_tasks = []
+
             if capability == SearchCapability.ANYWHERE:
                 # One 'anywhere' search covers every destination, priority ones included.
                 tasks = await self._take(f"{source.source_id}:main", self._anywhere_universe(prefs), budget)
@@ -204,7 +233,7 @@ class SearchPlanner:
                 tasks += await self._take(
                     f"{source.source_id}:main", self._universe(capability, prefs, regular), budget - len(tasks)
                 )
-            plan.tasks[source.source_id] = tasks
+            plan.tasks[source.source_id] = tasks + hub_tasks
 
         for tasks in plan.tasks.values():
             for task in tasks:

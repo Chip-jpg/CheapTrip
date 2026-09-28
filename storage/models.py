@@ -133,6 +133,9 @@ class RepositioningLeg(BaseModel):
     booking_url: Optional[str] = None
     source: str = ""
     data_confidence_score: float = Field(ge=0.0, le=1.0, default=0.5)
+    # The positioning round trip's own dates (it may leave the day before / return the day after)
+    departure_date: Optional[date] = None
+    return_date: Optional[date] = None
 
 
 class Trip(BaseModel):

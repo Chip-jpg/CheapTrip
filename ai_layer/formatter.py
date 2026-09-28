@@ -291,14 +291,19 @@ def format_repositioned(trip: Trip) -> str:
     lines.append(f"<b>Route:</b> {_e(trip.route)}")
     lines.append("")
 
-    hub = trip.repositioning_legs[0].hub if trip.repositioning_legs else "?"
-    if trip.repositioning_legs:
-        repo = trip.repositioning_legs[0]
-        lines.append(f"<b>Leg 1 (repositioning):</b> {_e(repo.origin)} → {_e(repo.hub)}: €{repo.price_eur:.0f}")
-    if trip.outbound_flight:
+    repo = trip.repositioning_legs[0] if trip.repositioning_legs else None
+    onward = trip.outbound_flight
+    if repo:
+        dates = ""
+        if repo.departure_date and repo.return_date:
+            dates = f" ({repo.departure_date:%a %d %b} – {repo.return_date:%a %d %b})"
         lines.append(
-            f"<b>Leg 2 (main flight):</b> {_e(hub)} → {_e(trip.outbound_flight.destination)}: "
-            f"€{trip.outbound_flight.price_eur:.0f}"
+            f"<b>Leg 1 (to the hub):</b> {_e(repo.origin)} ⇄ {_e(repo.hub)}: "
+            f"€{repo.price_eur:.0f}{dates}"
+        )
+    if onward:
+        lines.append(
+            f"<b>Leg 2 (main flight):</b> {_e(onward.origin)} ⇄ {_e(onward.destination)}: €{onward.price_eur:.0f}"
         )
     lines.append("")
     lines.append(f"<b>TOTAL:</b> 💰 <b>€{trip.total_cost_eur:.0f}</b>")
@@ -308,10 +313,15 @@ def format_repositioned(trip: Trip) -> str:
     lines.append(_category_line(trip))
     lines.append(_confidence_line(trip))
     lines.append(_reasons_line(trip))
-    lines.append("<i>Book each leg separately as independent tickets</i>")
-    if trip.outbound_flight and trip.outbound_flight.booking_url:
+    lines.append("<i>Two separate tickets: allow for delays when connecting at the hub</i>")
+    links = []
+    if repo and repo.booking_url:
+        links.append(_link(repo.booking_url, "🔗 Book leg 1"))
+    if onward and onward.booking_url:
+        links.append(_link(onward.booking_url, "🔗 Book main flight"))
+    if links:
         lines.append("")
-        lines.append(_link(trip.outbound_flight.booking_url, "🔗 Book main flight"))
+        lines.append("  ".join(links))
     return _join(lines)
 
 
