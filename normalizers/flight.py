@@ -57,6 +57,7 @@ async def normalize_flights(raw: List[RawFlightResult]) -> List[FlightLeg]:
                 stops=best.stops,
                 duration_minutes=best.duration_minutes,
                 is_round_trip=best.is_round_trip,
+                price_is_cached=best.price_is_cached,
             )
             legs.append(leg)
         except Exception as exc:

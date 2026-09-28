@@ -72,6 +72,12 @@ def _reasons_line(trip: Trip) -> str:
     return f"<i>Why: {_e('; '.join(reasons))}</i>" if reasons else ""
 
 
+def _cached_price_line(trip: Trip) -> str:
+    if trip.outbound_flight and trip.outbound_flight.price_is_cached:
+        return "ℹ️ <i>Cached price from recent searches — verify before booking</i>"
+    return ""
+
+
 def _dates_line(trip: Trip) -> str:
     if not trip.departure_date:
         window = trip.outbound_flight.travel_window if trip.outbound_flight else None
@@ -140,6 +146,7 @@ def format_complete_trip(trip: Trip) -> str:
         lines.append("🏆 <i>Historical price low!</i>")
     elif trip.historical_deviation_pct and trip.historical_deviation_pct < -15:
         lines.append(f"📉 <i>{abs(trip.historical_deviation_pct):.0f}% below 30-day average</i>")
+    lines.append(_cached_price_line(trip))
 
     links = []
     if trip.outbound_flight and trip.outbound_flight.booking_url:
@@ -181,6 +188,7 @@ def format_flight_only(trip: Trip) -> str:
         lines.append("⚠️ <i>Possible error fare</i>")
     if trip.is_historical_low:
         lines.append("🏆 <i>Historical price low!</i>")
+    lines.append(_cached_price_line(trip))
 
     if trip.outbound_flight and trip.outbound_flight.booking_url:
         lines.append("")

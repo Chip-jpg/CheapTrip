@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "currency": "eur",
+  "data": [
+    {"origin": "MIL", "destination": "KRK", "origin_airport": "BGY", "destination_airport": "KRK",
+     "price": 38, "airline": "FR", "flight_number": "3408",
+     "departure_at": "2026-10-15T06:30:00+02:00", "return_at": "2026-10-18T21:05:00+02:00",
+     "transfers": 0, "return_transfers": 0, "duration": 230, "duration_to": 110, "duration_back": 120,
+     "link": "/search/MIL1510KRK18101?t=FR17602035001760209800000110BGYKRK"},
+    {"origin": "MIL", "destination": "BCN", "origin_airport": "MXP", "destination_airport": "BCN",
+     "price": 52, "airline": "VY", "flight_number": "6331",
+     "departure_at": "2026-10-16T09:10:00+02:00", "return_at": "2026-10-22T19:40:00+02:00",
+     "transfers": 0, "return_transfers": 0, "duration": 210, "duration_to": 100, "duration_back": 110,
+     "link": "/search/MIL1610BCN22101?t=VY17602086001760722400000100MXPBCN"},
+    {"origin": "MIL", "destination": "NYC", "origin_airport": "MXP", "destination_airport": "JFK",
+     "price": 389, "airline": "DL", "flight_number": "185",
+     "departure_at": "2026-10-24T10:30:00+02:00", "return_at": "2026-10-31T17:45:00-04:00",
+     "transfers": 1, "return_transfers": 1, "duration": 1300, "duration_to": 640, "duration_back": 660,
+     "link": "/search/MIL2410NYC31101?t=DL17612946001761947100000640MXPJFK"}
+  ]
+}

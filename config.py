@@ -37,11 +37,17 @@ class Settings(BaseSettings):
     # Search budgets: tasks per scrape cycle for each source (see scheduler/planner.py)
     google_flights_calls_per_cycle: int = Field(default=20)
     ryanair_calls_per_cycle: int = Field(default=30)
+    travelpayouts_calls_per_cycle: int = Field(default=30)
     booking_calls_per_cycle: int = Field(default=5)
 
     # Ryanair public fare API (no key). Market sets the site locale and point of sale.
     enable_ryanair: bool = Field(default=True)
     ryanair_market: str = Field(default="it-it")
+
+    # Travelpayouts / Aviasales Data API (free token: https://www.travelpayouts.com).
+    # The source is disabled while the token is empty; the marker adds affiliate tracking to links.
+    travelpayouts_token: str = Field(default="")
+    travelpayouts_marker: str = Field(default="")
 
     # Deal feeds behind bot protection (Cloudflare / JS SPA) — off unless you have a workaround
     enable_secret_flying: bool = Field(default=False)

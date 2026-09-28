@@ -8,6 +8,7 @@ from storage.models import BookingConfidence, RawFlightResult, RawHotelResult
 # Source reliability weights (0.0–1.0)
 SOURCE_RELIABILITY: dict[str, float] = {
     "ryanair": 0.95,          # airline's own fare API
+    "travelpayouts": 0.70,    # cached prices from recent searches
     "skyscanner_api": 0.95,
     "google_flights": 0.90,
     "booking_com_api": 0.90,
