@@ -11,10 +11,12 @@ from typing import Dict, List, Optional
 import httpx
 
 from config import get_settings
+from preferences import get_preferences
 from scrapers.base import BaseFlightScraper, ScrapeStatus, build_client
 from storage.models import RawFlightResult, SearchTask
 from utils import airports
 from utils.logging_config import get_logger
+from utils.markets import first_home_airport, home_country
 from utils.retry import async_retry
 
 log = get_logger(__name__)
@@ -137,6 +139,12 @@ def _save_cache(data: dict) -> None:
         _CACHE_PATH.write_text(json.dumps(data, indent=2))
     except Exception as exc:
         log.debug("skyscanner_cache_write_failed", error=str(exc))
+
+
+def _skyscanner_market() -> str:
+    """Skyscanner markets are country codes, with UK for Great Britain."""
+    country = home_country(get_preferences()) or "IT"
+    return "UK" if country == "GB" else country
 
 
 class SkyscannerScraper(BaseFlightScraper):
@@ -394,7 +402,7 @@ class SkyscannerScraper(BaseFlightScraper):
             "date": dep_date.strftime("%Y-%m-%d"),
             "adults": str(adults),
             "currency": "EUR",
-            "market": "IT",
+            "market": _skyscanner_market(),
             "locale": "en-US",
             "cabinClass": "economy",
         }
@@ -420,7 +428,7 @@ class SkyscannerScraper(BaseFlightScraper):
         probe_date = date.today() + timedelta(days=30)
         for path in paths:
             params = self._build_search_params(
-                "MXP", "LHR", probe_date, None, 1,
+                first_home_airport(get_preferences()), "LHR", probe_date, None, 1,
                 origin_entity, dest_entity,
             )
             try:
@@ -463,14 +471,15 @@ class SkyscannerScraper(BaseFlightScraper):
     async def _probe(self, client: httpx.AsyncClient) -> bool:
         self._airport_endpoint = await self._find_airport_endpoint(client)
 
-        origin_entity = self._get_entity_id("MXP")
+        home = first_home_airport(get_preferences())
+        origin_entity = self._get_entity_id(home)
         dest_entity = self._get_entity_id("LHR")
         if self._airport_endpoint:
             if not origin_entity:
-                origin_entity = await self._resolve_entity_id(client, "MXP")
+                origin_entity = await self._resolve_entity_id(client, home)
             if not dest_entity:
                 dest_entity = await self._resolve_entity_id(client, "LHR")
-        log.info("skyscanner_entities", mxp=origin_entity, lhr=dest_entity)
+        log.info("skyscanner_entities", origin=home, origin_entity=origin_entity, lhr=dest_entity)
 
         self._search_endpoint = await self._probe_search_endpoint(
             client, origin_entity, dest_entity,

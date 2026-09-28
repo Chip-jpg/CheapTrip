@@ -54,3 +54,22 @@ min_hotel_review_count: null
 # Use this for dream destinations you never want to miss.
 # Example: ["NRT", "JFK", "BKK", "SYD"]
 priority_destinations: []
+
+# Travellers per booking. Searches and booking links use it; prices are always shown per person.
+adults: 1
+
+# Hub airports for repositioning trips (home → hub → destination), used when
+# allow_repositioning is true.
+repositioning_hubs:
+  - LHR
+  - LGW
+  - AMS
+  - CDG
+  - FRA
+  - MAD
+  - BCN
+  - DUB
+
+# Airline/site market such as "it-it" or "en-gb" (Ryanair links and searches).
+# null = derived from the country of your first home airport.
+market: null

@@ -110,7 +110,7 @@ def _system_prompt(home_airports: Iterable[str], today: date) -> str:
         "without a clear price, hotel only).\n"
         "- Choose the cheapest option that departs from a home airport. Posts often list prices per departure "
         "airport and dates (for example '🔴 Da MILANO Malpensa' followed by '31.12 - 03.01 - 364€'): pick that "
-        "row and give its airport's IATA code (MILANO Malpensa = MXP, MILANO Bergamo = BGY, MILANO Linate = LIN). "
+        "row and give its airport's IATA code (e.g. 'MILANO Malpensa' = MXP, 'ROMA Fiumicino' = FCO). "
         "When the post names only the city, give the city's IATA code if it has one (MIL for Milano, ROM for "
         "Roma), otherwise its main airport.\n"
         "- price_eur: the price per person for that option, exactly as written in the post.\n"

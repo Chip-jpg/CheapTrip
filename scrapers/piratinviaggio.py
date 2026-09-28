@@ -36,6 +36,7 @@ from scrapers.base import BaseFeedScraper, build_client, random_headers
 from storage.database import get_feed_extractions, save_feed_extraction
 from storage.models import RawFlightResult
 from utils.logging_config import get_logger
+from utils.markets import home_country
 
 log = get_logger(__name__)
 
@@ -144,10 +145,13 @@ class PiratinViaggioScraper(BaseFeedScraper):
 
     def __init__(self) -> None:
         settings = get_settings()
-        self.enabled = settings.enable_piratinviaggio and bool(settings.anthropic_api_key)
+        italian_home = home_country(get_preferences()) == "IT"  # an Italian site: departures from Italy
+        self.enabled = settings.enable_piratinviaggio and bool(settings.anthropic_api_key) and italian_home
         if not self.enabled:
-            log.info("scraper_disabled", source=self.source_id,
-                     reason="needs ANTHROPIC_API_KEY (posts are read by Claude)")
+            reason = ("home airports are not in Italy" if not italian_home
+                      else "needs ANTHROPIC_API_KEY (posts are read by Claude)")
+            self.disabled_reason = reason
+            log.info("scraper_disabled", source=self.source_id, reason=reason)
 
     def result_from(self, option: ValidOption, url: str) -> RawFlightResult:
         return RawFlightResult(

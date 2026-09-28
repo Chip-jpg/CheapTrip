@@ -206,6 +206,9 @@ class SearchPlanner:
                 )
             plan.tasks[source.source_id] = tasks
 
+        for tasks in plan.tasks.values():
+            for task in tasks:
+                task.adults = prefs.adults
         log.info("search_plan", tasks={k: len(v) for k, v in plan.tasks.items()})
         return plan
 
@@ -217,6 +220,7 @@ class SearchPlanner:
         departure: date,
         nights: int,
         flexible_days: int = 30,
+        adults: int = 1,
     ) -> CyclePlan:
         """Tasks for a one-off search of a single route (the `search` CLI command)."""
         plan = CyclePlan()
@@ -233,5 +237,6 @@ class SearchPlanner:
                 task = SearchTask(origin=origin, destination=destination, depart_from=departure,
                                   depart_to=departure + timedelta(days=flexible_days),
                                   nights_min=nights, nights_max=nights + 3)
+            task.adults = adults
             plan.tasks[source.source_id] = [task]
         return plan
