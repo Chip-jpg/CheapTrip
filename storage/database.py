@@ -90,6 +90,24 @@ CREATE TABLE IF NOT EXISTS feed_extractions (
 )
 """
 
+# Small key/value tables: engine state (poller offset, last cycle, pause) and
+# preference overrides set from Telegram commands (values are JSON)
+_CREATE_ENGINE_STATE_TABLE = """
+CREATE TABLE IF NOT EXISTS engine_state (
+    key         TEXT PRIMARY KEY,
+    value       TEXT,
+    updated_at  TEXT NOT NULL
+)
+"""
+
+_CREATE_PREF_OVERRIDES_TABLE = """
+CREATE TABLE IF NOT EXISTS pref_overrides (
+    key         TEXT PRIMARY KEY,
+    value       TEXT,
+    updated_at  TEXT NOT NULL
+)
+"""
+
 _CREATE_SEARCH_CURSOR_TABLE = """
 CREATE TABLE IF NOT EXISTS search_cursor (
     cursor_key  TEXT PRIMARY KEY,
@@ -143,6 +161,8 @@ async def init_db() -> None:
         await db.execute(_CREATE_SCRAPER_HEALTH_TABLE)
         await db.execute(_CREATE_SEARCH_CURSOR_TABLE)
         await db.execute(_CREATE_FEED_EXTRACTIONS_TABLE)
+        await db.execute(_CREATE_ENGINE_STATE_TABLE)
+        await db.execute(_CREATE_PREF_OVERRIDES_TABLE)
         for idx_sql in _CREATE_INDEXES:
             await db.execute(idx_sql)
         await db.commit()
@@ -470,6 +490,63 @@ async def save_feed_extraction(url: str, source: str, status: str, payload: Opti
             (url, source, status, payload, datetime.utcnow().isoformat()),
         )
         await db.commit()
+
+
+async def _get_kv(table: str, key: str) -> Optional[str]:
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        cursor = await db.execute(f"SELECT value FROM {table} WHERE key = ?", (key,))
+        row = await cursor.fetchone()
+    return row[0] if row else None
+
+
+async def _set_kv(table: str, key: str, value: Optional[str]) -> None:
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        if value is None:
+            await db.execute(f"DELETE FROM {table} WHERE key = ?", (key,))
+        else:
+            await db.execute(
+                f"""
+                INSERT INTO {table} (key, value, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                """,
+                (key, value, datetime.utcnow().isoformat()),
+            )
+        await db.commit()
+
+
+async def get_state(key: str) -> Optional[str]:
+    return await _get_kv("engine_state", key)
+
+
+async def set_state(key: str, value: Optional[str]) -> None:
+    """Store (or with None, clear) an engine state value."""
+    await _set_kv("engine_state", key, value)
+
+
+async def get_pref_overrides() -> Dict[str, object]:
+    """Preference overrides set from Telegram: key → decoded JSON value."""
+    import json
+
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        rows = await (await db.execute("SELECT key, value FROM pref_overrides")).fetchall()
+    return {key: json.loads(value) for key, value in rows if value is not None}
+
+
+async def set_pref_override(key: str, value: object) -> None:
+    """Store an override as JSON; None removes it (back to the YAML value)."""
+    import json
+
+    await _set_kv("pref_overrides", key, None if value is None else json.dumps(value))
+
+
+async def count_deals_since(since: datetime) -> int:
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        row = await (await db.execute("SELECT COUNT(*) FROM deals WHERE created_at >= ?", (since.isoformat(),))).fetchone()
+    return row[0]
 
 
 async def get_search_cursor(cursor_key: str) -> int:

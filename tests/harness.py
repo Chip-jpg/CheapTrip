@@ -19,7 +19,7 @@ import yaml
 
 from config import get_settings
 from notifier.telegram import TelegramNotifier
-from preferences import get_preferences
+from preferences import apply_overrides, get_preferences
 from scrapers.aggregator import ScraperAggregator
 from scrapers.base import BaseFeedScraper, BaseFlightScraper, BaseHotelScraper, SearchCapability
 from storage.database import init_db
@@ -40,7 +40,7 @@ DEFAULT_PREFS: Dict[str, Any] = {
 def reset_caches() -> None:
     """Drop cached Settings and UserPreferences so env/YAML changes take effect."""
     get_settings.cache_clear()
-    get_preferences.cache_clear()
+    apply_overrides({})  # also clears the preferences cache
 
 
 def flight(

@@ -298,8 +298,14 @@ def format_digest(trips: List[Trip]) -> str:
     lines = ["📋 <b>DAILY TRAVEL DEALS DIGEST</b>", ""]
     lines.append(f"<i>{len(trips)} deals found today</i>")
     lines.append("─" * 20)
+    lines.extend(digest_lines(trips[:15]))
+    return "\n".join(lines)
 
-    for i, trip in enumerate(trips[:15], 1):
+
+def digest_lines(trips: List[Trip]) -> List[str]:
+    """One numbered line per trip: linked route, price, deal type, category, confidence."""
+    lines: List[str] = []
+    for i, trip in enumerate(trips, 1):
         discount_str = f" (-{trip.discount_pct:.0f}%)" if trip.discount_pct else ""
         deal_icon = "🏨+✈️" if trip.hotel and trip.outbound_flight else ("🏨" if trip.hotel else "✈️")
         if trip.deal_type == DealType.PACKAGE:
@@ -316,8 +322,7 @@ def format_digest(trips: List[Trip]) -> str:
             f"   💰 €{trip.total_cost_eur:.0f}{discount_str} | {deal_icon}{cat_str} | "
             f"{bc_emoji} {confidence.value}"
         )
-
-    return "\n".join(lines)
+    return lines
 
 
 def format_best_finds_summary(trips: List[Trip], total_found: int) -> str:
