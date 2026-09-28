@@ -54,7 +54,7 @@ async def normalize_hotels(raw: List[RawHotelResult]) -> List[HotelDeal]:
                 total_price_eur=round(price_per_night_eur * best.nights, 2),
                 rating=best.rating,
                 stars=best.stars,
-                review_count=best.review_count if hasattr(best, "review_count") else None,
+                review_count=best.review_count,
                 booking_url=best.booking_url,
                 source=best.source,
                 data_confidence_score=confidence,

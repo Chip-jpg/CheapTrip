@@ -8,6 +8,7 @@ from scrapers.base import BaseFlightScraper, BaseHotelScraper, ScrapeOutcome, Sc
 from scrapers.booking_com import BookingComScraper
 from scrapers.going import GoingScraper
 from scrapers.google_flights import GoogleFlightsScraper
+from scrapers.google_hotels import GoogleHotelsScraper
 from scrapers.health_monitor import get_health_monitor
 from scrapers.holiday_pirates import HolidayPiratesFlightScraper, HolidayPiratesHotelScraper
 from scrapers.ryanair import RyanairScraper
@@ -34,6 +35,7 @@ def build_flight_scrapers() -> List[BaseFlightScraper]:
 
 def build_hotel_scrapers() -> List[BaseHotelScraper]:
     return [
+        GoogleHotelsScraper(),
         BookingComScraper(),
         HolidayPiratesHotelScraper(),
     ]

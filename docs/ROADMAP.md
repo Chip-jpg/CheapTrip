@@ -142,6 +142,13 @@ Decision: we are not investing further in Skyscanner. This branch only stops it 
 
 ### Phase 3 — Deal logic quality
 
+- **Outcome (Round 1):**
+  - Google Hotels cards parse cleanly (name, nightly and total price, rating, reviews, class, dates), but **dates can't be set**. `checkin`/`checkout` URL parameters and dates in the query text are ignored.
+  - The `ts=` encoding couldn't be captured: headless Chromium didn't respond to date-picker clicks.
+  - The scraper ships **disabled**. It only keeps cards whose own dates match the requested stay, and otherwise reports BLOCKED.
+  - Booking.com HTML is blocked by AWS WAF and is also off by default.
+  - A working hotel source is a **re-plan decision**: RapidAPI Booking, Playwright-driven Booking, or a hotel data API.
+
 **B15 `fix/trip-assembly`** (L) — depends on B10
 - **(confirmed)** The builder filters origins against the hardcoded LAYER_1/2/3 lists (`builder.py:127,147`). If `home_airports` is changed to e.g. TRN, every trip is dropped. Use preferences instead.
 - Flight-only trips have `nights=None`, so they default to the SHORT profile with a 12h cap. Long-haul flights over 12h are then marked infeasible and downgraded. Also propagate the profile from the search params.
@@ -246,7 +253,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B11 | `feat/source-ryanair` (Wizz dropped) | done |
 | B12 | `feat/source-travelpayouts` | done (needs a token to go live) |
 | B13 | `fix/google-flights` | done |
-| B14 | `fix/hotel-sources` | todo |
+| B14 | `fix/hotel-sources` | done (no working hotel source yet — re-plan) |
 | B15 | `fix/trip-assembly` | todo |
 | B16 | `fix/price-history-anomaly` | todo |
 | B17 | `feat/fuzzy-dedup` | todo |

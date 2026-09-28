@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     ryanair_calls_per_cycle: int = Field(default=30)
     travelpayouts_calls_per_cycle: int = Field(default=30)
     booking_calls_per_cycle: int = Field(default=5)
+    google_hotels_calls_per_cycle: int = Field(default=10)
 
     # Ryanair public fare API (no key). Market sets the site locale and point of sale.
     enable_ryanair: bool = Field(default=True)
@@ -49,6 +50,11 @@ class Settings(BaseSettings):
     # The source is disabled while the token is empty; the marker adds affiliate tracking to links.
     travelpayouts_token: str = Field(default="")
     travelpayouts_marker: str = Field(default="")
+
+    # Hotel sources. Booking.com answers plain HTTP with an AWS WAF challenge; Google Hotels
+    # can't be given dates yet (see scrapers/google_hotels.py). Both are off by default.
+    enable_booking_html: bool = Field(default=False)
+    enable_google_hotels: bool = Field(default=False)
 
     # Deal feeds behind bot protection (Cloudflare / JS SPA) — off unless you have a workaround
     enable_secret_flying: bool = Field(default=False)

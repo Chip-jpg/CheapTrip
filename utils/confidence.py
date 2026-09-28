@@ -12,6 +12,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "skyscanner_api": 0.95,
     "google_flights": 0.90,
     "booking_com_api": 0.90,
+    "google_hotels": 0.85,
     "kayak": 0.85,
     "momondo": 0.85,
     "secret_flying": 0.80,

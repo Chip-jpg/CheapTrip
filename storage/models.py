@@ -239,8 +239,9 @@ class RawHotelResult(BaseModel):
     price_per_night: float
     currency: str
     nights: int
-    rating: Optional[float] = None
+    rating: Optional[float] = None  # out of 10
     stars: Optional[int] = None
+    review_count: Optional[int] = None
     booking_url: Optional[str] = None
     source: str
     scraped_at: datetime = Field(default_factory=datetime.utcnow)
