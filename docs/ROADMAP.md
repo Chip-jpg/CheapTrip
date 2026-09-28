@@ -274,7 +274,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B17 | `feat/fuzzy-dedup` | done |
 | B18 | `fix/repositioning` | todo |
 | B19 | `feat/hotel-only-deals` | todo |
-| B20 | `feat/telegram-commands` | todo |
+| B20 | `feat/telegram-commands` | done |
 | B21 | `feat/ai-feed-extraction` | done (live model run needs ANTHROPIC_API_KEY) |
 | B22 | `feat/generalize-preferences` | todo |
 | B23 | `chore/ops-hardening` | todo |

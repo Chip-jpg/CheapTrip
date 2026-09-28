@@ -16,6 +16,7 @@ from filters.hard_filters import apply_hard_filters
 from filters.time_decay import apply_time_decay
 from normalizers.flight import normalize_flights
 from normalizers.hotel import normalize_hotels
+from notifier.commands import LAST_CYCLE_KEY, CommandBot, load_overrides, paused_until
 from notifier.telegram import TelegramNotifier
 from preferences import get_preferences
 from scheduler.planner import SearchPlanner
@@ -27,6 +28,7 @@ from storage.database import (
     get_pending_instant_alerts,
     init_db,
     purge_old_rows,
+    set_state,
 )
 from storage.models import Trip
 from trip_builder.builder import build_trips
@@ -83,6 +85,7 @@ async def run_pipeline_cycle(
     log.info("pipeline_cycle_start", ts=cycle_start.isoformat())
 
     try:
+        await load_overrides()  # /mute, /priority, /budget from Telegram
         prefs = get_preferences()
         aggregator.begin_cycle()
         try:
@@ -163,17 +166,22 @@ async def run_pipeline_cycle(
         stale = await downgrade_stale_instants(DECAY_INSTANT_CUTOFF)
         if stale:
             log.info("stale_instants_moved_to_digest", count=stale)
+        paused = await paused_until()
         pending = await get_pending_instant_alerts(limit=PENDING_INSTANT_LIMIT)
-        if pending:
+        if paused:
+            # /pause: deals are still found and saved; unsent instants reach the digest after the sweep
+            log.info("alerts_paused", until=paused.isoformat(), pending=len(pending))
+        elif pending:
             sent = await notifier.process_instant_queue(pending)
             log.info("instant_alerts_sent", count=sent, queued=len(pending))
 
         # ── Send cycle summary of best cheap finds ───────────────────────────
         all_found = new_instant + new_digest
-        if all_found and not new_instant:
+        if all_found and not new_instant and not paused:
             await _send_best_finds_summary(all_found, notifier)
 
         await _report_health(notifier)
+        await set_state(LAST_CYCLE_KEY, datetime.utcnow().isoformat())
 
         duration = (datetime.utcnow() - cycle_start).total_seconds()
         log.info("pipeline_cycle_complete", duration_s=round(duration, 1))
@@ -239,6 +247,10 @@ async def run_daily_digest(notifier: Optional[TelegramNotifier] = None) -> None:
     notifier = notifier or _notifier
     log.info("digest_run_start")
     try:
+        until = await paused_until()
+        if until:
+            log.info("digest_paused", until=until.isoformat())
+            return
         trips = select_digest_trips(await get_digest_deals(limit=100))
         if trips:
             await notifier.send_digest(trips)
@@ -310,12 +322,18 @@ async def run_forever() -> None:
         f"Monitoring {len(POPULAR_DESTINATIONS)} destinations"
     )
 
+    # Telegram commands (/deals, /mute, /pause, ...) are polled alongside the scheduler
+    stop = asyncio.Event()
+    commands = asyncio.create_task(CommandBot(_notifier).run(stop))
+
     # Run immediately on startup
     await run_pipeline_cycle()
 
     try:
         while True:
             await asyncio.sleep(60)
-    except (KeyboardInterrupt, SystemExit):
+    except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
         log.info("scheduler_stopping")
+        stop.set()
+        await asyncio.gather(commands, return_exceptions=True)
         scheduler.shutdown(wait=False)
