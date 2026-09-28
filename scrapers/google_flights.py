@@ -32,6 +32,7 @@ from scrapers.base import BaseFlightScraper, ScrapeStatus, SearchCapability, bui
 from storage.models import RawFlightResult, SearchTask
 from utils import protobuf as pb
 from utils.logging_config import get_logger
+from utils.timeutil import utcnow
 
 log = get_logger(__name__)
 
@@ -165,7 +166,7 @@ class GoogleFlightsScraper(BaseFlightScraper):
         return get_settings().google_flights_calls_per_cycle
 
     def begin_cycle(self) -> None:
-        if self._cooldown_until and datetime.utcnow() >= self._cooldown_until:
+        if self._cooldown_until and utcnow() >= self._cooldown_until:
             log.info("gf_cooldown_over")
             self._cooldown_until = None
             self.enabled = True
@@ -173,7 +174,7 @@ class GoogleFlightsScraper(BaseFlightScraper):
 
     def _start_cooldown(self) -> None:
         hours = get_settings().google_flights_cooldown_hours
-        self._cooldown_until = datetime.utcnow() + timedelta(hours=hours)
+        self._cooldown_until = utcnow() + timedelta(hours=hours)
         self.enabled = False
         self.disabled_reason = f"cooling down until {self._cooldown_until:%H:%M} UTC after a block"
         log.warning("gf_cooldown_started", until=self._cooldown_until.isoformat())

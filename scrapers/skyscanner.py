@@ -18,6 +18,7 @@ from utils import airports
 from utils.logging_config import get_logger
 from utils.markets import first_home_airport, home_country
 from utils.retry import async_retry
+from utils.timeutil import utcnow
 
 log = get_logger(__name__)
 
@@ -170,6 +171,7 @@ class SkyscannerScraper(BaseFlightScraper):
         self._probed = False
         # Opt-in: RapidAPI quotas are small and this source is no longer invested in.
         self.enabled = bool(self._key) and settings.enable_skyscanner
+        self.disabled_reason = None if self.enabled else "needs RAPIDAPI_KEY and ENABLE_SKYSCANNER=true"
         self._logged_sample = False
         self._logged_airport_sample = False
 
@@ -229,10 +231,10 @@ class SkyscannerScraper(BaseFlightScraper):
         return self._max_calls_per_cycle
 
     def _is_paused(self) -> bool:
-        return self._paused_until is not None and datetime.utcnow() < self._paused_until
+        return self._paused_until is not None and utcnow() < self._paused_until
 
     def _pause_until_next_utc_midnight(self) -> None:
-        tomorrow = datetime.utcnow().date() + timedelta(days=1)
+        tomorrow = utcnow().date() + timedelta(days=1)
         self._paused_until = datetime.combine(tomorrow, dtime.min)
         log.warning("skyscanner_rate_limited_paused", until=self._paused_until.isoformat())
 

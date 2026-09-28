@@ -156,6 +156,7 @@ class HolidayPiratesFlightScraper(BaseFeedScraper):
     def __init__(self) -> None:
         # holidaypirates.com is the UK edition (GBP packages from UK airports); B21 reads the Italian site
         self.enabled = get_settings().enable_holiday_pirates
+        self.disabled_reason = None if self.enabled else "UK edition, GBP packages (ENABLE_HOLIDAY_PIRATES=true)"
 
     @async_retry(
         max_attempts=3, min_wait=2.0, max_wait=15.0,
@@ -234,6 +235,7 @@ class HolidayPiratesHotelScraper(BaseHotelScraper):
 
     def __init__(self) -> None:
         self.enabled = get_settings().enable_holiday_pirates
+        self.disabled_reason = None if self.enabled else "UK edition, GBP packages (ENABLE_HOLIDAY_PIRATES=true)"
 
     @async_retry(
         max_attempts=3, min_wait=2.0, max_wait=15.0,

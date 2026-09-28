@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from utils.timeutil import utcnow
+
 
 class DealType(str, Enum):
     FLIGHT_ONLY = "flight_only"
@@ -59,7 +61,7 @@ class FlightLeg(BaseModel):
     booking_url: Optional[str] = None
     source: str = ""
     data_confidence_score: float = Field(ge=0.0, le=1.0, default=0.5)
-    scraped_at: datetime = Field(default_factory=datetime.utcnow)
+    scraped_at: datetime = Field(default_factory=utcnow)
     raw_currency: str = "EUR"
     raw_price: float = 0.0
     travel_window: Optional[str] = None
@@ -105,7 +107,7 @@ class HotelDeal(BaseModel):
     booking_url: Optional[str] = None
     source: str = ""
     data_confidence_score: float = Field(ge=0.0, le=1.0, default=0.5)
-    scraped_at: datetime = Field(default_factory=datetime.utcnow)
+    scraped_at: datetime = Field(default_factory=utcnow)
     raw_currency: str = "EUR"
     raw_price_per_night: float = 0.0
     check_in: Optional[date] = None
@@ -189,7 +191,7 @@ class Trip(BaseModel):
     # Price of the same deal seen earlier, when this one is a real drop (filters.deduplication)
     previous_price_eur: Optional[float] = None
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
     hash: str = ""
 
     def compute_hash(self) -> str:
@@ -237,7 +239,7 @@ class RawFlightResult(BaseModel):
     airline: Optional[str] = None
     booking_url: Optional[str] = None
     source: str
-    scraped_at: datetime = Field(default_factory=datetime.utcnow)
+    scraped_at: datetime = Field(default_factory=utcnow)
     # Deal feeds: free-text travel window ("Nov–Mar") and error-fare flag from the source
     travel_window: Optional[str] = None
     is_error_fare_hint: bool = False
@@ -271,7 +273,7 @@ class RawHotelResult(BaseModel):
     review_count: Optional[int] = None
     booking_url: Optional[str] = None
     source: str
-    scraped_at: datetime = Field(default_factory=datetime.utcnow)
+    scraped_at: datetime = Field(default_factory=utcnow)
     check_in: Optional[date] = None
     check_out: Optional[date] = None
     # From a deal-site post (B19): becomes a hotel-only deal, never paired with flights

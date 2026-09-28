@@ -44,6 +44,7 @@ from storage.database import (
 from storage.models import AlertTier
 from utils import airports
 from utils.logging_config import get_logger
+from utils.timeutil import utcnow
 
 log = get_logger(__name__)
 
@@ -72,7 +73,7 @@ async def paused_until() -> Optional[datetime]:
     if not value:
         return None
     until = datetime.fromisoformat(value)
-    return until if until > datetime.utcnow() else None
+    return until if until > utcnow() else None
 
 
 async def load_overrides() -> None:
@@ -124,7 +125,7 @@ async def _cmd_deals(args: List[str]) -> str:
 async def _cmd_status(args: List[str]) -> str:
     prefs = get_preferences()
     last = await get_state(LAST_CYCLE_KEY)
-    midnight = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    midnight = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     sent_today = len(await get_recent_alert_timestamps(AlertTier.INSTANT, within_hours=24))
     until = await paused_until()
     lines = [
@@ -191,7 +192,7 @@ async def _cmd_pause(args: List[str]) -> str:
         return "Usage: /pause or /pause 12 (hours)"
     if hours <= 0:
         return "Usage: /pause or /pause 12 (hours)"
-    until = datetime.utcnow() + timedelta(hours=hours)
+    until = utcnow() + timedelta(hours=hours)
     await set_state(PAUSED_UNTIL_KEY, until.isoformat())
     return f"⏸ Alerts paused until {until:%d %b %H:%M} UTC. Searching continues; /resume to undo."
 

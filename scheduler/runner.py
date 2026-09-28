@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
-from datetime import datetime
+import signal
 from typing import Dict, List, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -33,6 +33,7 @@ from storage.database import (
 from storage.models import Trip
 from trip_builder.builder import build_trips
 from utils.logging_config import get_logger
+from utils.timeutil import utcnow
 
 log = get_logger(__name__)
 
@@ -81,7 +82,7 @@ async def run_pipeline_cycle(
     """
     aggregator = aggregator or _get_aggregator()
     notifier = notifier or _notifier
-    cycle_start = datetime.utcnow()
+    cycle_start = utcnow()
     log.info("pipeline_cycle_start", ts=cycle_start.isoformat())
 
     try:
@@ -181,9 +182,9 @@ async def run_pipeline_cycle(
             await _send_best_finds_summary(all_found, notifier)
 
         await _report_health(notifier)
-        await set_state(LAST_CYCLE_KEY, datetime.utcnow().isoformat())
+        await set_state(LAST_CYCLE_KEY, utcnow().isoformat())
 
-        duration = (datetime.utcnow() - cycle_start).total_seconds()
+        duration = (utcnow() - cycle_start).total_seconds()
         log.info("pipeline_cycle_complete", duration_s=round(duration, 1))
 
     except Exception as exc:
@@ -322,18 +323,31 @@ async def run_forever() -> None:
         f"Monitoring {len(POPULAR_DESTINATIONS)} destinations"
     )
 
-    # Telegram commands (/deals, /mute, /pause, ...) are polled alongside the scheduler
+    # SIGTERM (docker stop) and SIGINT (Ctrl-C) end the loop cleanly
     stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except (NotImplementedError, RuntimeError):  # e.g. Windows
+            pass
+
+    # Telegram commands (/deals, /mute, /pause, ...) are polled alongside the scheduler
     commands = asyncio.create_task(CommandBot(_notifier).run(stop))
 
     # Run immediately on startup
     await run_pipeline_cycle()
 
     try:
-        while True:
-            await asyncio.sleep(60)
-    except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
-        log.info("scheduler_stopping")
+        await stop.wait()
+    except asyncio.CancelledError:
         stop.set()
-        await asyncio.gather(commands, return_exceptions=True)
-        scheduler.shutdown(wait=False)
+    log.info("scheduler_stopping")
+    scheduler.shutdown(wait=True)
+    await asyncio.gather(commands, return_exceptions=True)
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.remove_signal_handler(sig)
+        except (NotImplementedError, RuntimeError):
+            pass
+    log.info("engine_stopped")

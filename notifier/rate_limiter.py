@@ -7,6 +7,7 @@ from typing import Deque
 
 from config import get_settings
 from utils.logging_config import get_logger
+from utils.timeutil import utcnow
 
 log = get_logger(__name__)
 
@@ -57,7 +58,7 @@ class RateLimiter:
         return rl
 
     def _prune_old(self, queue: Deque[datetime], window: timedelta) -> None:
-        cutoff = datetime.utcnow() - window
+        cutoff = utcnow() - window
         while queue and queue[0] < cutoff:
             queue.popleft()
 
@@ -66,7 +67,7 @@ class RateLimiter:
         async with self._lock:
             self._prune_old(self._instant_sent, timedelta(hours=1))
             if len(self._instant_sent) < self._instant_max:
-                self._instant_sent.append(datetime.utcnow())
+                self._instant_sent.append(utcnow())
                 return True
             return False
 
@@ -75,7 +76,7 @@ class RateLimiter:
         async with self._lock:
             self._prune_old(self._digest_sent, timedelta(hours=24))
             if len(self._digest_sent) == 0:
-                self._digest_sent.append(datetime.utcnow())
+                self._digest_sent.append(utcnow())
                 return True
             return False
 

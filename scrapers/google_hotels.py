@@ -131,6 +131,7 @@ class GoogleHotelsScraper(BaseHotelScraper):
 
     def __init__(self) -> None:
         self.enabled = get_settings().enable_google_hotels
+        self.disabled_reason = None if self.enabled else "stay dates can't be set yet (ENABLE_GOOGLE_HOTELS=true to try)"
 
     def calls_per_cycle(self) -> int:
         return get_settings().google_hotels_calls_per_cycle

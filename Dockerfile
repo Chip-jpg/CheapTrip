@@ -14,6 +14,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p data logs config
+# Run as an unprivileged user; data/, logs/ and config/ are its to write
+RUN useradd --create-home --uid 1000 app \
+    && mkdir -p data logs config \
+    && chown -R app:app /app
+USER app
 
 CMD ["python", "main.py", "run"]

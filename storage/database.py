@@ -9,6 +9,7 @@ import aiosqlite
 from config import get_settings
 from storage.models import AlertTier, DealType, Trip
 from utils.logging_config import get_logger
+from utils.timeutil import utcnow
 
 log = get_logger(__name__)
 
@@ -171,7 +172,7 @@ async def init_db() -> None:
 async def save_deal(trip: Trip, dedup_key: Optional[DedupKey] = None) -> bool:
     """Insert a deal; returns True if new, False if duplicate hash."""
     path = await get_db_path()
-    expires = datetime.utcnow() + timedelta(days=7)
+    expires = utcnow() + timedelta(days=7)
     key = dedup_key or (None, None, None, None)
     async with aiosqlite.connect(path) as db:
         try:
@@ -239,7 +240,7 @@ async def promote_deal(trip: Trip) -> bool:
     out against the route's history. Resets created_at so the stale-instant
     sweep treats it as fresh.
     """
-    now = datetime.utcnow()
+    now = utcnow()
     path = await get_db_path()
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
@@ -281,7 +282,7 @@ async def is_duplicate(trip_hash: str) -> bool:
 
 async def mark_alerted(trip_hash: str, tier: AlertTier) -> None:
     path = await get_db_path()
-    now = datetime.utcnow().isoformat()
+    now = utcnow().isoformat()
     async with aiosqlite.connect(path) as db:
         await db.execute(
             "UPDATE deals SET is_alerted = 1 WHERE hash = ?", (trip_hash,)
@@ -295,7 +296,7 @@ async def mark_alerted(trip_hash: str, tier: AlertTier) -> None:
 
 async def count_alerts_sent_last_hour(tier: AlertTier) -> int:
     path = await get_db_path()
-    cutoff = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+    cutoff = (utcnow() - timedelta(hours=1)).isoformat()
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
             "SELECT COUNT(*) FROM alerts_sent WHERE alert_tier = ? AND sent_at >= ?",
@@ -334,7 +335,7 @@ async def downgrade_stale_instants(max_age_hours: float) -> int:
     digest tier. Returns the number of deals moved.
     """
     path = await get_db_path()
-    cutoff = (datetime.utcnow() - timedelta(hours=max_age_hours)).isoformat()
+    cutoff = (utcnow() - timedelta(hours=max_age_hours)).isoformat()
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
             """
@@ -351,7 +352,7 @@ async def downgrade_stale_instants(max_age_hours: float) -> int:
 
 async def get_digest_deals(limit: int = 20) -> List[Trip]:
     path = await get_db_path()
-    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    cutoff = (utcnow() - timedelta(hours=24)).isoformat()
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
             """
@@ -381,7 +382,7 @@ async def record_prices(rows: Sequence[PriceRow], cycle_id: str) -> None:
     """Append one cycle's observed prices in a single transaction."""
     if not rows:
         return
-    now = datetime.utcnow().isoformat()
+    now = utcnow().isoformat()
     path = await get_db_path()
     async with aiosqlite.connect(path) as db:
         await db.executemany(
@@ -420,7 +421,7 @@ async def purge_old_rows(
     history_days: int = 120, expired_grace_days: int = 7, alerts_days: int = 30,
 ) -> Dict[str, int]:
     """Retention: drop old price history, deals long past expiry and old alert records."""
-    now = datetime.utcnow()
+    now = utcnow()
     history_cutoff = (now - timedelta(days=history_days)).isoformat()
     expired_cutoff = (now - timedelta(days=expired_grace_days)).isoformat()
     alerts_cutoff = (now - timedelta(days=alerts_days)).isoformat()
@@ -437,7 +438,7 @@ async def purge_old_rows(
 async def get_recent_alert_timestamps(tier: AlertTier, within_hours: float) -> list:
     """Return UTC datetimes of alerts sent for this tier within the given window."""
     path = await get_db_path()
-    cutoff = (datetime.utcnow() - timedelta(hours=within_hours)).isoformat()
+    cutoff = (utcnow() - timedelta(hours=within_hours)).isoformat()
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
             "SELECT sent_at FROM alerts_sent WHERE alert_tier = ? AND sent_at >= ?",
@@ -450,7 +451,7 @@ async def get_recent_alert_timestamps(tier: AlertTier, within_hours: float) -> l
 async def was_route_alerted_recently(route: str, within_hours: float = 6.0) -> bool:
     """True if any deal on this exact route was alerted within the window."""
     path = await get_db_path()
-    cutoff = (datetime.utcnow() - timedelta(hours=within_hours)).isoformat()
+    cutoff = (utcnow() - timedelta(hours=within_hours)).isoformat()
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
             """
@@ -487,7 +488,7 @@ async def save_feed_extraction(url: str, source: str, status: str, payload: Opti
             ON CONFLICT(url) DO UPDATE SET status = excluded.status, payload = excluded.payload,
                                            created_at = excluded.created_at
             """,
-            (url, source, status, payload, datetime.utcnow().isoformat()),
+            (url, source, status, payload, utcnow().isoformat()),
         )
         await db.commit()
 
@@ -511,7 +512,7 @@ async def _set_kv(table: str, key: str, value: Optional[str]) -> None:
                 INSERT INTO {table} (key, value, updated_at) VALUES (?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
                 """,
-                (key, value, datetime.utcnow().isoformat()),
+                (key, value, utcnow().isoformat()),
             )
         await db.commit()
 
@@ -566,6 +567,6 @@ async def set_search_cursor(cursor_key: str, position: int) -> None:
             INSERT INTO search_cursor (cursor_key, position, updated_at) VALUES (?, ?, ?)
             ON CONFLICT(cursor_key) DO UPDATE SET position = excluded.position, updated_at = excluded.updated_at
             """,
-            (cursor_key, position, datetime.utcnow().isoformat()),
+            (cursor_key, position, utcnow().isoformat()),
         )
         await db.commit()

@@ -68,6 +68,7 @@ class RyanairScraper(BaseFlightScraper):
     def __init__(self) -> None:
         settings = get_settings()
         self.enabled = settings.enable_ryanair
+        self.disabled_reason = None if self.enabled else "ENABLE_RYANAIR=false"
 
     def calls_per_cycle(self) -> int:
         return get_settings().ryanair_calls_per_cycle

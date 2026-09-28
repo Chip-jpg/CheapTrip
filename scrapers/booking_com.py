@@ -46,6 +46,7 @@ class BookingComScraper(BaseHotelScraper):
     def __init__(self) -> None:
         # Plain-HTTP scraping gets an AWS WAF challenge page; off unless you have a workaround.
         self.enabled = get_settings().enable_booking_html
+        self.disabled_reason = None if self.enabled else "AWS WAF blocks plain HTTP (ENABLE_BOOKING_HTML=true to try)"
 
     def calls_per_cycle(self) -> int:
         return get_settings().booking_calls_per_cycle

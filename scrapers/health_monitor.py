@@ -25,6 +25,7 @@ from config import get_settings
 from scrapers.base import ScrapeOutcome, ScrapeStatus
 from storage.database import get_db_path
 from utils.logging_config import get_logger
+from utils.timeutil import utcnow
 
 log = get_logger(__name__)
 
@@ -76,7 +77,7 @@ class ScraperHealth:
         if self.consecutive_failures >= 1:
             return "DEGRADED"
         stale_after = timedelta(minutes=get_settings().scrape_interval_minutes * _STALE_MULTIPLIER)
-        is_stale = self.last_success_at is None or (datetime.utcnow() - self.last_success_at) > stale_after
+        is_stale = self.last_success_at is None or (utcnow() - self.last_success_at) > stale_after
         if is_stale and self.total_runs > 2:
             return "STALE"
         if self.consecutive_empty >= _EMPTY_STREAK:
@@ -114,7 +115,7 @@ class ScraperHealthMonitor:
         return ScraperHealth.from_row(row) if row else ScraperHealth(source_id=source_id)
 
     async def record(self, outcome: ScrapeOutcome) -> ScraperHealth:
-        now = datetime.utcnow()
+        now = utcnow()
         async with aiosqlite.connect(await get_db_path()) as db:
             h = await self._load(db, outcome.source_id)
             h.last_status = outcome.status.value

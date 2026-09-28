@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import List, Tuple
 
 from config import DECAY_DIGEST_CUTOFF, DECAY_INSTANT_CUTOFF
 from storage.models import AlertTier, Trip
 from utils.logging_config import get_logger
+from utils.timeutil import utcnow
 
 log = get_logger(__name__)
 
@@ -25,7 +25,7 @@ def apply_time_decay(trips: List[Trip]) -> Tuple[List[Trip], List[Trip], List[Tr
     digest: List[Trip] = []
     archive: List[Trip] = []
 
-    now = datetime.utcnow()
+    now = utcnow()
 
     for trip in trips:
         # Age is based on the outbound flight scrape time, not trip creation
