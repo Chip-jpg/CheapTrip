@@ -5,26 +5,19 @@ from typing import List, Tuple
 from config import get_settings
 from preferences import get_preferences
 from storage.models import AlertTier, DealType, Trip
+from utils import airports
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
 
-_EUROPE_AIRPORTS = {
-    "KRK", "WAW", "PRG", "BUD", "LIS", "ATH", "DUB", "CPH", "ARN", "HEL", "OSL",
-    "VIE", "ZRH", "BRU", "EDI", "GVA", "NCE", "MRS", "OPO", "SEV", "MAH", "IBZ",
-    "PMI", "TFS", "ACE", "LPA", "LHR", "LGW", "AMS", "CDG", "FRA", "MAD", "BCN",
-    "FCO", "CIA", "MXP", "LIN", "BGY", "VCE", "VRN", "BLQ",
-}
-
-
 def _is_europe_trip(trip: Trip) -> bool:
-    dest = ""
+    """Short/medium-haul trips use the Europe price threshold."""
     if trip.outbound_flight:
-        dest = trip.outbound_flight.destination
-    elif trip.hotel:
-        # Infer from hotel location — crude but functional
-        dest = trip.hotel.location[:3].upper()
-    return dest in _EUROPE_AIRPORTS
+        return not airports.is_long_haul(trip.outbound_flight.destination, trip.outbound_flight.origin)
+    if trip.hotel:
+        dest = airports.iata_for_city(trip.hotel.location.split(",")[0])
+        return bool(dest) and not airports.is_long_haul(dest)
+    return False
 
 
 def apply_hard_filters(trips: List[Trip]) -> Tuple[List[Trip], List[Trip]]:

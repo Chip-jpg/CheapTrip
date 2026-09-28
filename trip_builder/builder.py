@@ -22,31 +22,32 @@ from trip_builder.cost_calculator import (
 )
 from trip_builder.feasibility import check_feasibility, get_trip_profile
 from trip_builder.repositioning import find_repositioning_opportunities
+from utils import airports
 from utils.confidence import compute_booking_confidence, compute_trip_confidence
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
 
-_EUROPE_DESTINATIONS = {
-    "KRK", "WAW", "PRG", "BUD", "LIS", "ATH", "DUB", "CPH", "ARN", "HEL", "OSL",
-    "VIE", "ZRH", "BRU", "EDI", "GVA", "NCE", "MRS", "OPO", "SEV", "MAH", "IBZ",
-    "PMI", "TFS", "ACE", "LPA", "LHR", "LGW", "STN", "LTN", "AMS", "CDG", "ORY",
-    "FRA", "MAD", "BCN", "GRO", "FCO", "CIA", "MXP", "LIN", "BGY", "VCE", "VRN", "BLQ",
-}
-
-
-def _is_europe(airport: str) -> bool:
-    return airport in _EUROPE_DESTINATIONS
+def _is_short_haul(origin: str, destination: str) -> bool:
+    """Short/medium-haul trips use the Europe price thresholds."""
+    return not airports.is_long_haul(destination, origin)
 
 
 def _make_route_string(origin: str, dest: str, hub: Optional[str] = None) -> str:
-    from utils.airport_clusters import cluster_display_name
-    o = cluster_display_name(origin)
-    d = cluster_display_name(dest)
+    o = airports.city_of(origin)
+    d = airports.city_of(dest)
     if hub:
-        h = cluster_display_name(hub)
+        h = airports.city_of(hub)
         return f"{o} → {h} → {d}"
     return f"{o} → {d}"
+
+
+def _hotel_airports(location: str) -> List[str]:
+    """Airports serving a hotel's location ("Krakow" or "Krakow, Poland")."""
+    codes = airports.airports_in_city(location)
+    if not codes and "," in location:
+        codes = airports.airports_in_city(location.split(",")[0])
+    return codes
 
 
 def _apply_anomaly_to_trip(trip: Trip, anomaly) -> None:
@@ -130,13 +131,11 @@ async def build_trips(
     # ── 2. Complete trip (flight + hotel) ────────────────────────────────────
     # Index quality hotels by destination city (skip hotels below quality threshold)
     hotel_by_dest: dict[str, List[HotelDeal]] = {}
-    from normalizers.currency import AIRPORT_TO_CITY
     for hotel in hotel_deals:
         if not hotel.meets_quality_threshold:
             continue
-        for airport, city in AIRPORT_TO_CITY.items():
-            if city.lower() in hotel.location.lower():
-                hotel_by_dest.setdefault(airport, []).append(hotel)
+        for airport in _hotel_airports(hotel.location):
+            hotel_by_dest.setdefault(airport, []).append(hotel)
 
     # Also index by cluster membership
     from utils.airport_clusters import expand_to_cluster
@@ -177,7 +176,7 @@ async def _build_flight_only_trip(leg: FlightLeg) -> Optional[Trip]:
     median = await get_price_median(f"{leg.origin}-{leg.destination}")
     normal = estimate_normal_price(route, median, None, 0)
     discount = compute_discount_pct(leg.price_eur, normal)
-    is_europe = _is_europe(leg.destination)
+    is_europe = _is_short_haul(leg.origin, leg.destination)
 
     verdict = assign_verdict(leg.price_eur, discount, leg.data_confidence_score, is_europe)
 
@@ -227,7 +226,7 @@ async def _build_complete_trip(leg: FlightLeg, hotel: HotelDeal) -> Optional[Tri
     normal = estimate_normal_price(route, flight_median, None, nights)
 
     discount = compute_discount_pct(total_cost, normal)
-    is_europe = _is_europe(leg.destination)
+    is_europe = _is_short_haul(leg.origin, leg.destination)
     confidence = compute_trip_confidence([leg.data_confidence_score, hotel.data_confidence_score])
     verdict = assign_verdict(total_cost, discount, confidence, is_europe)
 
@@ -273,7 +272,7 @@ async def _build_repositioned_trip(
     total_cost: float,
 ) -> Optional[Trip]:
     route = _make_route_string(repo_leg.origin, onward_flight.destination, repo_leg.hub)
-    is_europe = _is_europe(onward_flight.destination)
+    is_europe = _is_short_haul(repo_leg.origin, onward_flight.destination)
 
     confidence = compute_trip_confidence(
         [repo_leg.data_confidence_score, onward_flight.data_confidence_score]
@@ -308,7 +307,8 @@ def _assign_alert_tier(trip: Trip) -> AlertTier:
 
     cost = trip.total_cost_eur
     dest = trip.outbound_flight.destination if trip.outbound_flight else ""
-    is_europe = _is_europe(dest)
+    origin = trip.outbound_flight.origin if trip.outbound_flight else None
+    is_europe = not airports.is_long_haul(dest, origin) if dest else False
 
     # Priority wishlist: always instant regardless of price
     if dest and dest in prefs.priority_destinations:

@@ -9,9 +9,9 @@ from typing import List, Optional
 import httpx
 from bs4 import BeautifulSoup
 
-from normalizers.currency import AIRPORT_TO_CITY
 from scrapers.base import BaseHotelScraper, build_client, random_headers
 from storage.models import RawHotelResult, ScraperParams
+from utils import airports
 from utils.logging_config import get_logger
 from utils.retry import async_retry
 
@@ -141,7 +141,7 @@ class BookingComScraper(BaseHotelScraper):
 
         locations = []
         for dest in params.destinations[:5]:
-            city = AIRPORT_TO_CITY.get(dest, dest)
+            city = airports.city_of(dest)
             locations.append(city)
 
         async with build_client(timeout=25.0) as client:

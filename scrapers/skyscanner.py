@@ -12,6 +12,7 @@ import httpx
 from config import get_settings
 from scrapers.base import BaseFlightScraper, build_client
 from storage.models import RawFlightResult, ScraperParams
+from utils import airports
 from utils.logging_config import get_logger
 from utils.retry import async_retry
 
@@ -105,49 +106,6 @@ _IATA_TO_SKYID: Dict[str, str] = {
     "NRT": "TYOA", "HND": "TYOA",
     "MXP": "MILA", "LIN": "MILA", "BGY": "MILA",
 }
-
-# IATA → city name for airport resolution fallback
-_IATA_TO_CITY: Dict[str, str] = {
-    "LHR": "London", "LGW": "London", "STN": "London", "LTN": "London",
-    "CDG": "Paris", "ORY": "Paris",
-    "FCO": "Rome", "CIA": "Rome",
-    "JFK": "New York", "EWR": "Newark",
-    "NRT": "Tokyo", "HND": "Tokyo",
-    "AMS": "Amsterdam", "FRA": "Frankfurt",
-    "MAD": "Madrid", "BCN": "Barcelona",
-    "DUB": "Dublin", "CPH": "Copenhagen",
-    "ARN": "Stockholm", "HEL": "Helsinki",
-    "OSL": "Oslo", "VIE": "Vienna",
-    "ZRH": "Zurich", "BRU": "Brussels",
-    "EDI": "Edinburgh", "GVA": "Geneva",
-    "NCE": "Nice", "MRS": "Marseille",
-    "OPO": "Porto", "LIS": "Lisbon",
-    "ATH": "Athens", "BUD": "Budapest",
-    "PRG": "Prague", "WAW": "Warsaw",
-    "KRK": "Krakow", "MXP": "Milan",
-    "LIN": "Milan", "BGY": "Milan",
-    "VCE": "Venice", "VRN": "Verona",
-    "BLQ": "Bologna", "PMI": "Palma",
-    "IBZ": "Ibiza", "TFS": "Tenerife",
-    "ACE": "Lanzarote", "LPA": "Gran Canaria",
-    "LAX": "Los Angeles", "MIA": "Miami",
-    "ORD": "Chicago", "BOS": "Boston",
-    "YYZ": "Toronto", "YVR": "Vancouver",
-    "ICN": "Seoul", "HKG": "Hong Kong",
-    "BKK": "Bangkok", "SIN": "Singapore",
-    "KUL": "Kuala Lumpur", "DXB": "Dubai",
-    "DOH": "Doha", "TLV": "Tel Aviv",
-    "GRU": "Sao Paulo", "EZE": "Buenos Aires",
-    "SYD": "Sydney", "MEL": "Melbourne",
-    "AKL": "Auckland", "NBO": "Nairobi",
-    "JNB": "Johannesburg", "CPT": "Cape Town",
-    "MAH": "Menorca", "GRO": "Girona",
-    "SEV": "Seville", "CAI": "Cairo",
-    "BOG": "Bogota", "LIM": "Lima",
-    "SCL": "Santiago", "CGK": "Jakarta",
-    "AUH": "Abu Dhabi",
-}
-
 
 def _deep_find_entity_id(obj: object) -> Optional[str]:
     if not isinstance(obj, dict):
@@ -304,8 +262,8 @@ class SkyscannerScraper(BaseFlightScraper):
             self._persist_cache()
             return entity_id
 
-        city = _IATA_TO_CITY.get(iata)
-        if city:
+        city = airports.city_of(iata)
+        if city and city != iata:
             entity_id = await self._try_resolve(client, city)
             if entity_id:
                 self._entity_cache[iata] = entity_id
