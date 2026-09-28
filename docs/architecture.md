@@ -1,80 +1,81 @@
 # Architecture
 
-## Pipeline overview
+## One cycle (`scheduler/runner.run_pipeline_cycle`)
 
 ```
-User Preferences (YAML)
-       │
-       ▼
-Date Discovery ──► ScraperParams[] (one per profile × date chunk)
-       │
-       ▼
-ScraperAggregator (concurrent)
-  ├── Flight scrapers × 5  ──► RawFlightResult[]
-  └── Hotel scrapers × 2   ──► RawHotelResult[]
-       │
-       ▼
-Normalizers
-  ├── normalize_flights() → FlightLeg[] (EUR prices + confidence)
-  └── normalize_hotels()  → HotelDeal[] (EUR prices + quality flag)
-       │
-       ▼
-TripBuilder
-  ├── Flight-only deals
-  ├── Complete trips (flight + hotel, cluster-matched)
-  └── Repositioned multi-leg trips
-       │ (each trip gets: feasibility check, category, anomaly detection, booking confidence)
-       ▼
-HardFilters
-  ├── Hotel quality gate (rating threshold, except big discounts)
-  ├── Feasibility gate (infeasible → max DIGEST)
-  ├── Price thresholds (Europe <€120, long-haul <€450)
-  └── Discount thresholds (flights >60%, hotels >60%)
-       │
-       ▼
-TimeDecay → Deduplication (SHA-256 hash vs DB)
-       │
-       ▼
-TelegramNotifier
-  ├── Instant queue (sorted: booking_confidence → data_confidence → cost)
-  └── Daily digest (top 15 deals)
+load Telegram overrides ─► preferences (YAML + /mute, /priority, /budget)
+        │
+        ▼
+retention purge ─► price history > 120 days, deals expired > 7 days, old alert records
+        │
+        ▼
+SearchPlanner.plan ─► tasks per source (scheduler/planner.py)
+        │   • each source declares a capability: ANYWHERE (Ryanair, Travelpayouts),
+        │     ROUTE_DATE (Google Flights, Skyscanner), CITY_DATES (hotels), FEED (posts)
+        │   • a per-source budget (calls_per_cycle) and a rotation cursor stored in the DB,
+        │     so every destination and date slot is covered over successive cycles
+        │   • priority destinations get up to half of a route source's budget
+        │   • long-haul sources give 20% to searches from repositioning hubs
+        ▼
+ScraperAggregator ─► feeds once, search sources with their tasks, hotels (concurrently)
+        │   every outcome (ok / empty / partial / error / rate_limited / blocked / disabled)
+        │   is recorded in scraper_health; FAILING and recovered notices go to Telegram once
+        ▼
+normalize_flights / normalize_hotels ─► EUR, confidence, grouping per itinerary / stay
+        │
+        ▼
+build_trips (trip_builder/builder.py)
+        │   flight-only · package · hotel-only · complete (same dates) · repositioned
+        │   stay length → trip profile → feasibility (travel hours vs trip length) → category
+        │   PriceIndex: baseline per (origin city, destination city, round trip / one way,
+        │   length profile, month) from EARLIER cycles → normal price, discount, anomaly
+        │   this cycle's dated search fares are then added to price_history
+        ▼
+collapse_similar ─► one trip per (cities, kind, length profile) within ±2 days: the cheapest;
+        │            identical itineraries from several sources merge their source lists
+        ▼
+apply_hard_filters ─► discard: zero price, muted destination, over budget, low-quality hotel,
+        │              too few hotel reviews; then decide_tier (filters/alert_policy.py)
+        ▼
+apply_time_decay ─► instant deals older than 6h become digest
+        │
+        ▼
+deduplicate_trips ─► same deal saved in the last 7 days? duplicate, unless ≥5% cheaper
+        │             ("price dropped from €X") or instant for the first time
+        ▼
+pending instant queue ─► sorted by discount, sent up to INSTANT_ALERTS_PER_HOUR;
+                          the same route alerts at most every 6h unless the price dropped
 ```
+
+`run_forever` also starts the Telegram command poller (`notifier/commands.py`), schedules the daily digest, records the last completed cycle (used by `main.py healthcheck`) and stops cleanly on SIGTERM.
 
 ## Key design decisions
 
-### No AI for price computation
-Claude Haiku is used exclusively for formatting alert messages. All prices, discounts, and verdicts are computed deterministically in Python. A post-format safety check verifies that AI output preserves all `€NNN` values.
+### No AI for prices
+All prices, discounts and tiers are computed in Python. Claude is used in two places:
+- **Alert polish** (optional, `ai_layer/formatter.py`): the polished text is rejected unless every number, airport code and link survives unchanged.
+- **Reading deal posts** (`ai_layer/extractor.py`): structured output (`messages.parse` with a Pydantic schema); every answer is validated against the post (known airports, price written in the text, future dates) and cached per URL, so each post is read once.
 
-### Confidence scoring
-Each piece of data carries a `data_confidence_score` (0.0–1.0) built from:
-- **Freshness** (30%): How recently was this scraped?
-- **Source count** (20%): How many independent sources agree?
-- **Field completeness** (25%): Are all expected fields present?
-- **Source reliability** (25%): Known reliability weight per source
+### Price history without self-comparison
+A fare is judged only against earlier cycles of the same route, trip length and month. A key needs at least 6 observations from 2 cycles before it has a baseline. Feed posts and undated fares never enter the history.
 
-The separate `BookingConfidence` enum (HIGH/MEDIUM/LOW) is a human-readable tier for alert priority.
+### Airports
+`utils/airports.py` loads ~3,200 airports (OurAirports, public domain) with regions, distances and curated city names; `utils/airport_clusters.py` groups airports of one city (Milan = MXP + LIN + BGY, London = LHR + LGW + STN + LTN + ...). Unknown airports reported by a source are learned at runtime.
 
-### Airport clusters
-Airports serving the same city are grouped into clusters (Milan = MXP+LIN+BGY). The engine automatically expands any airport to its full cluster when scraping, so MXP origin searches LIN and BGY too. Route strings use the city name (e.g., "Milan → London") rather than individual airport codes.
+### Confidence
+Each fare gets a `data_confidence_score` (freshness, number of sources, field completeness, source reliability). The `BookingConfidence` tier (HIGH / MEDIUM / LOW) gates instant alerts.
 
-### Historical price analytics
-Each recorded price is stored in `price_history`. Anomaly detection computes:
-- 30-day and 90-day averages
-- 30-day standard deviation
-- All-time low for the route
-A price is flagged as anomalous if it is >2σ below the 30-day average, or an all-time low, or >30% below the recent median.
+## Database (SQLite, `storage/database.py`)
 
-### Repositioning rules
-A repositioning deal is only valid if:
-- The repositioning leg saves ≥€80 OR ≥25% vs direct flight
-- Layover at the hub is ≥2 hours
-- The route is not domestic-only
+| Table | Contents |
+|---|---|
+| `deals` | Every saved trip: tier, sent flag, JSON payload, dedup key and departure date |
+| `alerts_sent` | Delivery history (rate limiting) |
+| `price_history` | Fare observations with their key (cities, trip type, length, month) and cycle |
+| `scraper_health` | Last outcome, streaks and notices per source |
+| `search_cursor` | Planner rotation positions |
+| `feed_extractions` | Cached post extractions per URL |
+| `engine_state` | Telegram update offset, last cycle time, pause |
+| `pref_overrides` | Preferences changed from Telegram |
 
-### Database schema
-
-```sql
-deals        — all discovered trips (hash-unique, JSON payload)
-alerts_sent  — alert delivery history (for rate limiting)
-price_history — raw price observations per route
-price_stats  — computed aggregates per route (avg_30d, std_dev, all_time_low)
-```
+`init_db()` creates missing tables and columns on startup, so upgrades need no manual migration.

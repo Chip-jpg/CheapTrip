@@ -1,6 +1,17 @@
 # CheapTrip — Status Report & Branch Roadmap
 
-_Last reviewed: 2026-09-28, at commit `85711de`._
+## Where things stand (end of Round 3)
+
+Every card below (B01–B27) is merged into `main`; the progress tracker at the end has the details. In short:
+
+- **Data:** Ryanair's fare API is the backbone (about 750 fares per cycle), Google Flights adds exact-route searches with a cooldown when Google throttles, and Travelpayouts is ready once a token is set. PiratinViaggio posts (flights, packages, hotels) are read by Claude when an Anthropic key is set.
+- **Alerts:** a fare is instant when it is well below the usual price for its route, length and month in earlier cycles (or a priority destination, a possible error fare, or under the €25/€250 backstop). Near-duplicates merge, and a known deal alerts again only after a real price drop.
+- **Control:** Telegram commands (`/deals`, `/mute`, `/priority`, `/budget`, `/pause`), any home airport, `main.py doctor` and a Docker healthcheck.
+- **Still open:** real hotel prices (flight alerts link a Booking.com search instead), and live runs of the Claude reader and Telegram commands, which need the owner's keys.
+
+The rest of this document is the original review and plan; its "Status at a glance" section describes the code before Round 1.
+
+_Original review: 2026-09-28, at commit `85711de`._
 
 ## Context
 This is a full review of the codebase (~7.8k lines, 71 files): where things stand, plus a work plan that splits every missing or broken feature into its own branch. We work through them one at a time.
@@ -278,7 +289,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B21 | `feat/ai-feed-extraction` | done (live model run needs ANTHROPIC_API_KEY) |
 | B22 | `feat/generalize-preferences` | done |
 | B23 | `chore/ops-hardening` | done |
-| B24 | `docs/sync` | todo |
+| B24 | `docs/sync` | done |
 | B25 | `fix/city-names` | done |
 | B26 | `feat/hotel-search-link` | done |
 | B27 | `fix/first-anomaly-google-calm` | done |
