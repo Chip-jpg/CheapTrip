@@ -24,10 +24,12 @@ from urllib.parse import urlencode
 import httpx
 
 from config import get_settings
+from preferences import get_preferences
 from scrapers.base import BaseFlightScraper, ScrapeStatus, SearchCapability, build_client
 from storage.models import RawFlightResult, SearchTask
 from utils import airports
 from utils.logging_config import get_logger
+from utils.markets import market_for
 
 log = get_logger(__name__)
 
@@ -65,10 +67,14 @@ class RyanairScraper(BaseFlightScraper):
     def __init__(self) -> None:
         settings = get_settings()
         self.enabled = settings.enable_ryanair
-        self._market = settings.ryanair_market
 
     def calls_per_cycle(self) -> int:
         return get_settings().ryanair_calls_per_cycle
+
+    @staticmethod
+    def _market() -> str:
+        """RYANAIR_MARKET, else the preferences' market / home country ("it-it", "en-gb", ...)."""
+        return get_settings().ryanair_market or market_for(get_preferences())
 
     def _request_params(self, task: SearchTask) -> Dict[str, Any]:
         params = {
@@ -79,7 +85,7 @@ class RyanairScraper(BaseFlightScraper):
             "inboundDepartureDateTo": (task.depart_to + timedelta(days=task.nights_max)).isoformat(),
             "durationFrom": task.nights_min,
             "durationTo": task.nights_max,
-            "market": self._market,
+            "market": self._market(),
             "language": "en",
             "currency": "EUR",
         }
@@ -112,7 +118,7 @@ class RyanairScraper(BaseFlightScraper):
                     return_date=ret_time.date(),
                     airline="Ryanair",
                     booking_url=booking_url(
-                        self._market, origin, dest, dep_time.date().isoformat(), ret_time.date().isoformat(), adults,
+                        self._market(), origin, dest, dep_time.date().isoformat(), ret_time.date().isoformat(), adults,
                     ),
                     source=self.source_id,
                     departure_time=dep_time,

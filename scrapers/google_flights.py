@@ -193,11 +193,13 @@ class GoogleFlightsScraper(BaseFlightScraper):
 
         itineraries.sort(key=lambda it: it.price)
         url = search_url(task.origin, task.destination, task.depart_from, task.return_date, task.adults)
+        # The label's "total" is for the whole party (checked live: €42 for 1 adult, €84 for 2)
+        party = max(1, task.adults)
         return [
             RawFlightResult(
                 origin=task.origin,
                 destination=task.destination,
-                price=it.price,
+                price=round(it.price / party, 2),
                 currency="EUR",
                 departure_date=task.depart_from,
                 return_date=task.return_date if it.round_trip else None,

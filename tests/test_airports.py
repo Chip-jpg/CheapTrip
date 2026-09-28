@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from config import ALL_ORIGIN_AIRPORTS, POPULAR_DESTINATIONS
+from config import POPULAR_DESTINATIONS
+from preferences import UserPreferences
 from utils import airports
 from utils.airports import Region
 
@@ -90,7 +91,9 @@ def test_learn_known_airport_keeps_curated_city():
 
 
 def test_every_configured_airport_is_known():
-    missing = [c for c in set(ALL_ORIGIN_AIRPORTS + POPULAR_DESTINATIONS) if not airports.is_known(c)]
+    prefs = UserPreferences()
+    missing = [c for c in set(prefs.home_airports + prefs.repositioning_hubs + POPULAR_DESTINATIONS)
+               if not airports.is_known(c)]
     assert missing == []
 
 

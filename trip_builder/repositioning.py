@@ -3,9 +3,6 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from config import (
-    LAYER_1_AIRPORTS,
-    LAYER_2_AIRPORTS,
-    LAYER_3_HUBS,
     REPOSITIONING_MIN_LAYOVER_HOURS,
     REPOSITIONING_MIN_SAVING_EUR,
     REPOSITIONING_MIN_SAVING_PCT,
@@ -67,10 +64,13 @@ def find_repositioning_opportunities(
 
     Returns list of (repo_leg, onward_flight, total_cost).
     """
-    if primary_origins is None:
-        primary_origins = LAYER_1_AIRPORTS + LAYER_2_AIRPORTS
-    if hub_airports is None:
-        hub_airports = LAYER_3_HUBS
+    if primary_origins is None or hub_airports is None:
+        from preferences import get_preferences
+        from scheduler.planner import all_origins
+
+        prefs = get_preferences()
+        primary_origins = primary_origins if primary_origins is not None else all_origins(prefs)
+        hub_airports = hub_airports if hub_airports is not None else prefs.repositioning_hubs
 
     # Index direct flights: (origin, dest) → cheapest leg
     direct_flights: dict[Tuple[str, str], FlightLeg] = {}

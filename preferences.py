@@ -41,6 +41,15 @@ class UserPreferences(BaseModel):
 
     priority_destinations: List[str] = Field(default_factory=list)
 
+    # Travellers per booking: searches and booking links use it; prices are shown per person
+    adults: int = Field(default=1, ge=1, le=9)
+    # Hubs for repositioning trips (home → hub → destination); see allow_repositioning
+    repositioning_hubs: List[str] = Field(
+        default_factory=lambda: ["LHR", "LGW", "AMS", "CDG", "FRA", "MAD", "BCN", "DUB"]
+    )
+    # Airline/site market such as "it-it" or "en-gb"; empty = derived from the home airport's country
+    market: Optional[str] = None
+
 
 def load_preferences(path: Path = _DEFAULT_YAML_PATH) -> UserPreferences:
     """Load preferences from YAML; return defaults if file is absent or malformed."""

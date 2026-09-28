@@ -46,7 +46,8 @@ class Settings(BaseSettings):
 
     # Ryanair public fare API (no key). Market sets the site locale and point of sale.
     enable_ryanair: bool = Field(default=True)
-    ryanair_market: str = Field(default="it-it")
+    # Empty = derived from the home airport's country (preferences `market` wins over both)
+    ryanair_market: str = Field(default="")
 
     # Travelpayouts / Aviasales Data API (free token: https://www.travelpayouts.com).
     # The source is disabled while the token is empty; the marker adds affiliate tracking to links.
@@ -109,15 +110,6 @@ def get_settings() -> Settings:
     return Settings()
 
 
-# ── Airport layers ────────────────────────────────────────────────────────────
-
-LAYER_1_AIRPORTS = ["MXP", "LIN", "BGY"]
-
-LAYER_2_AIRPORTS = ["VCE", "VRN", "BLQ", "FCO", "CIA"]
-
-LAYER_3_HUBS = ["LHR", "LGW", "AMS", "CDG", "FRA", "MAD", "BCN", "DUB"]
-
-ALL_ORIGIN_AIRPORTS = LAYER_1_AIRPORTS + LAYER_2_AIRPORTS + LAYER_3_HUBS
 
 # Airport clusters, cities, regions and distances live in utils/airports.py.
 
@@ -143,7 +135,7 @@ FEASIBILITY_MIN_NIGHTS: dict[str, int] = {
     "long": 5,
 }
 
-# Primary search destinations — popular short/long haul from Italy
+# Primary search destinations — popular short and long haul from Europe
 POPULAR_DESTINATIONS = [
     # Europe
     "KRK", "WAW", "PRG", "BUD", "LIS", "ATH", "DUB", "CPH", "ARN",

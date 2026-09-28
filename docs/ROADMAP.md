@@ -276,7 +276,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B19 | `feat/hotel-only-deals` | todo |
 | B20 | `feat/telegram-commands` | done |
 | B21 | `feat/ai-feed-extraction` | done (live model run needs ANTHROPIC_API_KEY) |
-| B22 | `feat/generalize-preferences` | todo |
+| B22 | `feat/generalize-preferences` | done |
 | B23 | `chore/ops-hardening` | todo |
 | B24 | `docs/sync` | todo |
 | B25 | `fix/city-names` | done |

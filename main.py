@@ -131,7 +131,8 @@ def resolve_airports() -> None:
     Run this once when your RapidAPI rate limit resets to populate the cache.
     After that, the engine uses cached IDs and doesn't waste API calls.
     """
-    from config import ALL_ORIGIN_AIRPORTS, POPULAR_DESTINATIONS
+    from config import POPULAR_DESTINATIONS
+    from preferences import get_preferences
     from scrapers.skyscanner import SkyscannerScraper
 
     async def _run():
@@ -139,7 +140,8 @@ def resolve_airports() -> None:
         if not scraper.enabled:
             click.echo("Skyscanner scraper disabled (no RAPIDAPI_KEY). Set it in .env first.")
             return
-        all_airports = list(set(ALL_ORIGIN_AIRPORTS + POPULAR_DESTINATIONS))
+        prefs = get_preferences()
+        all_airports = sorted(set(prefs.home_airports + prefs.repositioning_hubs + POPULAR_DESTINATIONS))
         click.echo(f"Resolving {len(all_airports)} airports...")
         resolved = await scraper.resolve_all_airports(all_airports)
         click.echo(f"\nResolved {len(resolved)}/{len(all_airports)} airports:")
@@ -169,7 +171,7 @@ def health() -> None:
 
 
 @cli.command()
-@click.option("--origin", default="MXP", help="IATA origin airport")
+@click.option("--origin", default=None, help="IATA origin airport (default: your first home airport)")
 @click.option("--dest", default="KRK", help="IATA destination airport")
 @click.option("--days", default=14, help="Days from now to depart")
 @click.option("--nights", default=3, help="Number of nights")
@@ -179,16 +181,22 @@ def search(origin: str, dest: str, days: int, nights: int) -> None:
 
     from normalizers.flight import normalize_flights
     from normalizers.hotel import normalize_hotels
+    from preferences import get_preferences
     from scheduler.planner import SearchPlanner
     from scrapers.aggregator import ScraperAggregator
     from storage.database import init_db
     from trip_builder.builder import build_trips
+    from utils.markets import first_home_airport
+
+    prefs = get_preferences()
+    origin = (origin or first_home_airport(prefs)).upper()
 
     async def _run():
         await init_db()
         aggregator = ScraperAggregator()
         plan = SearchPlanner().plan_route(
-            aggregator.sources, origin.upper(), dest.upper(), date.today() + timedelta(days=days), nights,
+            aggregator.sources, origin, dest.upper(), date.today() + timedelta(days=days), nights,
+            adults=prefs.adults,
         )
         raw_flights, _ = await aggregator.collect_flights(plan)
         raw_hotels, _ = await aggregator.collect_hotels(plan)

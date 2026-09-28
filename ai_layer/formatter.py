@@ -91,13 +91,24 @@ def _dates_line(trip: Trip) -> str:
     return f"<b>Departure:</b> {dep}"
 
 
+def _adults() -> int:
+    from preferences import get_preferences
+
+    return get_preferences().adults
+
+
+def _per_person() -> str:
+    """Prices are per person; say so when searching for more than one traveller."""
+    return " per person" if _adults() > 1 else ""
+
+
 def _hotel_search_link(trip: Trip) -> str:
     """No hotel prices yet (B14): link a hotel search for the trip's city and dates instead."""
     leg = trip.outbound_flight
     if not (leg and trip.departure_date and trip.return_date and trip.return_date > trip.departure_date):
         return ""
     city = airports.city_of(leg.destination)
-    url = booking_search_url(city, trip.departure_date, trip.return_date)
+    url = booking_search_url(city, trip.departure_date, trip.return_date, adults=_adults())
     return _link(url, f"🏨 Hotels in {city} · {stay_label(trip.departure_date, trip.return_date)}")
 
 
@@ -180,7 +191,7 @@ def format_flight_only(trip: Trip) -> str:
     lines.append(_airports_line(trip))
     lines.append("")
 
-    price = f"<b>Price:</b> 💰 <b>€{trip.total_cost_eur:.0f}</b>"
+    price = f"<b>Price:</b> 💰 <b>€{trip.total_cost_eur:.0f}</b>{_per_person()}"
     if trip.previous_price_eur:
         price += f" <s>€{trip.previous_price_eur:.0f}</s>"
     lines.append(price)
