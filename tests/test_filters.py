@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from unittest.mock import AsyncMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from filters.hard_filters import apply_hard_filters
 from filters.time_decay import apply_time_decay

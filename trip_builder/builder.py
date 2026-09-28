@@ -1,21 +1,18 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
 from typing import List, Optional
 
 from config import LAYER_1_AIRPORTS, LAYER_2_AIRPORTS, LAYER_3_HUBS
 from storage.database import get_price_median, record_price
-from storage.price_analytics import detect_anomaly, update_price_stats
 from storage.models import (
     AlertTier,
-    BookingConfidence,
     DealType,
     FlightLeg,
     HotelDeal,
     Trip,
-    TripLengthProfile,
 )
+from storage.price_analytics import detect_anomaly, update_price_stats
 from trip_builder.categorizer import categorize_trip
 from trip_builder.cost_calculator import (
     assign_verdict,

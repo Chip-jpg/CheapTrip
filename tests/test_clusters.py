@@ -1,8 +1,6 @@
 """Tests for airport cluster expansion logic."""
 from __future__ import annotations
 
-import pytest
-
 from utils.airport_clusters import (
     are_in_same_cluster,
     cluster_display_name,

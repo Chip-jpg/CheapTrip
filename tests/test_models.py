@@ -1,12 +1,9 @@
 """Tests for data models and core computation."""
 from __future__ import annotations
 
-from datetime import date, datetime
-
-import pytest
+from datetime import date
 
 from storage.models import (
-    AlertTier,
     DealType,
     FlightLeg,
     HotelDeal,
@@ -141,9 +138,9 @@ class TestCostCalculator:
             price_eur=60.0, duration_hours=2.5, source="test",
             data_confidence_score=0.7,
         )
-        total = calculate_trip_total(None, None, None, [repo], fees=0.0)
-        # repo only since no outbound passed
-        assert total == 60.0
+        total = calculate_trip_total(leg, None, None, [repo], fees=0.0)
+        # onward flight + repositioning leg
+        assert total == 280.0
 
     def test_discount_pct_calculated(self):
         pct = compute_discount_pct(117.0, 300.0)

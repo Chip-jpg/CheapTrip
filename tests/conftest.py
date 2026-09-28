@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import os
-import tempfile
 
 import pytest
+
 
 # Override DB path to use a temp file during tests
 @pytest.fixture(autouse=True, scope="session")

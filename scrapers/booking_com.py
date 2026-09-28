@@ -4,12 +4,11 @@ import asyncio
 import os
 import re
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import httpx
 from bs4 import BeautifulSoup
 
-from config import get_settings
 from normalizers.currency import AIRPORT_TO_CITY
 from scrapers.base import BaseHotelScraper, build_client, random_headers
 from storage.models import RawHotelResult, ScraperParams

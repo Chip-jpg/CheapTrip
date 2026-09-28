@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
-
 from storage.models import (
     DealCategory,
     DealType,
@@ -86,7 +84,6 @@ class TestCategorizeTrip:
         assert categorize_trip(trip) == DealCategory.FLIGHT_STEAL
 
     def test_hotel_steal_high_discount_hotel_only(self):
-        from datetime import date
         hotel = HotelDeal(
             name="Test Hotel",
             location="KRK",

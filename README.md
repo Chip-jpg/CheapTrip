@@ -372,10 +372,12 @@ cheaptrip-by-claude/
 ## Running the tests
 
 ```bash
-pytest tests/ -v
+pip install -r requirements-dev.txt
+ruff check .
+pytest
 ```
 
-All tests are self-contained and use an isolated in-memory database — no real API calls are made.
+All tests are self-contained and use an isolated temporary database — no real API calls are made. CI runs the same lint and test steps on every push and pull request to `main`.
 
 ---
 

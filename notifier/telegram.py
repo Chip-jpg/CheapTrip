@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import List, Optional
+from typing import List
 
 import httpx
 
@@ -12,7 +12,7 @@ from ai_layer.formatter import (
 )
 from config import get_settings
 from notifier.rate_limiter import RateLimiter
-from storage.database import count_alerts_sent_last_hour, mark_alerted, was_route_alerted_recently
+from storage.database import mark_alerted, was_route_alerted_recently
 from storage.models import AlertTier, Trip
 from utils.logging_config import get_logger
 from utils.retry import async_retry

@@ -10,7 +10,6 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import sys
 
 import click
 
@@ -36,8 +35,8 @@ def run() -> None:
 @cli.command()
 def cycle() -> None:
     """Run a single scraping + alert cycle and exit."""
-    from storage.database import init_db
     from scheduler.runner import init_notifier, run_pipeline_cycle
+    from storage.database import init_db
 
     async def _run():
         await init_db()
@@ -50,8 +49,8 @@ def cycle() -> None:
 @cli.command()
 def digest() -> None:
     """Send today's deal digest and exit."""
-    from storage.database import init_db
     from scheduler.runner import init_notifier, run_daily_digest
+    from storage.database import init_db
 
     async def _run():
         await init_db()
@@ -65,6 +64,7 @@ def digest() -> None:
 def status() -> None:
     """Print current engine status and DB statistics."""
     import aiosqlite
+
     from storage.database import get_db_path
 
     async def _run():
@@ -171,12 +171,13 @@ def health() -> None:
 def search(origin: str, dest: str, days: int, nights: int) -> None:
     """Run a targeted search for a specific route."""
     from datetime import date, timedelta
-    from storage.database import init_db
-    from scrapers.aggregator import ScraperAggregator
+
     from normalizers.flight import normalize_flights
     from normalizers.hotel import normalize_hotels
-    from trip_builder.builder import build_trips
+    from scrapers.aggregator import ScraperAggregator
+    from storage.database import init_db
     from storage.models import ScraperParams
+    from trip_builder.builder import build_trips
 
     async def _run():
         await init_db()

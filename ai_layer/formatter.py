@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 
 from storage.models import BookingConfidence, DealType, Trip
 from utils.logging_config import get_logger

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from storage.models import FlightLeg, HotelDeal, RepositioningLeg, Trip
+from storage.models import FlightLeg, HotelDeal, RepositioningLeg
 
 
 def calculate_trip_total(
