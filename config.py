@@ -48,12 +48,7 @@ class Settings(BaseSettings):
     flight_discount_min_pct: float = Field(default=60.0)
     instant_alerts_per_hour: int = Field(default=5)
 
-    # Hotel quality
-    minimum_hotel_rating: float = Field(default=7.0)
-    preferred_hotel_rating: float = Field(default=8.0)
-    hotel_low_rating_max_discount: float = Field(default=70.0)
-
-    # Booking confidence
+    # Booking confidence: minimum tier (LOW / MEDIUM / HIGH) for an instant alert
     booking_confidence_min_for_instant: str = Field(default="MEDIUM")
 
     # Historical price analytics

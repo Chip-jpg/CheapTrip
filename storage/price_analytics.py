@@ -86,6 +86,10 @@ def _mean(prices: List[float]) -> Optional[float]:
     return sum(prices) / len(prices) if prices else None
 
 
+def _round_opt(value: Optional[float]) -> Optional[float]:
+    return round(value, 2) if value is not None else None
+
+
 async def get_price_stats(route: str) -> PriceStats:
     prices_30d = await _fetch_prices(route, 30)
     prices_90d = await _fetch_prices(route, 90)
@@ -94,10 +98,10 @@ async def get_price_stats(route: str) -> PriceStats:
 
     return PriceStats(
         route=route,
-        avg_30d=round(_mean(prices_30d), 2) if prices_30d else None,
-        avg_90d=round(_mean(prices_90d), 2) if prices_90d else None,
-        all_time_low=round(min(all_prices), 2) if all_prices else None,
-        std_dev_30d=round(_std_dev(prices_30d), 2) if prices_30d else None,
+        avg_30d=_round_opt(_mean(prices_30d)),
+        avg_90d=_round_opt(_mean(prices_90d)),
+        all_time_low=_round_opt(min(all_prices)) if all_prices else None,
+        std_dev_30d=_round_opt(_std_dev(prices_30d)),
         sample_count_30d=len(prices_30d),
         last_price=last_price,
     )

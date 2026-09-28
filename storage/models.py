@@ -148,6 +148,11 @@ class Trip(BaseModel):
     avg_historical_price_eur: Optional[float] = None
     historical_deviation_pct: Optional[float] = None
     is_historical_low: bool = False
+    is_anomaly: bool = False
+    anomaly_description: Optional[str] = None
+
+    # Why the alert policy chose this tier (filters.alert_policy)
+    alert_reasons: List[str] = Field(default_factory=list)
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     hash: str = ""

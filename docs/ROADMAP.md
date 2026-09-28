@@ -236,7 +236,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B02 | `test/pipeline-harness` | done |
 | B03 | `refactor/airport-registry` | done |
 | B04 | `fix/digest-crash` | done |
-| B05 | `fix/alert-tier-logic` | todo |
+| B05 | `fix/alert-tier-logic` | done |
 | B06 | `fix/telegram-delivery` | todo |
 | B07 | `fix/skyscanner-demote` | todo |
 | B08 | `fix/feed-scrapers` | todo |
