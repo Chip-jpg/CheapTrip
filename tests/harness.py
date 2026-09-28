@@ -117,10 +117,12 @@ class FakeFlightScraper(BaseFlightScraper):
         source_id: str = "fake_flights",
         capability: SearchCapability = SearchCapability.ANYWHERE,
         budget: int = 1000,
+        long_haul: bool = False,
     ) -> None:
         self.source_id = source_id
         self.enabled = True
         self.capability = capability
+        self.long_haul = long_haul  # True: the planner also gives it searches from repositioning hubs
         self._budget = budget
         self._results = results
         self.calls: List[List[SearchTask]] = []

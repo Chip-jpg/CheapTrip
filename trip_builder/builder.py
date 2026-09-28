@@ -165,9 +165,10 @@ async def build_trips(
             trips.append(_build_hotel_only_trip(hotel))
 
     # ── 4. Repositioned trips ────────────────────────────────────────────────
+    prefs = get_preferences()
     repo_opportunities = find_repositioning_opportunities(
-        [leg for leg in flight_legs if not leg.is_package], primary_origins=sorted(home_origins)
-    )
+        flight_legs, primary_origins=sorted(home_origins), hub_airports=prefs.repositioning_hubs,
+    ) if prefs.allow_repositioning else []
     for repo_leg, onward_flight, total_cost in repo_opportunities:
         trip = await _build_repositioned_trip(repo_leg, onward_flight, total_cost)
         if trip:

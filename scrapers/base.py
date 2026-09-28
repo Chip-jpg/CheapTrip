@@ -154,6 +154,8 @@ class _OutcomeReporting:
 
 
 class BaseFlightScraper(_OutcomeReporting, ABC):
+    # Sells long-haul fares: the planner gives such sources searches from repositioning hubs
+    long_haul: bool = True
     @property
     def is_feed(self) -> bool:
         return self.capability == SearchCapability.FEED
