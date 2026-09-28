@@ -139,6 +139,22 @@ _CITY_OVERRIDES: Dict[str, str] = {
     "BOG": "Bogota", "LIM": "Lima", "SCL": "Santiago", "GIG": "Rio de Janeiro",
     "JNB": "Johannesburg", "CPT": "Cape Town", "NBO": "Nairobi", "ZNZ": "Zanzibar",
     "SYD": "Sydney", "MEL": "Melbourne", "AKL": "Auckland",
+    # OurAirports gives the municipality an airport sits in, often a suburb or village:
+    # use the city travellers (and the airlines) know. Found by diffing against the
+    # city names Ryanair's fare API returns and by scanning Europe / North Africa.
+    "RZE": "Rzeszów", "TIA": "Tirana", "FEZ": "Fez", "BEM": "Beni Mellal", "NDR": "Nador",
+    "OUD": "Oujda", "CRV": "Crotone", "AOI": "Ancona", "CUF": "Cuneo", "VBS": "Brescia",
+    "EMA": "East Midlands", "MME": "Teesside", "KIR": "Kerry", "NOC": "Knock",
+    "IOM": "Isle of Man", "JER": "Jersey", "GCI": "Guernsey", "EFL": "Kefalonia", "JSH": "Sitia",
+    "LDE": "Lourdes", "SPC": "La Palma", "TER": "Terceira", "PXO": "Porto Santo",
+    "LIL": "Lille", "LGG": "Liège", "LUG": "Lugano", "LJU": "Ljubljana", "LEJ": "Leipzig",
+    "LEN": "León", "LCG": "A Coruña", "OVD": "Asturias", "EAS": "San Sebastián", "VIT": "Vitoria",
+    "RMU": "Murcia", "RNS": "Rennes", "TLN": "Toulon", "ETZ": "Metz", "OST": "Ostend",
+    "FKB": "Karlsruhe", "FMO": "Münster", "PAD": "Paderborn", "KSF": "Kassel", "GRZ": "Graz",
+    "BNX": "Banja Luka", "TZL": "Tuzla", "SKP": "Skopje", "PRN": "Pristina", "BWK": "Brač",
+    "OSR": "Ostrava", "SZY": "Olsztyn", "IEG": "Zielona Góra", "TGM": "Târgu Mureș",
+    "BAY": "Baia Mare", "SOB": "Hévíz–Balaton", "JYV": "Jyväskylä", "HAU": "Haugesund",
+    "RNN": "Bornholm", "ADB": "Izmir", "COV": "Adana", "KUT": "Kutaisi", "DJE": "Djerba",
 }
 
 BEACH_AIRPORTS = frozenset({
@@ -193,8 +209,15 @@ def _region_for(country: str, continent: str) -> Region:
 
 
 def _clean_city(raw: str) -> str:
-    # "Ferno (VA)" → "Ferno", "Agadir (Temsia)" → "Agadir"
-    return re.sub(r"\s*\(.*?\)\s*", " ", raw).strip()
+    """
+    OurAirports municipality → a display city:
+    "Ferno (VA)" → "Ferno", "Leeds, West Yorkshire" → "Leeds",
+    "Limoges/Bellegarde" → "Limoges", "Kos Island" → "Kos".
+    """
+    city = re.sub(r"\s*\(.*?\)\s*", " ", raw).strip()
+    city = city.split(",")[0].strip()
+    city = re.split(r"\s*/\s*", city)[0].strip()
+    return re.sub(r"\s+Island$", "", city)
 
 
 @lru_cache(maxsize=1)
