@@ -12,7 +12,7 @@ import httpx
 
 from config import get_settings
 from scrapers.base import BaseFlightScraper, ScrapeStatus, build_client
-from storage.models import RawFlightResult, ScraperParams
+from storage.models import RawFlightResult, SearchTask
 from utils import airports
 from utils.logging_config import get_logger
 from utils.retry import async_retry
@@ -215,6 +215,10 @@ class SkyscannerScraper(BaseFlightScraper):
 
     def begin_cycle(self) -> None:
         self._calls_this_cycle = 0
+
+    def calls_per_cycle(self) -> int:
+        # Searches only; entity lookups also count against the internal cap.
+        return self._max_calls_per_cycle
 
     def _is_paused(self) -> bool:
         return self._paused_until is not None and datetime.utcnow() < self._paused_until
@@ -595,7 +599,7 @@ class SkyscannerScraper(BaseFlightScraper):
                 log.warning("skyscanner_parse_error", error=str(exc))
         return results
 
-    async def scrape(self, params: ScraperParams) -> List[RawFlightResult]:
+    async def scrape(self, tasks: List[SearchTask]) -> List[RawFlightResult]:
         results: List[RawFlightResult] = []
         if self._is_paused():
             log.info("skyscanner_paused", until=self._paused_until.isoformat())
@@ -620,21 +624,16 @@ class SkyscannerScraper(BaseFlightScraper):
                 return results
 
             # Sequential so a 429 or an exhausted budget stops further calls at once.
-            for origin in params.origins[:3]:
-                for dest in params.destinations[:10]:
-                    if self._is_paused() or self._calls_this_cycle >= self._max_calls_per_cycle:
-                        return results
-                    dep = params.departure_date_from
-                    ret_date = (
-                        dep + timedelta(days=params.nights_min + 1)
-                        if params.nights_min
-                        else None
-                    )
-                    try:
-                        results.extend(
-                            await self._search_one_pair(client, origin, dest, dep, ret_date, params.adults)
-                        )
-                    except Exception as exc:
-                        log.warning("skyscanner_pair_failed", origin=origin, dest=dest, error=str(exc))
-                        self._record_error(f"{origin}-{dest}: {exc}")
+            for task in tasks:
+                if not task.origin or not task.destination:
+                    continue
+                if self._is_paused() or self._calls_this_cycle >= self._max_calls_per_cycle:
+                    return results
+                try:
+                    results.extend(await self._search_one_pair(
+                        client, task.origin, task.destination, task.depart_from, task.return_date, task.adults,
+                    ))
+                except Exception as exc:
+                    log.warning("skyscanner_pair_failed", origin=task.origin, dest=task.destination, error=str(exc))
+                    self._record_error(f"{task.origin}-{task.destination}: {exc}")
         return results

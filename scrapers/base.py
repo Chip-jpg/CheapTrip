@@ -9,7 +9,7 @@ from typing import Any, List, Optional
 
 import httpx
 
-from storage.models import RawFlightResult, RawHotelResult, ScraperParams
+from storage.models import RawFlightResult, RawHotelResult, SearchTask
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -48,6 +48,15 @@ def build_client(timeout: float = 30.0) -> httpx.AsyncClient:
     )
 
 
+class SearchCapability(str, Enum):
+    """What one request to a source can answer; the planner builds tasks to match."""
+    ROUTE_DATE = "route_date"    # one origin → one destination, exact dates
+    ROUTE_MONTH = "route_month"  # one origin → one destination, a month of departures
+    ANYWHERE = "anywhere"        # one origin → all destinations, a departure range
+    CITY_DATES = "city_dates"    # hotels: one city, check-in date + nights
+    FEED = "feed"                # deal feeds: no search parameters, once per cycle
+
+
 class ScrapeStatus(str, Enum):
     OK = "ok"                      # returned results
     EMPTY = "empty"                # ran cleanly, nothing found
@@ -81,9 +90,14 @@ class _OutcomeReporting:
 
     source_id: str = "unknown"
     enabled: bool = True
+    capability: SearchCapability = SearchCapability.ROUTE_DATE
 
     def begin_cycle(self) -> None:
         """Called once at the start of each pipeline cycle (reset per-cycle budgets)."""
+
+    def calls_per_cycle(self) -> int:
+        """How many search tasks the planner may give this source per cycle."""
+        return 10
 
     def _record_error(self, message: str) -> None:
         self.__dict__.setdefault("_errors", []).append(message)
@@ -93,10 +107,10 @@ class _OutcomeReporting:
         if message:
             self._record_error(message)
 
-    async def scrape(self, params: Any) -> List[Any]:  # pragma: no cover - overridden
+    async def scrape(self, tasks: List[SearchTask]) -> List[Any]:  # pragma: no cover - overridden
         raise NotImplementedError
 
-    async def safe_scrape(self, params: Any) -> ScrapeOutcome:
+    async def safe_scrape(self, tasks: List[SearchTask]) -> ScrapeOutcome:
         if not self.enabled:
             return ScrapeOutcome(self.source_id, ScrapeStatus.DISABLED)
 
@@ -104,7 +118,7 @@ class _OutcomeReporting:
         self.__dict__["_status_override"] = None
         started = time.monotonic()
         try:
-            results = await self.scrape(params)
+            results = await self.scrape(tasks)
         except Exception as exc:
             log.error("scraper_failed", source=self.source_id, error=str(exc))
             return ScrapeOutcome(
@@ -129,12 +143,13 @@ class _OutcomeReporting:
 
 
 class BaseFlightScraper(_OutcomeReporting, ABC):
-    # Feed scrapers (deal blogs/newsletters) ignore search params and run once per cycle.
-    is_feed: bool = False
+    @property
+    def is_feed(self) -> bool:
+        return self.capability == SearchCapability.FEED
 
     @abstractmethod
-    async def scrape(self, params: ScraperParams) -> List[RawFlightResult]:
-        """Return a list of raw flight results; never raise — log and return []."""
+    async def scrape(self, tasks: List[SearchTask]) -> List[RawFlightResult]:
+        """Search the given tasks; never raise — log, _record_error() and return what was found."""
 
 
 class BaseFeedScraper(BaseFlightScraper):
@@ -145,17 +160,23 @@ class BaseFeedScraper(BaseFlightScraper):
     window, and never invent a departure date.
     """
 
-    is_feed = True
+    capability = SearchCapability.FEED
 
     @abstractmethod
     async def scrape_feed(self) -> List[RawFlightResult]:
         """Return deals from the feed; never raise — log and return []."""
 
-    async def scrape(self, params: Optional[ScraperParams] = None) -> List[RawFlightResult]:
+    async def scrape(self, tasks: Optional[List[SearchTask]] = None) -> List[RawFlightResult]:
         return await self.scrape_feed()
 
 
 class BaseHotelScraper(_OutcomeReporting, ABC):
+    capability: SearchCapability = SearchCapability.CITY_DATES
+
+    @property
+    def is_feed(self) -> bool:
+        return self.capability == SearchCapability.FEED
+
     @abstractmethod
-    async def scrape(self, params: ScraperParams) -> List[RawHotelResult]:
-        """Return a list of raw hotel results; never raise — log and return []."""
+    async def scrape(self, tasks: List[SearchTask]) -> List[RawHotelResult]:
+        """Search the given hotel tasks; never raise — log, _record_error() and return what was found."""

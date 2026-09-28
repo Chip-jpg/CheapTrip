@@ -7,8 +7,8 @@ from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup
 
-from scrapers.base import BaseFeedScraper, BaseHotelScraper, build_client, random_headers
-from storage.models import RawFlightResult, RawHotelResult, ScraperParams
+from scrapers.base import BaseFeedScraper, BaseHotelScraper, SearchCapability, build_client, random_headers
+from storage.models import RawFlightResult, RawHotelResult, SearchTask
 from utils.iata_extract import extract_price, extract_route, extract_travel_window
 from utils.logging_config import get_logger
 from utils.retry import async_retry
@@ -18,6 +18,9 @@ log = get_logger(__name__)
 _BASE = "https://www.holidaypirates.com"
 
 _PRICE_RE = re.compile(r"(?:from\s+)?[€\$£]?\s*(\d{1,4}(?:[.,]\d{2})?)\s*(?:€|EUR|USD|GBP)?", re.I)
+# Hotel posts rarely state a stay length; assume a short break.
+_DEFAULT_HOTEL_NIGHTS = 3
+
 _DISCOUNT_RE = re.compile(r"-\s*(\d{1,3})\s*%")
 
 _RSS_URLS = [
@@ -219,9 +222,10 @@ class HolidayPiratesFlightScraper(BaseFeedScraper):
 
 
 class HolidayPiratesHotelScraper(BaseHotelScraper):
-    """Scrapes HolidayPirates hotel deal pages."""
+    """Scrapes HolidayPirates hotel deal pages (a feed: once per cycle, no search params)."""
 
     source_id = "holiday_pirates"
+    capability = SearchCapability.FEED
 
     @async_retry(
         max_attempts=3, min_wait=2.0, max_wait=15.0,
@@ -233,7 +237,7 @@ class HolidayPiratesHotelScraper(BaseHotelScraper):
         return resp.text
 
     def _parse_hotel_card(
-        self, card: BeautifulSoup, params: ScraperParams
+        self, card: BeautifulSoup
     ) -> Optional[RawHotelResult]:
         text = card.get_text(separator=" ")
         price = _first_price(text)
@@ -255,7 +259,7 @@ class HolidayPiratesHotelScraper(BaseHotelScraper):
             href = link["href"]
             booking_url = href if href.startswith("http") else urljoin(_BASE, href)
 
-        nights = params.nights_min or 3
+        nights = _DEFAULT_HOTEL_NIGHTS
 
         return RawHotelResult(
             name=name,
@@ -268,7 +272,7 @@ class HolidayPiratesHotelScraper(BaseHotelScraper):
             extra={"discount_pct": discount},
         )
 
-    async def scrape(self, params: ScraperParams) -> List[RawHotelResult]:
+    async def scrape(self, tasks: Optional[List[SearchTask]] = None) -> List[RawHotelResult]:
         results: List[RawHotelResult] = []
         async with build_client(timeout=20.0) as client:
             _, discovered_hotels = await _discover_deal_urls(client)
@@ -283,7 +287,7 @@ class HolidayPiratesHotelScraper(BaseHotelScraper):
                             "div", class_=re.compile(r"deal|card|offer|hotel", re.I)
                         )
                         for card in cards:
-                            r = self._parse_hotel_card(card, params)
+                            r = self._parse_hotel_card(card)
                             if r:
                                 results.append(r)
                         if results:

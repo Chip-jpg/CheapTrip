@@ -3,15 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from datetime import date, timedelta
+from datetime import date
 from typing import Any, List, Optional
 from urllib.parse import quote
 
 import httpx
 from bs4 import BeautifulSoup
 
-from scrapers.base import BaseFlightScraper, build_client, random_headers
-from storage.models import RawFlightResult, ScraperParams
+from config import get_settings
+from scrapers.base import BaseFlightScraper, SearchCapability, build_client, random_headers
+from storage.models import RawFlightResult, SearchTask
 from utils.logging_config import get_logger
 from utils.retry import async_retry
 
@@ -31,6 +32,10 @@ class GoogleFlightsScraper(BaseFlightScraper):
     """
 
     source_id = "google_flights"
+    capability = SearchCapability.ROUTE_DATE
+
+    def calls_per_cycle(self) -> int:
+        return get_settings().google_flights_calls_per_cycle
 
     @async_retry(
         max_attempts=3, min_wait=3.0, max_wait=20.0,
@@ -137,17 +142,13 @@ class GoogleFlightsScraper(BaseFlightScraper):
         except Exception:
             return None
 
-    async def scrape(self, params: ScraperParams) -> List[RawFlightResult]:
+    async def scrape(self, tasks: List[SearchTask]) -> List[RawFlightResult]:
         results: List[RawFlightResult] = []
         async with build_client(timeout=25.0) as client:
-            tasks = []
-            for origin in params.origins[:3]:
-                for dest in params.destinations[:8]:
-                    dep = params.departure_date_from
-                    ret = dep + timedelta(days=params.nights_min + 1) if params.nights_min else None
-                    tasks.append((origin, dest, dep, ret))
-
-            for origin, dest, dep, ret in tasks:
+            for task in tasks:
+                if not task.origin or not task.destination:
+                    continue
+                origin, dest, dep, ret = task.origin, task.destination, task.depart_from, task.return_date
                 try:
                     html = await self._fetch_search_page(client, origin, dest, dep, ret)
                     if html:

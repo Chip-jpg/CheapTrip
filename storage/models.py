@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -229,14 +229,26 @@ class RawHotelResult(BaseModel):
     extra: Dict[str, Any] = Field(default_factory=dict)
 
 
-class ScraperParams(BaseModel):
-    origins: List[str]
-    destinations: List[str]
-    departure_date_from: date
-    departure_date_to: date
-    nights_min: int = 2
-    nights_max: int = 7
+class SearchTask(BaseModel):
+    """
+    One unit of search work planned for a source (scheduler/planner.py).
+
+    Flight tasks have an origin; `destination=None` means "anywhere" for
+    sources that support it. Exact-date sources get depart_from ==
+    depart_to and nights_min == nights_max. Hotel tasks leave origin empty
+    and use depart_from as check-in and nights_min as the stay length.
+    """
+    origin: Optional[str] = None
+    destination: Optional[str] = None
+    depart_from: date
+    depart_to: date
+    nights_min: int
+    nights_max: int
+    profile: Optional[TripLengthProfile] = None
+    priority: bool = False
     adults: int = 1
-    max_price_eur: float = 2000.0
-    trip_length_profile: Optional[TripLengthProfile] = None
-    flexible_dates: bool = True
+
+    @property
+    def return_date(self) -> date:
+        """Return (or check-out) date for an exact-date task: departure + nights."""
+        return self.depart_from + timedelta(days=self.nights_min)

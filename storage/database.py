@@ -80,6 +80,14 @@ CREATE TABLE IF NOT EXISTS scraper_health (
 )
 """
 
+_CREATE_SEARCH_CURSOR_TABLE = """
+CREATE TABLE IF NOT EXISTS search_cursor (
+    cursor_key  TEXT PRIMARY KEY,
+    position    INTEGER NOT NULL DEFAULT 0,
+    updated_at  TEXT NOT NULL
+)
+"""
+
 _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_deals_hash ON deals(hash)",
     "CREATE INDEX IF NOT EXISTS idx_deals_created ON deals(created_at)",
@@ -112,6 +120,7 @@ async def init_db() -> None:
         await db.execute(_CREATE_PRICES_TABLE)
         await db.execute(_CREATE_PRICE_STATS_TABLE)
         await db.execute(_CREATE_SCRAPER_HEALTH_TABLE)
+        await db.execute(_CREATE_SEARCH_CURSOR_TABLE)
         for idx_sql in _CREATE_INDEXES:
             await db.execute(idx_sql)
         await db.commit()
@@ -315,3 +324,25 @@ async def get_price_median(route: str, lookback_days: int = 30) -> Optional[floa
     if len(prices) % 2 == 0:
         return (prices[mid - 1] + prices[mid]) / 2
     return prices[mid]
+
+
+async def get_search_cursor(cursor_key: str) -> int:
+    """Rotation position of the search planner for one source/universe."""
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        cursor = await db.execute("SELECT position FROM search_cursor WHERE cursor_key = ?", (cursor_key,))
+        row = await cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
+async def set_search_cursor(cursor_key: str, position: int) -> None:
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            """
+            INSERT INTO search_cursor (cursor_key, position, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(cursor_key) DO UPDATE SET position = excluded.position, updated_at = excluded.updated_at
+            """,
+            (cursor_key, position, datetime.utcnow().isoformat()),
+        )
+        await db.commit()

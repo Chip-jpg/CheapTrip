@@ -168,41 +168,36 @@ def health() -> None:
 @cli.command()
 @click.option("--origin", default="MXP", help="IATA origin airport")
 @click.option("--dest", default="KRK", help="IATA destination airport")
-@click.option("--days", default=14, help="Days from now to search")
+@click.option("--days", default=14, help="Days from now to depart")
 @click.option("--nights", default=3, help="Number of nights")
 def search(origin: str, dest: str, days: int, nights: int) -> None:
-    """Run a targeted search for a specific route."""
+    """Run a one-off search for a specific route across all enabled sources."""
     from datetime import date, timedelta
 
     from normalizers.flight import normalize_flights
     from normalizers.hotel import normalize_hotels
+    from scheduler.planner import SearchPlanner
     from scrapers.aggregator import ScraperAggregator
     from storage.database import init_db
-    from storage.models import ScraperParams
     from trip_builder.builder import build_trips
 
     async def _run():
         await init_db()
-        dep = date.today() + timedelta(days=days)
-        params = ScraperParams(
-            origins=[origin.upper()],
-            destinations=[dest.upper()],
-            departure_date_from=dep,
-            departure_date_to=dep + timedelta(days=30),
-            nights_min=nights,
-            nights_max=nights + 3,
-        )
         aggregator = ScraperAggregator()
-        raw_flights, _ = await aggregator.collect_flights(params)
-        raw_hotels, _ = await aggregator.collect_hotels(params)
+        plan = SearchPlanner().plan_route(
+            aggregator.sources, origin.upper(), dest.upper(), date.today() + timedelta(days=days), nights,
+        )
+        raw_flights, _ = await aggregator.collect_flights(plan)
+        raw_hotels, _ = await aggregator.collect_hotels(plan)
         flights = await normalize_flights(raw_flights)
         hotels = await normalize_hotels(raw_hotels)
         trips = await build_trips(flights, hotels)
         trips.sort(key=lambda t: t.total_cost_eur)
         click.echo(f"\nFound {len(trips)} trips for {origin} → {dest}\n")
         for t in trips[:10]:
+            dates = f"{t.departure_date}–{t.return_date}" if t.departure_date else "dates: see deal"
             click.echo(
-                f"  {t.route} | €{t.total_cost_eur:.0f} | "
+                f"  {t.route} | €{t.total_cost_eur:.0f} | {dates} | "
                 f"{t.deal_type.value} | conf={t.data_confidence_score:.2f} | {t.verdict}"
             )
 

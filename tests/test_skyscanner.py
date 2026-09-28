@@ -11,7 +11,7 @@ import respx
 from config import get_settings
 from scrapers import skyscanner
 from scrapers.skyscanner import _KNOWN_ENTITIES, SkyscannerScraper
-from storage.models import ScraperParams
+from storage.models import SearchTask
 from utils import airports
 
 HOST = "skyscanner50.p.rapidapi.com"
@@ -39,13 +39,12 @@ def _ready_scraper(monkeypatch, max_calls: int = 20) -> SkyscannerScraper:
     return scraper
 
 
-def _params(origins=("MXP",), destinations=("KRK", "PRG", "BUD", "WAW", "LIS")) -> ScraperParams:
+def _params(origins=("MXP",), destinations=("KRK", "PRG", "BUD", "WAW", "LIS")) -> list:
     dep = date.today() + timedelta(days=14)
-    return ScraperParams(
-        origins=list(origins), destinations=list(destinations),
-        departure_date_from=dep, departure_date_to=dep + timedelta(days=13),
-        nights_min=2, nights_max=4,
-    )
+    return [
+        SearchTask(origin=o, destination=d, depart_from=dep, depart_to=dep, nights_min=2, nights_max=2)
+        for o in origins for d in destinations
+    ]
 
 
 def test_disabled_by_default_even_with_a_key(sky_env):
@@ -114,3 +113,14 @@ async def test_results_are_parsed(sky_env):
     assert results[0].price == 42.5
     assert results[0].airline == "Ryanair"
     assert results[0].destination == "KRK"
+
+
+async def test_return_date_is_departure_plus_nights(sky_env):
+    # It used to be departure + nights_min + 1 (one night longer than the hotel stay).
+    scraper = _ready_scraper(sky_env)
+    with respx.mock(assert_all_called=False) as router:
+        route = router.get(SEARCH).mock(return_value=httpx.Response(200, json={"data": {"itineraries": []}}))
+        await scraper.scrape(_params(destinations=("KRK",)))
+    sent = dict(route.calls[0].request.url.params)
+    dep = date.fromisoformat(sent["date"])
+    assert date.fromisoformat(sent["returnDate"]) == dep + timedelta(days=2)
