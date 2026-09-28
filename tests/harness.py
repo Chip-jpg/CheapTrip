@@ -135,12 +135,26 @@ class FakeHotelScraper(BaseHotelScraper):
 
 @dataclass
 class TelegramCapture:
-    """Records sendMessage calls made against the mocked Bot API."""
+    """
+    Records sendMessage calls made against the mocked Bot API.
+
+    Replies 200 by default; queue_responses() scripts the next replies
+    (an httpx.Response to return or an exception to raise, in order).
+    """
 
     requests: List[httpx.Request] = field(default_factory=list)
+    queued: List[Union[httpx.Response, Exception]] = field(default_factory=list)
+
+    def queue_responses(self, *responses: Union[httpx.Response, Exception]) -> None:
+        self.queued.extend(responses)
 
     def record(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        if self.queued:
+            nxt = self.queued.pop(0)
+            if isinstance(nxt, Exception):
+                raise nxt
+            return nxt
         return httpx.Response(200, json={"ok": True, "result": {"message_id": len(self.requests)}})
 
     @property

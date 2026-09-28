@@ -191,6 +191,28 @@ async def get_pending_instant_alerts(limit: int = 10) -> List[Trip]:
     return trips
 
 
+async def downgrade_stale_instants(max_age_hours: float) -> int:
+    """
+    Move instant-tier deals that were never sent (rate limit, route
+    suppression, failed send) and are older than `max_age_hours` to the
+    digest tier. Returns the number of deals moved.
+    """
+    path = await get_db_path()
+    cutoff = (datetime.utcnow() - timedelta(hours=max_age_hours)).isoformat()
+    async with aiosqlite.connect(path) as db:
+        cursor = await db.execute(
+            """
+            UPDATE deals
+               SET alert_tier = ?,
+                   payload = json_set(payload, '$.alert_tier', ?)
+             WHERE alert_tier = ? AND is_alerted = 0 AND created_at < ?
+            """,
+            (AlertTier.DIGEST.value, AlertTier.DIGEST.value, AlertTier.INSTANT.value, cutoff),
+        )
+        await db.commit()
+        return cursor.rowcount or 0
+
+
 async def get_digest_deals(limit: int = 20) -> List[Trip]:
     path = await get_db_path()
     cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
