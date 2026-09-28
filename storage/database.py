@@ -7,7 +7,7 @@ from typing import List, Optional
 import aiosqlite
 
 from config import get_settings
-from storage.models import AlertTier, Trip
+from storage.models import AlertTier, DealType, Trip
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -117,11 +117,11 @@ async def save_deal(trip: Trip) -> bool:
                     trip.hash,
                     trip.trip_id,
                     trip.route,
-                    trip.deal_type,
+                    DealType(trip.deal_type).value,
                     trip.total_cost_eur,
                     trip.discount_pct,
                     trip.data_confidence_score,
-                    trip.alert_tier,
+                    AlertTier(trip.alert_tier).value,
                     trip.created_at.isoformat(),
                     expires.isoformat(),
                     trip.model_dump_json(),
@@ -152,7 +152,7 @@ async def mark_alerted(trip_hash: str, tier: AlertTier) -> None:
         )
         await db.execute(
             "INSERT INTO alerts_sent (hash, alert_tier, sent_at) VALUES (?, ?, ?)",
-            (trip_hash, tier, now),
+            (trip_hash, AlertTier(tier).value, now),
         )
         await db.commit()
 
@@ -163,7 +163,7 @@ async def count_alerts_sent_last_hour(tier: AlertTier) -> int:
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
             "SELECT COUNT(*) FROM alerts_sent WHERE alert_tier = ? AND sent_at >= ?",
-            (tier, cutoff),
+            (AlertTier(tier).value, cutoff),
         )
         row = await cursor.fetchone()
         return row[0] if row else 0
@@ -179,7 +179,7 @@ async def get_pending_instant_alerts(limit: int = 10) -> List[Trip]:
             ORDER BY confidence DESC, total_cost ASC
             LIMIT ?
             """,
-            (AlertTier.INSTANT, limit),
+            (AlertTier.INSTANT.value, limit),
         )
         rows = await cursor.fetchall()
     trips = []
@@ -203,7 +203,7 @@ async def get_digest_deals(limit: int = 20) -> List[Trip]:
             ORDER BY confidence DESC, total_cost ASC
             LIMIT ?
             """,
-            (AlertTier.INSTANT, AlertTier.DIGEST, cutoff, limit),
+            (AlertTier.INSTANT.value, AlertTier.DIGEST.value, cutoff, limit),
         )
         rows = await cursor.fetchall()
     trips = []
@@ -232,7 +232,7 @@ async def get_recent_alert_timestamps(tier: AlertTier, within_hours: float) -> l
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
             "SELECT sent_at FROM alerts_sent WHERE alert_tier = ? AND sent_at >= ?",
-            (tier, cutoff),
+            (AlertTier(tier).value, cutoff),
         )
         rows = await cursor.fetchall()
     return [datetime.fromisoformat(r[0]) for r in rows]

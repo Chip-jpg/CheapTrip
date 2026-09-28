@@ -201,7 +201,7 @@ def search(origin: str, dest: str, days: int, nights: int) -> None:
         for t in trips[:10]:
             click.echo(
                 f"  {t.route} | €{t.total_cost_eur:.0f} | "
-                f"{t.deal_type} | conf={t.data_confidence_score:.2f} | {t.verdict}"
+                f"{t.deal_type.value} | conf={t.data_confidence_score:.2f} | {t.verdict}"
             )
 
     asyncio.run(_run())
