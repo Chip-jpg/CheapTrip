@@ -1,0 +1,191 @@
+"""
+End-to-end pipeline test harness.
+
+Runs the real pipeline (normalize → build → filter → decay → dedup → notify)
+against fake scrapers, a temporary SQLite database, a temporary preferences
+file and a mocked Telegram Bot API that records every message the engine
+would have sent. Use the `engine` fixture from conftest.py.
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+
+import httpx
+import yaml
+
+from config import get_settings
+from notifier.telegram import TelegramNotifier
+from preferences import get_preferences
+from scrapers.aggregator import ScraperAggregator
+from scrapers.base import BaseFlightScraper, BaseHotelScraper
+from storage.database import init_db
+from storage.models import RawFlightResult, RawHotelResult, ScraperParams
+
+TEST_BOT_TOKEN = "123456:TEST-TOKEN"
+TEST_CHAT_ID = "4242"
+SEND_MESSAGE_URL = f"https://api.telegram.org/bot{TEST_BOT_TOKEN}/sendMessage"
+
+# Small search space so each cycle makes few scraper calls.
+DEFAULT_PREFS: Dict[str, Any] = {
+    "home_airports": ["MXP"],
+    "preferred_trip_lengths": ["weekend"],
+    "search_window_days": 20,
+}
+
+
+def reset_caches() -> None:
+    """Drop cached Settings and UserPreferences so env/YAML changes take effect."""
+    get_settings.cache_clear()
+    get_preferences.cache_clear()
+
+
+def flight(
+    origin: str = "MXP",
+    destination: str = "KRK",
+    price: float = 25.0,
+    currency: str = "EUR",
+    days_ahead: int = 14,
+    nights: Optional[int] = 3,
+    source: str = "skyscanner_api",
+    airline: Optional[str] = "Ryanair",
+    booking_url: Optional[str] = "https://example.com/book",
+    **extra: Any,
+) -> RawFlightResult:
+    dep = date.today() + timedelta(days=days_ahead)
+    return RawFlightResult(
+        origin=origin,
+        destination=destination,
+        price=price,
+        currency=currency,
+        departure_date=dep,
+        return_date=dep + timedelta(days=nights) if nights else None,
+        airline=airline,
+        booking_url=booking_url,
+        source=source,
+        **extra,
+    )
+
+
+def hotel(
+    name: str = "Hotel Test",
+    location: str = "Krakow",
+    price_per_night: float = 30.0,
+    nights: int = 3,
+    rating: Optional[float] = 8.5,
+    days_ahead: int = 14,
+    source: str = "booking_com_api",
+    booking_url: Optional[str] = "https://example.com/hotel",
+    **extra: Any,
+) -> RawHotelResult:
+    check_in = date.today() + timedelta(days=days_ahead)
+    return RawHotelResult(
+        name=name,
+        location=location,
+        price_per_night=price_per_night,
+        currency="EUR",
+        nights=nights,
+        rating=rating,
+        booking_url=booking_url,
+        source=source,
+        check_in=check_in,
+        check_out=check_in + timedelta(days=nights),
+        **extra,
+    )
+
+
+ResultsSpec = Union[Sequence[Any], Callable[[ScraperParams], Sequence[Any]]]
+
+
+def _materialize(spec: ResultsSpec, params: ScraperParams) -> List[Any]:
+    results = spec(params) if callable(spec) else spec
+    return [r.model_copy() for r in results]
+
+
+class FakeFlightScraper(BaseFlightScraper):
+    """Returns canned flight results and records every call."""
+
+    def __init__(self, results: ResultsSpec = (), source_id: str = "fake_flights") -> None:
+        self.source_id = source_id
+        self.enabled = True
+        self._results = results
+        self.calls: List[ScraperParams] = []
+
+    async def scrape(self, params: ScraperParams) -> List[RawFlightResult]:
+        self.calls.append(params)
+        return _materialize(self._results, params)
+
+
+class FakeHotelScraper(BaseHotelScraper):
+    """Returns canned hotel results and records every call."""
+
+    def __init__(self, results: ResultsSpec = (), source_id: str = "fake_hotels") -> None:
+        self.source_id = source_id
+        self.enabled = True
+        self._results = results
+        self.calls: List[ScraperParams] = []
+
+    async def scrape(self, params: ScraperParams) -> List[RawHotelResult]:
+        self.calls.append(params)
+        return _materialize(self._results, params)
+
+
+@dataclass
+class TelegramCapture:
+    """Records sendMessage calls made against the mocked Bot API."""
+
+    requests: List[httpx.Request] = field(default_factory=list)
+
+    def record(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": len(self.requests)}})
+
+    @property
+    def payloads(self) -> List[Dict[str, Any]]:
+        return [json.loads(r.content) for r in self.requests]
+
+    @property
+    def texts(self) -> List[str]:
+        return [p["text"] for p in self.payloads]
+
+
+@dataclass
+class Engine:
+    """Handle returned by the `engine` fixture."""
+
+    tmp_path: Path
+    prefs_path: Path
+    telegram: TelegramCapture
+
+    def set_prefs(self, **overrides: Any) -> None:
+        data = dict(DEFAULT_PREFS)
+        data.update(overrides)
+        self.prefs_path.write_text(yaml.safe_dump(data))
+        get_preferences.cache_clear()
+
+    async def run_cycle(
+        self,
+        flights: ResultsSpec = (),
+        hotels: ResultsSpec = (),
+    ) -> ScraperAggregator:
+        """Run one full pipeline cycle; returns the aggregator (inspect its fake scrapers' calls)."""
+        from scheduler.runner import run_pipeline_cycle
+
+        await init_db()
+        aggregator = ScraperAggregator(
+            flight_scrapers=[FakeFlightScraper(flights)],
+            hotel_scrapers=[FakeHotelScraper(hotels)],
+        )
+        notifier = await TelegramNotifier.create()
+        await run_pipeline_cycle(aggregator=aggregator, notifier=notifier)
+        return aggregator
+
+    async def run_digest(self) -> None:
+        from scheduler.runner import run_daily_digest
+
+        await init_db()
+        notifier = await TelegramNotifier.create()
+        await run_daily_digest(notifier=notifier)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -28,7 +29,15 @@ log = get_logger(__name__)
 # Notifier is initialized async in run_forever() to restore rate-limiter state from DB.
 # Fallback sync init is used for cycle/search commands that don't go through run_forever().
 _notifier = TelegramNotifier()
-_aggregator = ScraperAggregator()
+# Built lazily so importing this module doesn't instantiate every scraper.
+_aggregator: Optional[ScraperAggregator] = None
+
+
+def _get_aggregator() -> ScraperAggregator:
+    global _aggregator
+    if _aggregator is None:
+        _aggregator = ScraperAggregator()
+    return _aggregator
 
 
 async def init_notifier() -> None:
@@ -37,7 +46,10 @@ async def init_notifier() -> None:
     _notifier = await TelegramNotifier.create()
 
 
-async def run_pipeline_cycle() -> None:
+async def run_pipeline_cycle(
+    aggregator: Optional[ScraperAggregator] = None,
+    notifier: Optional[TelegramNotifier] = None,
+) -> None:
     """
     Full pipeline execution:
     1. Load user preferences + generate flexible date windows
@@ -48,7 +60,11 @@ async def run_pipeline_cycle() -> None:
     6. Apply time decay
     7. Deduplicate
     8. Send instant alerts (up to quota)
+
+    `aggregator` and `notifier` default to the module-level instances; tests inject fakes.
     """
+    aggregator = aggregator or _get_aggregator()
+    notifier = notifier or _notifier
     cycle_start = datetime.utcnow()
     log.info("pipeline_cycle_start", ts=cycle_start.isoformat())
 
@@ -81,8 +97,8 @@ async def run_pipeline_cycle() -> None:
 
         for params in param_batches:
             flight_result, hotel_result = await asyncio.gather(
-                _aggregator.collect_flights(params),
-                _aggregator.collect_hotels(params),
+                aggregator.collect_flights(params),
+                aggregator.collect_hotels(params),
                 return_exceptions=True,
             )
             if isinstance(flight_result, Exception):
@@ -139,13 +155,13 @@ async def run_pipeline_cycle() -> None:
 
         # ── Send instant alerts ───────────────────────────────────────────────
         if new_instant:
-            sent = await _notifier.process_instant_queue(new_instant)
+            sent = await notifier.process_instant_queue(new_instant)
             log.info("instant_alerts_sent", count=sent)
 
         # ── Send cycle summary of best cheap finds ───────────────────────────
         all_found = new_instant + new_digest
         if all_found and not new_instant:
-            await _send_best_finds_summary(all_found)
+            await _send_best_finds_summary(all_found, notifier)
 
         await _log_health_summary()
 
@@ -157,7 +173,7 @@ async def run_pipeline_cycle() -> None:
         # Do NOT crash the scheduler — just log
 
 
-async def _send_best_finds_summary(trips: list) -> None:
+async def _send_best_finds_summary(trips: list, notifier: TelegramNotifier) -> None:
     """Send a Telegram summary of the cheapest flights found this cycle."""
     try:
         sorted_trips = sorted(trips, key=lambda t: t.total_cost_eur)[:10]
@@ -169,7 +185,7 @@ async def _send_best_finds_summary(trips: list) -> None:
             if airline:
                 lines[-1] += f" ({airline})"
         lines.append(f"\n_{len(trips)} total deals found this cycle_")
-        await _notifier.send_system_message("\n".join(lines))
+        await notifier.send_system_message("\n".join(lines))
     except Exception as exc:
         log.debug("best_finds_summary_failed", error=str(exc))
 
@@ -189,13 +205,14 @@ async def _log_health_summary() -> None:
         pass
 
 
-async def run_daily_digest() -> None:
+async def run_daily_digest(notifier: Optional[TelegramNotifier] = None) -> None:
     """Send the daily digest of best deals."""
+    notifier = notifier or _notifier
     log.info("digest_run_start")
     try:
         trips = await get_digest_deals(limit=20)
         if trips:
-            await _notifier.send_digest(trips)
+            await notifier.send_digest(trips)
         else:
             log.info("digest_no_deals_to_send")
     except Exception as exc:

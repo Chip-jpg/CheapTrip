@@ -7,6 +7,7 @@ No imports from config.py — avoids circular dependencies.
 """
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
@@ -56,6 +57,12 @@ def load_preferences(path: Path = _DEFAULT_YAML_PATH) -> UserPreferences:
         return UserPreferences()
 
 
+def preferences_path() -> Path:
+    """YAML path in use: CHEAPTRIP_PREFS_PATH if set, else config/user_preferences.yaml."""
+    override = os.getenv("CHEAPTRIP_PREFS_PATH")
+    return Path(override) if override else _DEFAULT_YAML_PATH
+
+
 @lru_cache(maxsize=1)
 def get_preferences() -> UserPreferences:
-    return load_preferences()
+    return load_preferences(preferences_path())
