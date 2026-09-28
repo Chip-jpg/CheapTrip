@@ -250,3 +250,18 @@ async def test_no_api_key_skips_ai(engine, monkeypatch):
     monkeypatch.setattr(formatter, "_make_client", lambda *a: called.append(a))
     assert await formatter.enhance_with_ai(_trip(), BASE) == BASE
     assert called == []
+
+
+async def test_hourly_quota_goes_to_the_biggest_discount_first(engine, monkeypatch):
+    # process_instant_queue used to re-sort by confidence then price, sending the cheapest fare
+    monkeypatch.setenv("INSTANT_ALERTS_PER_HOUR", "1")
+    from config import get_settings
+    get_settings.cache_clear()
+    cheap = _trip(route="Milan → Krakow", cost=20.0)
+    bargain = _trip(route="Milan → Lisbon", cost=45.0)
+    bargain.discount_pct = 50.0
+
+    sent = await (await _notifier()).process_instant_queue([cheap, bargain])
+
+    assert sent == 1
+    assert "Lisbon" in engine.telegram.texts[0]
