@@ -83,6 +83,7 @@ async def run_pipeline_cycle(
 
     try:
         prefs = get_preferences()
+        aggregator.begin_cycle()
 
         # Cluster-expand home airports from preferences
         origins = expand_list_to_clusters(prefs.home_airports)

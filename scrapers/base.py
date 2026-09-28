@@ -49,6 +49,9 @@ class BaseFlightScraper(ABC):
     source_id: str = "unknown"
     enabled: bool = True
 
+    def begin_cycle(self) -> None:
+        """Called once at the start of each pipeline cycle (reset per-cycle budgets)."""
+
     @abstractmethod
     async def scrape(self, params: ScraperParams) -> List[RawFlightResult]:
         """Return a list of raw flight results; never raise — log and return []."""
@@ -68,6 +71,9 @@ class BaseFlightScraper(ABC):
 class BaseHotelScraper(ABC):
     source_id: str = "unknown"
     enabled: bool = True
+
+    def begin_cycle(self) -> None:
+        """Called once at the start of each pipeline cycle (reset per-cycle budgets)."""
 
     @abstractmethod
     async def scrape(self, params: ScraperParams) -> List[RawHotelResult]:

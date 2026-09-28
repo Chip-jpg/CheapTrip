@@ -61,6 +61,10 @@ class ScraperAggregator:
         self._hotel_scrapers = build_hotel_scrapers() if hotel_scrapers is None else hotel_scrapers
         self._monitor = get_health_monitor()
 
+    def begin_cycle(self) -> None:
+        for scraper in [*self._flight_scrapers, *self._hotel_scrapers]:
+            scraper.begin_cycle()
+
     async def collect_flights(
         self, params: ScraperParams
     ) -> Tuple[List[RawFlightResult], dict]:

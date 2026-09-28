@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     rapidapi_skyscanner_host: str = Field(default="skyscanner50.p.rapidapi.com")
     # Endpoint path — check the "Endpoints" tab in your RapidAPI console if you get 404s
     rapidapi_skyscanner_endpoint: str = Field(default="/api/v1/searchFlights")
+    # Opt-in: RapidAPI Skyscanner quotas are small. Calls are capped per scrape cycle,
+    # and a 429 pauses the source until the next UTC midnight.
+    enable_skyscanner: bool = Field(default=False)
+    skyscanner_max_calls_per_cycle: int = Field(default=20)
 
     # Currency
     exchange_rate_api_key: str = Field(default="")
