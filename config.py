@@ -35,7 +35,8 @@ class Settings(BaseSettings):
     skyscanner_max_calls_per_cycle: int = Field(default=20)
 
     # Search budgets: tasks per scrape cycle for each source (see scheduler/planner.py)
-    google_flights_calls_per_cycle: int = Field(default=20)
+    # Google throttles datacenter IPs after a handful of searches; keep this modest.
+    google_flights_calls_per_cycle: int = Field(default=10)
     ryanair_calls_per_cycle: int = Field(default=30)
     travelpayouts_calls_per_cycle: int = Field(default=30)
     booking_calls_per_cycle: int = Field(default=5)

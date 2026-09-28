@@ -1,161 +1,226 @@
+"""
+Google Flights (no key).
+
+Searches are encoded in the URL as a protobuf (`tfs=`), the same format
+the website uses, so the server renders results into the HTML. Each result
+card carries an accessibility label with everything we need, e.g.:
+
+  "From 80 euros round trip total. Nonstop flight with Ryanair. Leaves
+   Milano Malpensa Airport at 9:15 PM on Friday, November 6 and arrives at
+   John Paul II Kraków Balice International Airport at 11:10 PM on Friday,
+   November 6. Total duration 1 hr 55 min."
+
+Labels are plain English and far more stable than the page's CSS classes.
+EU consent is pre-accepted with cookies; a consent page, a 429 or a
+"sorry" page is reported as blocked / rate limited.
+"""
 from __future__ import annotations
 
 import asyncio
-import json
 import re
-from datetime import date
-from typing import Any, List, Optional
-from urllib.parse import quote
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import List, Optional
 
 import httpx
 from bs4 import BeautifulSoup
 
 from config import get_settings
-from scrapers.base import BaseFlightScraper, SearchCapability, build_client, random_headers
+from scrapers.base import BaseFlightScraper, ScrapeStatus, SearchCapability, build_client, random_headers
 from storage.models import RawFlightResult, SearchTask
+from utils import protobuf as pb
 from utils.logging_config import get_logger
-from utils.retry import async_retry
 
 log = get_logger(__name__)
 
+_BASE = "https://www.google.com/travel/flights"
+# Pre-accepted EU consent (otherwise European IPs get consent.google.com)
+_CONSENT_COOKIES = {"SOCS": "CAESHAgBEhJnd3NfMjAyMzA4MTAtMF9SQzIaAmVuIAEaBgiAo_CmBg", "CONSENT": "YES+cb"}
+_REQUEST_SPACING_S = 3.0
+# Keep the cheapest few itineraries per search
+RESULTS_PER_SEARCH = 3
+
+# Trip enum values in Google's search protobuf
+_ROUND_TRIP, _ONE_WAY = 1, 2
+_ADULT, _ECONOMY = 1, 1
+
+
+async def _pause(seconds: float) -> None:
+    """Spacing between requests (patched to a no-op in tests)."""
+    await asyncio.sleep(seconds)
+
+
+def _leg(day: date, origin: str, destination: str) -> bytes:
+    return (
+        pb.field_str(2, day.isoformat())
+        + pb.field_bytes(13, pb.field_str(2, origin))
+        + pb.field_bytes(14, pb.field_str(2, destination))
+    )
+
+
+def encode_search(origin: str, destination: str, depart: date, return_date: Optional[date], adults: int = 1) -> str:
+    """The `tfs` URL parameter for a one-way or round-trip economy search."""
+    message = pb.field_bytes(3, _leg(depart, origin, destination))
+    if return_date:
+        message += pb.field_bytes(3, _leg(return_date, destination, origin))
+    for _ in range(max(1, adults)):
+        message += pb.field_varint(8, _ADULT)
+    message += pb.field_varint(9, _ECONOMY)
+    message += pb.field_varint(19, _ROUND_TRIP if return_date else _ONE_WAY)
+    return pb.to_url_param(message)
+
+
+def search_url(origin: str, destination: str, depart: date, return_date: Optional[date], adults: int = 1) -> str:
+    tfs = encode_search(origin, destination, depart, return_date, adults)
+    return f"{_BASE}?tfs={tfs}&hl=en&curr=EUR"
+
+
+_SP = r"[\s  ]"
+_PRICE_RE = re.compile(rf"From{_SP}+([\d,]+){_SP}+euros?{_SP}+(round trip|one way){_SP}+total", re.I)
+_STOPS_RE = re.compile(rf"(Nonstop|(\d+){_SP}+stops?){_SP}+flight{_SP}+with{_SP}+([^.]+)\.")
+_TIME = rf"(\d{{1,2}}:\d{{2}}){_SP}*([AP]M)"
+_DAY = r"\w+day, (\w+ \d{1,2})"
+_LEAVES_RE = re.compile(rf"Leaves (.+?) at {_TIME} on {_DAY} and arrives at (.+?) at {_TIME} on {_DAY}")
+_DURATION_RE = re.compile(rf"Total duration (?:(\d+){_SP}*hr)?{_SP}*(?:(\d+){_SP}*min)?")
+
+
+@dataclass
+class ParsedItinerary:
+    price: float
+    round_trip: bool
+    airline: Optional[str]
+    stops: Optional[int]
+    departure_time: Optional[datetime]
+    arrival_time: Optional[datetime]
+    duration_minutes: Optional[int]
+
+
+def _label_datetime(clock: str, meridiem: str, month_day: str, reference: date) -> Optional[datetime]:
+    """
+    '9:15', 'PM', 'November 6' → datetime. Labels omit the year, so use the
+    year that puts the date closest to the search date (a flight leaving on
+    31 December can land on 1 January of the next year).
+    """
+    candidates = []
+    for year in (reference.year - 1, reference.year, reference.year + 1):
+        try:
+            candidates.append(datetime.strptime(f"{month_day} {year} {clock} {meridiem}", "%B %d %Y %I:%M %p"))
+        except ValueError:
+            continue
+    if not candidates:
+        return None
+    anchor = datetime.combine(reference, datetime.min.time())
+    return min(candidates, key=lambda dt: abs(dt - anchor))
+
+
+def parse_label(label: str, depart: date) -> Optional[ParsedItinerary]:
+    label = label.replace(" ", " ").replace(" ", " ")
+    price_m = _PRICE_RE.search(label)
+    if not price_m:
+        return None
+    stops_m = _STOPS_RE.search(label)
+    leaves_m = _LEAVES_RE.search(label)
+    duration_m = _DURATION_RE.search(label)
+
+    stops = airline = None
+    if stops_m:
+        stops = 0 if stops_m.group(1) == "Nonstop" else int(stops_m.group(2))
+        airline = stops_m.group(3).strip()
+
+    dep_time = arr_time = None
+    if leaves_m:
+        dep_time = _label_datetime(leaves_m.group(2), leaves_m.group(3), leaves_m.group(4), depart)
+        arr_time = _label_datetime(leaves_m.group(6), leaves_m.group(7), leaves_m.group(8), depart)
+
+    duration = None
+    if duration_m and (duration_m.group(1) or duration_m.group(2)):
+        duration = int(duration_m.group(1) or 0) * 60 + int(duration_m.group(2) or 0)
+
+    return ParsedItinerary(
+        price=float(price_m.group(1).replace(",", "")),
+        round_trip=price_m.group(2).lower() == "round trip",
+        airline=airline,
+        stops=stops,
+        departure_time=dep_time,
+        arrival_time=arr_time,
+        duration_minutes=duration,
+    )
+
+
+def _is_consent_or_block_page(resp: httpx.Response, body: str) -> bool:
+    host = resp.url.host or ""
+    return "consent.google" in host or "/sorry/" in str(resp.url) or "Before you continue" in body[:20000]
+
 
 class GoogleFlightsScraper(BaseFlightScraper):
-    """
-    Google Flights HTML scraper.
-
-    Uses Google Flights' URL scheme to load search results, then extracts
-    structured data from JSON-LD script tags and inline JS data objects.
-    Falls back to best-effort regex parsing.
-
-    No API key required — uses public web interface.
-    May return 0 results if Google detects bot traffic.
-    """
-
     source_id = "google_flights"
     capability = SearchCapability.ROUTE_DATE
 
     def calls_per_cycle(self) -> int:
         return get_settings().google_flights_calls_per_cycle
 
-    @async_retry(
-        max_attempts=3, min_wait=3.0, max_wait=20.0,
-        retry_on=(httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError),
-    )
-    async def _fetch_search_page(
-        self,
-        client: httpx.AsyncClient,
-        origin: str,
-        dest: str,
-        dep_date: date,
-        return_date: Optional[date],
-    ) -> Optional[str]:
-        dep_encoded = dep_date.strftime("%Y%m%d")
-        if return_date:
-            ret_encoded = return_date.strftime("%Y%m%d")
-            url = (
-                f"https://www.google.com/travel/flights?hl=en&curr=EUR"
-                f"&q={quote(f'flights from {origin} to {dest}')}"
-                f"&departure={dep_encoded}&return={ret_encoded}"
-            )
-        else:
-            url = (
-                f"https://www.google.com/travel/flights?hl=en&curr=EUR"
-                f"&q={quote(f'flights from {origin} to {dest}')}"
-                f"&departure={dep_encoded}"
-            )
-
-        headers = random_headers(
-            {
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Referer": "https://www.google.com/",
-            }
-        )
-        resp = await client.get(url, headers=headers)
-        if resp.status_code == 200:
-            return resp.text
-        log.warning("gf_bad_status", status=resp.status_code, origin=origin, dest=dest)
-        self._record_error(f"{origin}-{dest}: HTTP {resp.status_code}")
-        return None
-
-    def _extract_prices(self, html: str, origin: str, dest: str, dep_date: date) -> List[RawFlightResult]:
-        results: List[RawFlightResult] = []
+    def parse_results(self, html: str, task: SearchTask) -> List[RawFlightResult]:
         soup = BeautifulSoup(html, "lxml")
-
-        # Try JSON-LD structured data
-        for script in soup.find_all("script", type="application/ld+json"):
-            try:
-                data = json.loads(script.string or "")
-                if isinstance(data, list):
-                    for item in data:
-                        r = self._parse_ld_item(item, origin, dest, dep_date)
-                        if r:
-                            results.append(r)
-                else:
-                    r = self._parse_ld_item(data, origin, dest, dep_date)
-                    if r:
-                        results.append(r)
-            except Exception:
-                pass
-
-        # Try to extract price data from inline JS variables
-        price_pattern = re.compile(r'"price":\s*(\d+(?:\.\d+)?)')
-        airline_pattern = re.compile(r'"name":\s*"([A-Za-z\s]+(?:Airlines?|Airways?|Air\s+\w+)?)"')
-        prices = [float(m.group(1)) for m in price_pattern.finditer(html)]
-        airlines = [m.group(1) for m in airline_pattern.finditer(html)]
-
-        for i, price in enumerate(prices[:5]):
-            if price < 20 or price > 5000:
+        seen = set()
+        itineraries: List[ParsedItinerary] = []
+        for element in soup.find_all(attrs={"aria-label": True}):
+            parsed = parse_label(element["aria-label"], task.depart_from)
+            if not parsed:
                 continue
-            airline = airlines[i] if i < len(airlines) else None
-            results.append(
-                RawFlightResult(
-                    origin=origin,
-                    destination=dest,
-                    price=price,
-                    currency="EUR",
-                    departure_date=dep_date,
-                    airline=airline,
-                    source=self.source_id,
-                )
-            )
+            key = (parsed.price, parsed.airline, parsed.departure_time)
+            if key not in seen:
+                seen.add(key)
+                itineraries.append(parsed)
 
-        return results
-
-    def _parse_ld_item(
-        self, item: Any, origin: str, dest: str, dep_date: date
-    ) -> Optional[RawFlightResult]:
-        if not isinstance(item, dict):
-            return None
-        price = item.get("price") or item.get("offers", {}).get("price")
-        if not price:
-            return None
-        try:
-            return RawFlightResult(
-                origin=origin,
-                destination=dest,
-                price=float(price),
-                currency=item.get("priceCurrency", "EUR"),
-                departure_date=dep_date,
-                airline=item.get("provider", {}).get("name"),
+        itineraries.sort(key=lambda it: it.price)
+        url = search_url(task.origin, task.destination, task.depart_from, task.return_date, task.adults)
+        return [
+            RawFlightResult(
+                origin=task.origin,
+                destination=task.destination,
+                price=it.price,
+                currency="EUR",
+                departure_date=task.depart_from,
+                return_date=task.return_date if it.round_trip else None,
+                airline=it.airline,
+                booking_url=url,
                 source=self.source_id,
+                departure_time=it.departure_time,
+                arrival_time=it.arrival_time,
+                stops=it.stops,
+                duration_minutes=it.duration_minutes,
+                is_round_trip=it.round_trip,
             )
-        except Exception:
-            return None
+            for it in itineraries[:RESULTS_PER_SEARCH]
+        ]
 
     async def scrape(self, tasks: List[SearchTask]) -> List[RawFlightResult]:
         results: List[RawFlightResult] = []
         async with build_client(timeout=25.0) as client:
-            for task in tasks:
+            client.cookies.update(_CONSENT_COOKIES)
+            for i, task in enumerate(tasks):
                 if not task.origin or not task.destination:
                     continue
-                origin, dest, dep, ret = task.origin, task.destination, task.depart_from, task.return_date
+                if i:
+                    await _pause(_REQUEST_SPACING_S)
+                route = f"{task.origin}-{task.destination}"
+                url = search_url(task.origin, task.destination, task.depart_from, task.return_date, task.adults)
                 try:
-                    html = await self._fetch_search_page(client, origin, dest, dep, ret)
-                    if html:
-                        found = self._extract_prices(html, origin, dest, dep)
-                        results.extend(found)
-                    await asyncio.sleep(1.5)
-                except Exception as exc:
-                    log.warning("gf_scrape_pair_failed", origin=origin, dest=dest, error=str(exc))
-                    self._record_error(f"{origin}-{dest}: {exc}")
+                    resp = await client.get(url, headers=random_headers({"Accept-Language": "en-US,en;q=0.9"}))
+                except httpx.HTTPError as exc:
+                    self._record_error(f"{route}: {exc}")
+                    continue
+                if resp.status_code == 429:
+                    self._report_status(ScrapeStatus.RATE_LIMITED, f"{route}: HTTP 429")
+                    break
+                if resp.status_code != 200:
+                    self._record_error(f"{route}: HTTP {resp.status_code}")
+                    continue
+                if _is_consent_or_block_page(resp, resp.text):
+                    self._report_status(ScrapeStatus.BLOCKED, f"{route}: consent or bot-check page")
+                    break
+                found = self.parse_results(resp.text, task)
+                if not found:
+                    log.info("gf_no_results", route=route, date=task.depart_from.isoformat())
+                results.extend(found)
         return results
