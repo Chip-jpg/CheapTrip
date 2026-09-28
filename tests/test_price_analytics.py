@@ -73,3 +73,16 @@ class TestDetectAnomaly:
         assert hasattr(result, "is_anomaly")
         assert hasattr(result, "is_all_time_low")
         assert hasattr(result, "deviation_pct")
+
+
+class TestSingleObservation:
+    async def test_one_price_does_not_crash_stats(self, engine):
+        # Regression: std dev of a single price is None and round(None) raised TypeError.
+        from storage.database import init_db, record_price
+
+        await init_db()
+        await record_price("MXP-KRK", 25.0, "test")
+        stats = await get_price_stats("MXP-KRK")
+        assert stats.sample_count_30d == 1
+        assert stats.std_dev_30d is None
+        assert stats.avg_30d == 25.0

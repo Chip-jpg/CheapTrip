@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from filters.hard_filters import apply_hard_filters
 from filters.time_decay import apply_time_decay
-from storage.models import AlertTier, DealType, FlightLeg, Trip
+from storage.models import AlertTier, BookingConfidence, DealType, FlightLeg, Trip
 
 
 def _make_flight_trip(
@@ -15,6 +15,7 @@ def _make_flight_trip(
     cost: float,
     confidence: float = 0.8,
     scraped_age_hours: float = 0.0,
+    booking_confidence: BookingConfidence = BookingConfidence.MEDIUM,
 ) -> Trip:
     scraped_at = datetime.utcnow() - timedelta(hours=scraped_age_hours)
     leg = FlightLeg(
@@ -35,6 +36,7 @@ def _make_flight_trip(
         departure_date=date(2025, 8, 1),
         data_confidence_score=confidence,
         source_list=["test"],
+        booking_confidence=booking_confidence,
     )
     trip.hash = trip.compute_hash()
     return trip

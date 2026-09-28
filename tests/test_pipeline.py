@@ -82,3 +82,20 @@ async def test_only_one_digest_per_day(engine):
     await engine.run_digest()
 
     assert sum("DAILY TRAVEL DEALS DIGEST" in t for t in engine.telegram.texts) == 1
+
+
+async def test_priority_destination_alerts_instantly_despite_price(engine):
+    engine.set_prefs(priority_destinations=["JFK"])
+    await engine.run_cycle(flights=[flight(destination="JFK", price=900.0)])
+
+    assert len(engine.telegram.texts) == 1
+    assert "FLIGHT DEAL" in engine.telegram.texts[0]
+    assert "€900" in engine.telegram.texts[0]
+
+
+async def test_deal_without_booking_link_is_not_instant(engine):
+    await engine.run_cycle(flights=[flight(destination="KRK", price=25.0, booking_url=None)])
+
+    # Held back to the digest (LOW booking confidence): only the cycle summary goes out.
+    assert len(engine.telegram.texts) == 1
+    assert "Cycle Summary" in engine.telegram.texts[0]

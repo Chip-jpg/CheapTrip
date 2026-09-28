@@ -6,7 +6,6 @@ from typing import List, Optional
 from config import LAYER_1_AIRPORTS, LAYER_2_AIRPORTS, LAYER_3_HUBS
 from storage.database import get_price_median, record_price
 from storage.models import (
-    AlertTier,
     DealType,
     FlightLeg,
     HotelDeal,
@@ -51,14 +50,13 @@ def _hotel_airports(location: str) -> List[str]:
 
 
 def _apply_anomaly_to_trip(trip: Trip, anomaly) -> None:
-    """Decorate a trip with historical anomaly data if detected."""
+    """Decorate a trip with historical anomaly data (the alert policy uses it for the tier)."""
     if anomaly.is_anomaly:
+        trip.is_anomaly = True
+        trip.anomaly_description = anomaly.description
         trip.is_historical_low = anomaly.is_all_time_low
         if anomaly.deviation_pct is not None:
             trip.historical_deviation_pct = anomaly.deviation_pct
-        # Upgrade alert tier for confirmed anomalies
-        if trip.alert_tier != AlertTier.INSTANT:
-            trip.alert_tier = AlertTier.INSTANT
 
 
 def _finalize_trip(trip: Trip) -> None:
@@ -87,10 +85,6 @@ def _finalize_trip(trip: Trip) -> None:
     trip.is_feasible = feasible
     trip.feasibility_notes = notes
     trip.trip_length_profile = profile
-
-    # Infeasible trips cannot be instant alerts
-    if not feasible and trip.alert_tier == AlertTier.INSTANT:
-        trip.alert_tier = AlertTier.DIGEST
 
     # Deal categorization
     trip.category = categorize_trip(trip)
@@ -195,13 +189,11 @@ async def _build_flight_only_trip(leg: FlightLeg) -> Optional[Trip]:
         verdict=verdict,
     )
     trip.compute_totals()
-    trip.alert_tier = _assign_alert_tier(trip)
 
     # Flag potential error fares
     if normal and leg.price_eur < normal * 0.40:
         trip.is_error_fare = True
         trip.deal_type = DealType.ERROR_FARE
-        trip.alert_tier = AlertTier.INSTANT
 
     # Historical anomaly check
     try:
@@ -252,7 +244,6 @@ async def _build_complete_trip(leg: FlightLeg, hotel: HotelDeal) -> Optional[Tri
         source_list=list({leg.source, hotel.source}),
         verdict=verdict,
     )
-    trip.alert_tier = _assign_alert_tier(trip)
 
     # Historical anomaly on the flight leg
     try:
@@ -294,36 +285,5 @@ async def _build_repositioned_trip(
         source_list=list({repo_leg.source, onward_flight.source}),
         verdict=verdict,
     )
-    trip.alert_tier = _assign_alert_tier(trip)
     _finalize_trip(trip)
     return trip
-
-
-def _assign_alert_tier(trip: Trip) -> AlertTier:
-    from config import get_settings
-    from preferences import get_preferences
-    settings = get_settings()
-    prefs = get_preferences()
-
-    cost = trip.total_cost_eur
-    dest = trip.outbound_flight.destination if trip.outbound_flight else ""
-    origin = trip.outbound_flight.origin if trip.outbound_flight else None
-    is_europe = not airports.is_long_haul(dest, origin) if dest else False
-
-    # Priority wishlist: always instant regardless of price
-    if dest and dest in prefs.priority_destinations:
-        return AlertTier.INSTANT
-
-    # Instant alert conditions
-    if is_europe and cost < settings.europe_trip_max_eur:
-        return AlertTier.INSTANT
-    if not is_europe and cost < settings.longhaul_trip_max_eur:
-        return AlertTier.INSTANT
-    if trip.discount_pct and trip.discount_pct >= settings.hotel_discount_min_pct and trip.deal_type == DealType.HOTEL_ONLY:
-        return AlertTier.INSTANT
-    if trip.discount_pct and trip.discount_pct >= settings.flight_discount_min_pct and trip.deal_type == DealType.FLIGHT_ONLY:
-        return AlertTier.INSTANT
-    if trip.is_error_fare:
-        return AlertTier.INSTANT
-
-    return AlertTier.DIGEST
