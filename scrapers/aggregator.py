@@ -10,6 +10,7 @@ from scrapers.going import GoingScraper
 from scrapers.google_flights import GoogleFlightsScraper
 from scrapers.health_monitor import get_health_monitor
 from scrapers.holiday_pirates import HolidayPiratesFlightScraper, HolidayPiratesHotelScraper
+from scrapers.ryanair import RyanairScraper
 from scrapers.secret_flying import SecretFlyingScraper
 from scrapers.skyscanner import SkyscannerScraper
 from storage.models import RawFlightResult, RawHotelResult
@@ -20,6 +21,7 @@ log = get_logger(__name__)
 
 def build_flight_scrapers() -> List[BaseFlightScraper]:
     return [
+        RyanairScraper(),
         SkyscannerScraper(),
         GoogleFlightsScraper(),
         SecretFlyingScraper(),

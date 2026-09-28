@@ -45,7 +45,7 @@ def engine(tmp_path, monkeypatch):
     capture = TelegramCapture()
     with respx.mock(assert_all_called=False) as router:
         router.post(SEND_MESSAGE_URL).mock(side_effect=capture.record)
-        yield Engine(tmp_path=tmp_path, prefs_path=prefs_path, telegram=capture)
+        yield Engine(tmp_path=tmp_path, prefs_path=prefs_path, telegram=capture, router=router)
 
     monkeypatch.undo()
     reset_caches()
