@@ -13,12 +13,11 @@ from scrapers.base import BaseHotelScraper, ScrapeStatus, build_client, random_h
 from storage.models import RawHotelResult, SearchTask
 from utils import airports
 from utils.iata_extract import parse_amount
+from utils.links import BOOKING_SEARCH_URL, booking_search_params
 from utils.logging_config import get_logger
 from utils.retry import async_retry
 
 log = get_logger(__name__)
-
-_SEARCH_BASE = "https://www.booking.com/searchresults.html"
 
 
 _AMOUNT_RE = re.compile(r"\d{1,3}(?:[.,\s\u00a0]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?")
@@ -64,22 +63,12 @@ class BookingComScraper(BaseHotelScraper):
         adults: int,
     ) -> Optional[str]:
         params = {
-            "ss": location,
-            "checkin_year": str(checkin.year),
-            "checkin_month": str(checkin.month),
-            "checkin_monthday": str(checkin.day),
-            "checkout_year": str(checkout.year),
-            "checkout_month": str(checkout.month),
-            "checkout_monthday": str(checkout.day),
-            "group_adults": str(adults),
-            "no_rooms": "1",
+            **booking_search_params(location, checkin, checkout, adults),
             "order": "price",
             "nflt": "ht_id=204",  # hotels only (httpx encodes it; it was double-encoded before)
-            "lang": "en-gb",
-            "selected_currency": "EUR",
         }
         resp = await client.get(
-            _SEARCH_BASE,
+            BOOKING_SEARCH_URL,
             params=params,
             headers=random_headers({"Referer": "https://www.booking.com/"}),
         )
