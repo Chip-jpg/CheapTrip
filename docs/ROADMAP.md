@@ -232,7 +232,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | Card | Branch | Status |
 |---|---|---|
 | B01 | `chore/dev-tooling-ci` | done |
-| B02 | `test/pipeline-harness` | todo |
+| B02 | `test/pipeline-harness` | done |
 | B03 | `refactor/airport-registry` | todo |
 | B04 | `fix/digest-crash` | todo |
 | B05 | `fix/alert-tier-logic` | todo |

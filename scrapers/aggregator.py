@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from scrapers.base import BaseFlightScraper, BaseHotelScraper
 from scrapers.booking_com import BookingComScraper
@@ -52,9 +52,13 @@ class ScraperAggregator:
     Automatically expands airport clusters before dispatching.
     """
 
-    def __init__(self) -> None:
-        self._flight_scrapers = build_flight_scrapers()
-        self._hotel_scrapers = build_hotel_scrapers()
+    def __init__(
+        self,
+        flight_scrapers: Optional[List[BaseFlightScraper]] = None,
+        hotel_scrapers: Optional[List[BaseHotelScraper]] = None,
+    ) -> None:
+        self._flight_scrapers = build_flight_scrapers() if flight_scrapers is None else flight_scrapers
+        self._hotel_scrapers = build_hotel_scrapers() if hotel_scrapers is None else hotel_scrapers
         self._monitor = get_health_monitor()
 
     async def collect_flights(
