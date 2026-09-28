@@ -12,14 +12,16 @@ card carries an accessibility label with everything we need, e.g.:
 
 Labels are plain English and far more stable than the page's CSS classes.
 EU consent is pre-accepted with cookies; a consent page, a 429 or a
-"sorry" page is reported as blocked / rate limited.
+"sorry" page is reported as blocked / rate limited, and the source then
+cools down for GOOGLE_FLIGHTS_COOLDOWN_HOURS: hammering Google again next
+cycle only extends the block.
 """
 from __future__ import annotations
 
 import asyncio
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import List, Optional
 
 import httpx
@@ -36,7 +38,7 @@ log = get_logger(__name__)
 _BASE = "https://www.google.com/travel/flights"
 # Pre-accepted EU consent (otherwise European IPs get consent.google.com)
 _CONSENT_COOKIES = {"SOCS": "CAESHAgBEhJnd3NfMjAyMzA4MTAtMF9SQzIaAmVuIAEaBgiAo_CmBg", "CONSENT": "YES+cb"}
-_REQUEST_SPACING_S = 3.0
+_REQUEST_SPACING_S = 6.0
 # Keep the cheapest few itineraries per search
 RESULTS_PER_SEARCH = 3
 
@@ -156,8 +158,25 @@ class GoogleFlightsScraper(BaseFlightScraper):
     source_id = "google_flights"
     capability = SearchCapability.ROUTE_DATE
 
+    def __init__(self) -> None:
+        self._cooldown_until: Optional[datetime] = None
+
     def calls_per_cycle(self) -> int:
         return get_settings().google_flights_calls_per_cycle
+
+    def begin_cycle(self) -> None:
+        if self._cooldown_until and datetime.utcnow() >= self._cooldown_until:
+            log.info("gf_cooldown_over")
+            self._cooldown_until = None
+            self.enabled = True
+            self.disabled_reason = None
+
+    def _start_cooldown(self) -> None:
+        hours = get_settings().google_flights_cooldown_hours
+        self._cooldown_until = datetime.utcnow() + timedelta(hours=hours)
+        self.enabled = False
+        self.disabled_reason = f"cooling down until {self._cooldown_until:%H:%M} UTC after a block"
+        log.warning("gf_cooldown_started", until=self._cooldown_until.isoformat())
 
     def parse_results(self, html: str, task: SearchTask) -> List[RawFlightResult]:
         soup = BeautifulSoup(html, "lxml")
@@ -212,12 +231,14 @@ class GoogleFlightsScraper(BaseFlightScraper):
                     continue
                 if resp.status_code == 429:
                     self._report_status(ScrapeStatus.RATE_LIMITED, f"{route}: HTTP 429")
+                    self._start_cooldown()
                     break
                 if resp.status_code != 200:
                     self._record_error(f"{route}: HTTP {resp.status_code}")
                     continue
                 if _is_consent_or_block_page(resp, resp.text):
                     self._report_status(ScrapeStatus.BLOCKED, f"{route}: consent or bot-check page")
+                    self._start_cooldown()
                     break
                 found = self.parse_results(resp.text, task)
                 if not found:

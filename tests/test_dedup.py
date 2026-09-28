@@ -133,3 +133,64 @@ async def test_small_price_moves_do_not_realert_but_a_real_drop_does(engine):
     assert len(engine.telegram.texts) == 2
     assert "price dropped from €25" in engine.telegram.texts[1]
     assert "<s>€25</s>" in engine.telegram.texts[1]
+
+
+# ── First time a known fare qualifies for an instant alert (B27) ──────────────
+
+async def test_saved_digest_fare_that_becomes_instant_is_offered_once(engine):
+    await init_db()
+    await deduplicate_trips([_trip(40.0, tier=AlertTier.DIGEST)])
+
+    [promoted], _ = await deduplicate_trips([_trip(40.0, tier=AlertTier.INSTANT)])
+
+    assert "now unusually cheap for this route" in promoted.alert_reasons
+    async with aiosqlite.connect(await get_db_path()) as db:
+        rows = await (await db.execute("SELECT alert_tier, created_at FROM deals")).fetchall()
+    assert len(rows) == 1 and rows[0][0] == "instant"
+    assert datetime.fromisoformat(rows[0][1]) > datetime.utcnow() - timedelta(minutes=1)
+
+    # Once it has been instant, the same fare is a duplicate again
+    new, dupes = await deduplicate_trips([_trip(40.0, tier=AlertTier.INSTANT)])
+    assert new == [] and len(dupes) == 1
+
+
+async def test_similar_fare_becoming_instant_retires_the_digest_copy(engine):
+    await init_db()
+    await deduplicate_trips([_trip(40.0, tier=AlertTier.DIGEST)])
+
+    [new], _ = await deduplicate_trips([_trip(39.5, dep=DEP + timedelta(days=1), tier=AlertTier.INSTANT)])
+
+    assert "now unusually cheap for this route" in new.alert_reasons
+    async with aiosqlite.connect(await get_db_path()) as db:
+        tiers = dict(await (await db.execute("SELECT total_cost, alert_tier FROM deals")).fetchall())
+    assert tiers == {40.0: "archive", 39.5: "instant"}
+
+
+async def test_already_sent_fare_is_not_offered_again(engine):
+    from storage.database import mark_alerted
+
+    await init_db()
+    [sent], _ = await deduplicate_trips([_trip(40.0, tier=AlertTier.INSTANT)])
+    await mark_alerted(sent.hash, AlertTier.INSTANT)
+
+    new, _ = await deduplicate_trips([_trip(40.0, tier=AlertTier.INSTANT)])
+
+    assert new == []
+
+
+async def test_cold_start_fare_alerts_once_history_shows_it_is_cheap(engine):
+    # Round 2 dry run: 7 fares qualified in cycle 3 but none alerted (saved as digest on cycle 1)
+    from tests.test_pipeline import _same_month_days_ahead
+
+    days = _same_month_days_ahead(4)
+    fares = [flight(destination="KRK", price=p, days_ahead=d) for p, d in zip((35.0, 58.0, 60.0, 62.0), days)]
+    for _ in range(2):
+        await engine.run_cycle(flights=fares)
+    assert not any("FLIGHT DEAL" in t for t in engine.telegram.texts)
+
+    await engine.run_cycle(flights=fares)  # two earlier cycles of history: €35 is ~40% below the usual €59
+    await engine.run_cycle(flights=fares)
+
+    alerts = [t for t in engine.telegram.texts if "FLIGHT DEAL" in t]
+    assert len(alerts) == 1
+    assert "€35" in alerts[0] and "now unusually cheap for this route" in alerts[0]

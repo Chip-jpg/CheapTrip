@@ -233,6 +233,12 @@ Decision: we are not investing further in Skyscanner. This branch only stops it 
 **B26 `feat/hotel-search-link`** (S)
 - No free hotel source works yet (B14), so flight alerts with a return date get a Booking.com search link pre-filled with the city and the trip dates.
 
+### Added in Round 3
+
+**B27 `fix/first-anomaly-google-calm`** (S)
+- Found in the Round 2 dry run: fares saved to the digest on a cold start never alert, even once history shows them to be unusually cheap (7 qualified in cycle 3, 0 sent). Offer such a deal as instant once.
+- Google Flights was rate-limited in 2 of 3 cycles: lower budget, wider spacing, and a cooldown after a block.
+
 ---
 
 ## 4. Suggested order
@@ -275,3 +281,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B24 | `docs/sync` | todo |
 | B25 | `fix/city-names` | done |
 | B26 | `feat/hotel-search-link` | done |
+| B27 | `fix/first-anomaly-google-calm` | done |
