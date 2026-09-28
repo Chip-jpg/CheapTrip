@@ -273,5 +273,5 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B22 | `feat/generalize-preferences` | todo |
 | B23 | `chore/ops-hardening` | todo |
 | B24 | `docs/sync` | todo |
-| B25 | `fix/city-names` | todo |
+| B25 | `fix/city-names` | done |
 | B26 | `feat/hotel-search-link` | todo |

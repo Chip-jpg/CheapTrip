@@ -102,3 +102,36 @@ def test_every_cluster_airport_is_known():
 def test_beach_airports():
     assert airports.is_beach("PMI")
     assert not airports.is_beach("PRG")
+
+
+# ── Display city names (B25) ──────────────────────────────────────────────────
+
+@pytest.mark.parametrize("iata,city", [
+    # Suburbs / villages from OurAirports that showed up in the Round 1 dry run or
+    # differed from Ryanair's own city names
+    ("RZE", "Rzeszów"), ("TIA", "Tirana"), ("FEZ", "Fez"), ("BEM", "Beni Mellal"),
+    ("CRV", "Crotone"), ("EMA", "East Midlands"), ("EFL", "Kefalonia"), ("LDE", "Lourdes"),
+    ("AOI", "Ancona"), ("CUF", "Cuneo"), ("BNX", "Banja Luka"), ("FKB", "Karlsruhe"),
+    ("LIL", "Lille"), ("LUG", "Lugano"), ("SPC", "La Palma"),
+])
+def test_curated_city_names(iata, city):
+    assert airports.city_of(iata) == city
+
+
+@pytest.mark.parametrize("iata,city", [
+    ("LBA", "Leeds"),                 # "Leeds, West Yorkshire"
+    ("NCL", "Newcastle upon Tyne"),   # "Newcastle upon Tyne, Tyne and Wear"
+    ("LIG", "Limoges"),               # "Limoges/Bellegarde"
+    ("TMP", "Tampere"),               # "Tampere / Pirkkala"
+    ("KGS", "Kos"),                   # "Kos Island"
+    ("SMI", "Samos"),                 # "Samos Island"
+])
+def test_municipality_suffixes_are_cleaned(iata, city):
+    assert airports.city_of(iata) == city
+
+
+def test_new_city_names_resolve_back_to_their_airport():
+    assert airports.iata_for_city("Rzeszów") == "RZE"
+    assert airports.iata_for_city("rzeszow") == "RZE"
+    assert airports.iata_for_city("Tirana") == "TIA"
+    assert airports.iata_for_city("Kos") == "KGS"
