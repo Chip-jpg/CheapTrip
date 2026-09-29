@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CheapTrip</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <script>
+      // The theme before the app starts, so the window doesn't flash the wrong colours
+      document.documentElement.dataset.theme =
+        window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    </script>
   </head>
   <body>
     <div id="root"></div>

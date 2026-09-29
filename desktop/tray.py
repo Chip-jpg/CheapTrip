@@ -1,13 +1,15 @@
 """
-The tray icon (B40): shows the engine's state and gives quick controls.
+The tray icon (B40, designed in Round 8): shows the engine's state and gives quick controls.
 
-  icon     green running · blue searching · grey paused · amber needs attention · red stopped
+  icon     the app's mark with a status dot: green running · blue searching ·
+           amber paused · red needs attention · grey stopped
   tooltip  "CheapTrip · next search 14:30", "… alerts paused until 08:00", …
-  menu     Open CheapTrip · Search now · Pause alerts ▸ · Resume alerts · Quit CheapTrip
+  menu     CheapTrip 0.8.0 · Running (next 14:30) · Open CheapTrip · Search now ·
+           Pause alerts ▸ · Resume alerts · Settings · Quit CheapTrip
 
 The menu is plain data (entries()), turned into a pystray menu only when the
-tray starts, so its behaviour is tested without a desktop. The placeholder
-icons are drawn here; the app's designed icons replace them in Round 8.
+tray starts, so its behaviour is tested without a desktop. The icons are
+rendered from the design's mark (packaging/icons/make_icons.mjs).
 """
 from __future__ import annotations
 
@@ -20,29 +22,44 @@ from zoneinfo import ZoneInfo
 
 import control
 from utils.logging_config import get_logger
+from utils.paths import bundle_dir
+from utils.version import __version__
 
 log = get_logger(__name__)
 
+# The status dot's colour for each state (as in packaging/icons/make_icons.mjs)
 STATE_COLORS = {
-    "running": (34, 160, 90),
-    "searching": (37, 99, 235),
-    "paused": (130, 130, 140),
-    "attention": (217, 119, 6),
-    "stopped": (200, 40, 40),
+    "running": (61, 213, 152),
+    "searching": (76, 194, 255),
+    "paused": (255, 165, 0),
+    "attention": (255, 84, 73),
+    "stopped": (154, 160, 166),
 }
+STATE_LABELS = {
+    "running": "Running", "searching": "Searching…", "paused": "Alerts paused",
+    "attention": "Needs attention", "stopped": "Stopped",
+}
+DOT_CENTRE = (49, 49)  # where the status dot sits in the 64 px icon
 
 
-def tray_image(state: str, size: int = 64) -> Any:
-    """A round badge in the state's colour with a white paper plane."""
+def assets_dir() -> Any:
+    return bundle_dir() / "desktop" / "assets"
+
+
+def tray_image(state: str) -> Any:
+    """The 64 px tray icon for a state: the app's mark with the state's status dot."""
     from PIL import Image, ImageDraw
 
-    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    draw.ellipse((1, 1, size - 2, size - 2), fill=STATE_COLORS.get(state, STATE_COLORS["stopped"]) + (255,))
-    s = size / 64
-    draw.polygon([(16 * s, 33 * s), (48 * s, 18 * s), (38 * s, 48 * s), (31 * s, 38 * s)], fill=(255, 255, 255, 255))
-    draw.polygon([(31 * s, 38 * s), (48 * s, 18 * s), (29 * s, 45 * s)], fill=(225, 225, 225, 255))
-    return image
+    path = assets_dir() / f"tray-{state if state in STATE_COLORS else 'stopped'}.png"
+    try:
+        with Image.open(path) as image:
+            return image.convert("RGBA")
+    except OSError as exc:  # a build without the icons: a plain dot still shows the state
+        log.warning("tray_icon_missing", path=str(path), error=str(exc))
+        image = Image.new("RGBA", (64, 64), (0, 103, 192, 255))
+        x, y = DOT_CENTRE
+        ImageDraw.Draw(image).ellipse((x - 12, y - 12, x + 12, y + 12), fill=STATE_COLORS.get(state, STATE_COLORS["stopped"]))
+        return image
 
 
 def _local_time(iso: str, tz_name: str) -> str:
@@ -79,6 +96,7 @@ class Entry:
     enabled: Callable[[], bool] = lambda: True
     visible: Callable[[], bool] = lambda: True
     default: bool = False  # what a click on the icon does
+    text: Optional[Callable[[], str]] = None  # a label that follows the state (read when the menu opens)
 
 
 SEPARATOR = Entry("-")
@@ -102,9 +120,19 @@ class Tray:
 
     # ── Menu ──────────────────────────────────────────────────────────────────
 
+    def headline(self) -> str:
+        """The menu's first line: "CheapTrip 0.8.0 · Running (next 14:30)"."""
+        detail = tooltip(self.status).removeprefix("CheapTrip · ")
+        label = STATE_LABELS.get(self.state, "Stopped")
+        if self.state == "running" and detail.startswith("next search "):
+            label += f" (next {detail.removeprefix('next search ')})"
+        return f"CheapTrip {__version__} · {label}"
+
     def entries(self) -> List[Entry]:
         not_paused = lambda: self.state != "paused"  # noqa: E731
         return [
+            Entry("Status", enabled=lambda: False, text=self.headline),
+            SEPARATOR,
             Entry("Open CheapTrip", self.open, default=True),
             Entry("Search now", self.search_now, enabled=lambda: self.state not in ("searching", "stopped")),
             Entry("Pause alerts", submenu=[
@@ -114,12 +142,16 @@ class Tray:
                 Entry("Until I resume", lambda: self.pause(until="resume")),
             ], visible=not_paused),
             Entry("Resume alerts", self.resume, visible=lambda: self.state == "paused"),
+            Entry("Settings", self.settings),
             SEPARATOR,
             Entry("Quit CheapTrip", self.quit),
         ]
 
     def open(self) -> None:
         self.app.show(None)
+
+    def settings(self) -> None:
+        self.app.show("settings")
 
     def search_now(self) -> None:
         self._run(self.app.engine_thread.engine.search_now())
@@ -187,7 +219,8 @@ def _to_pystray(pystray: Any, entries: List[Entry]) -> Any:
             items.append(pystray.Menu.SEPARATOR)
             continue
         action = _to_pystray(pystray, entry.submenu) if entry.submenu else entry.action  # pystray adapts no-arg actions
+        text = (lambda item, e=entry: e.text()) if entry.text else entry.label
         items.append(pystray.MenuItem(
-            entry.label, action, default=entry.default,
+            text, action, default=entry.default,
             enabled=lambda item, e=entry: e.enabled(), visible=lambda item, e=entry: e.visible()))
     return pystray.Menu(*items)

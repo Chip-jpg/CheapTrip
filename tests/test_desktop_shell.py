@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 import threading
 import time
@@ -21,11 +22,12 @@ from desktop import app as desktop_app
 from desktop.engine_thread import EngineThread
 from desktop.instance import InstanceLock, hand_over, read_app_file, remove_app_file, write_app_file
 from desktop.links import clean_route, parse_args, route_for_link
-from desktop.tray import SEPARATOR, STATE_COLORS, Tray, tooltip, tray_image
+from desktop.tray import DOT_CENTRE, SEPARATOR, STATE_COLORS, Tray, tooltip, tray_image
 from main import cli
 from scheduler.engine import Engine
-from storage.database import recent_cycles
+from storage.database import init_db, recent_cycles
 from tests.test_engine_service import SlowFlights, _aggregator
+from utils.version import __version__
 
 TOKEN = "t0k3n-for-tests"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -51,9 +53,15 @@ def _wait(condition, seconds: float = 20.0) -> bool:
 
 
 class RecordingShell:
+    kind = "desktop"
+
     def __init__(self) -> None:
         self.shown: List[Optional[str]] = []
         self.quits = 0
+        self.hidden = 0
+
+    def hide(self) -> None:
+        self.hidden += 1
 
     def show(self, route: Optional[str] = None) -> None:
         self.shown.append(route)
@@ -66,8 +74,10 @@ class RecordingShell:
 
 @pytest.mark.parametrize("route,expected", [
     ("", ""), ("/", ""), ("#/deals", "deals"), ("activity", "activity"), ("deals/ab-12_Z", "deals/ab-12_Z"),
-    ("deal/abc", "deals/abc"), ("setup/", "setup"),
-    ("admin", None), ("deals/a/b", None), ("deals/<script>", None), ("settings/keys", None),
+    ("deal/abc", "deals/abc"), ("setup/", "setup"), ("notifications", "notifications"),
+    ("destinations/krk", "destinations/KRK"), ("settings/keys", "settings/keys"),
+    ("admin", None), ("deals/a/b", None), ("deals/<script>", None), ("settings/passwords", None),
+    ("destinations/KRAK", None), ("activity/x", None),
 ])
 def test_only_the_apps_screens_are_routes(route, expected):
     assert clean_route(route) == expected
@@ -134,11 +144,14 @@ async def test_a_second_launch_hands_over_to_the_running_app(engine, tmp_path):
     assert await asyncio.to_thread(hand_over, tmp_path, None, 0) is False  # nothing running
 
 
-async def test_the_app_routes_show_and_quit(engine):
+async def test_the_app_routes_show_hide_and_quit(engine):
     shell = RecordingShell()
     client = TestClient(TestServer(create_app(Engine(None, _aggregator()), TOKEN, shell=shell)))
+    await init_db()
     await client.start_server()
     try:
+        assert (await (await client.get("/api/v1/status", headers=AUTH)).json())["app"] == "desktop"
+        assert (await client.post("/api/v1/app/hide", headers=AUTH)).status == 200
         resp = await client.post("/api/v1/app/show", json={"route": "#/activity"}, headers=AUTH)
         assert resp.status == 200
         resp = await client.post("/api/v1/app/show", json={"route": "../etc"}, headers=AUTH)
@@ -149,12 +162,13 @@ async def test_the_app_routes_show_and_quit(engine):
         assert resp.status == 401
     finally:
         await client.close()
-    assert shell.shown == ["activity"] and shell.quits == 1
+    assert shell.shown == ["activity"] and shell.quits == 1 and shell.hidden == 1
 
     browser_only = TestClient(TestServer(create_app(Engine(None, _aggregator()), TOKEN)))
     await browser_only.start_server()
     try:
         assert (await browser_only.post("/api/v1/app/quit", headers=AUTH)).status == 405  # no such route
+        assert (await (await browser_only.get("/api/v1/status", headers=AUTH)).json())["app"] is None
     finally:
         await browser_only.close()
 
@@ -238,8 +252,12 @@ def test_the_tray_menu_follows_the_state():
         tray.status = {"state": state}
         return [e.label for e in tray.entries() if e is not SEPARATOR and e.visible()]
 
-    assert shown("running") == ["Open CheapTrip", "Search now", "Pause alerts", "Quit CheapTrip"]
-    assert shown("paused") == ["Open CheapTrip", "Search now", "Resume alerts", "Quit CheapTrip"]
+    assert shown("running") == ["Status", "Open CheapTrip", "Search now", "Pause alerts", "Settings", "Quit CheapTrip"]
+    assert shown("paused") == ["Status", "Open CheapTrip", "Search now", "Resume alerts", "Settings", "Quit CheapTrip"]
+    [status] = [e for e in tray.entries() if e.label == "Status"]
+    assert status.enabled() is False and status.text() == f"CheapTrip {__version__} · Alerts paused"
+    tray.status = {"state": "running", "next_search_at": "2026-10-01T12:30:00", "timezone": "UTC"}
+    assert re.fullmatch(rf"CheapTrip {re.escape(__version__)} · Running \(next .*12:30\)", status.text())
     tray.status = {"state": "searching"}
     [search] = [e for e in tray.entries() if e.label == "Search now"]
     assert search.enabled() is False
@@ -251,7 +269,8 @@ def test_the_tray_menu_follows_the_state():
 def test_the_tray_icon_and_tooltip_show_the_state():
     for state, colour in STATE_COLORS.items():
         image = tray_image(state)
-        assert image.size == (64, 64) and image.getpixel((8, 32))[:3] == colour
+        assert image.size == (64, 64) and image.getpixel(DOT_CENTRE)[:3] == colour
+        assert image.getpixel((12, 12))[:3] != colour  # the app's mark around the dot
 
     status = {"state": "running", "next_search_at": "2026-10-01T12:30:00", "timezone": "UTC"}
     assert tooltip(status).startswith("CheapTrip · next search ")

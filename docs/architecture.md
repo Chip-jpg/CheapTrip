@@ -98,16 +98,21 @@ The desktop app's screens read JSON from a small aiohttp server (`api/server.py`
 
 `CheapTrip.exe` (`packaging/app_entry.py` → `desktop/app.py`; `main.py app` from source) is the Windows app:
 - **Engine thread** (`desktop/engine_thread.py`): the engine and the API on their own asyncio loop, so the window can own the main thread. The tray gets the status whenever the event bus announces something, and every 30 seconds.
-- **Window:** pywebview on Edge WebView2, 1280×800, showing the screens from the API (`/?token=…#/deals`). Closing it hides it to the tray unless `CLOSE_TO_TRAY` is off. Without WebView2 (pywebview would fall back to Internet Explorer's engine) the screens open in the default browser.
+- **Window:** pywebview on Edge WebView2, 1280×800, showing the screens from the API (`/?token=…#/deals`). It opens in the theme's background colour. Closing it (or the sidebar's "hide to tray", `POST /app/hide`) hides it to the tray unless `CLOSE_TO_TRAY` is off. Without WebView2 (pywebview would fall back to Internet Explorer's engine) the screens open in the default browser.
 - **Tray** (`desktop/tray.py`, pystray):
-  - the icon's colour and tooltip follow the state: running, searching, paused, needs attention, stopped;
-  - the menu drives the same `Engine` controls as the screens.
+  - the icon (the app's mark with a status dot) and tooltip follow the state: running, searching, paused, needs attention, stopped;
+  - the menu starts with a status line and drives the same `Engine` controls as the screens.
+- **Icons:** `packaging/icons/make_icons.mjs` renders the design's mark into `packaging/icons/cheaptrip.ico` (both exes and the installer), `desktop/assets/` (the notification icon, one tray icon per state) and `ui/public/favicon.svg`.
 - **One engine at a time** (`desktop/instance.py`):
   - The app, `run` and `ui` take one lock: a named mutex on Windows, a lock file elsewhere.
   - A second launch reads `app.json` (the running app's port and token, readable by this user only) and asks it to show its window via `POST /app/show`, then exits. `cheaptrip://` links (`desktop/links.py`) take the same path.
 - **Notifications:** `Engine(desktop=DesktopNotifier(on_action=...))`. Their Details and Mute buttons reach the app on the engine's loop.
 
-The screens (`ui/`, React + Vite + TypeScript) are deliberately plain for now. `ui/src/api.ts` is the typed client for every route and the live events, which all screens share over one connection. Routes are hashes (`#/deals/<id>`), so the engine's links and notifications can open any screen. `npm run build` writes `ui/dist`, which the API serves and the Windows build bundles.
+The screens (`ui/`, React + Vite + TypeScript + Tailwind) follow the owner's design ("Fluent Deal Radar"):
+- `ui/src/theme.css` holds its tokens: colours as CSS variables with a dark and a light set, which `<html data-theme>` picks (`ui/src/theme.ts`: Windows' mode, or `THEME`). It also holds the type scale and the shared components (cards, buttons, fields, chips). Fonts and icons are bundled.
+- `ui/src/api.ts` is the typed client for every route and the live events, which all screens share over one connection. `ui/src/engine.tsx` shares the engine's status and search progress with the top bar, the sidebar and the screens.
+- Routes are hashes (`#/deals/<id>`, `#/destinations/<airport>`, `#/settings/<section>`), so the engine's links and notifications can open any screen.
+- `npm run build` writes `ui/dist`, which the API serves and the Windows build bundles.
 
 ## Key design decisions
 

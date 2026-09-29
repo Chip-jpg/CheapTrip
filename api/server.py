@@ -27,6 +27,7 @@ Routes (all under /api/v1):
   POST /engine/search-now   /engine/pause   /engine/resume
   GET  /events                         server-sent events from the engine
   POST /app/show   {"route": ...}      show the app's window (a second launch, a cheaptrip:// link)
+  POST /app/hide                       hide the window to the tray (the desktop app)
   POST /app/quit                       quit the app
 """
 from __future__ import annotations
@@ -172,7 +173,8 @@ async def static_file(request: web.Request) -> web.StreamResponse:
 # ── Status and deals ──────────────────────────────────────────────────────────
 
 async def status(request: web.Request) -> web.Response:
-    return _json(await full_status(request.app[ENGINE]))
+    kind = getattr(request.app[SHELL], "kind", None)  # "desktop" | "browser": which controls the screens offer
+    return _json({**await full_status(request.app[ENGINE]), "app": kind})
 
 
 async def full_status(engine: Any) -> Dict[str, Any]:
@@ -414,6 +416,14 @@ async def app_show(request: web.Request) -> web.Response:
     return _json({"shown": True})
 
 
+async def app_hide(request: web.Request) -> web.Response:
+    hide = getattr(request.app[SHELL], "hide", None)
+    if hide is None:
+        return _error("only the desktop app has a window to hide", 409)
+    hide()
+    return _json({"hidden": True})
+
+
 async def app_quit(request: web.Request) -> web.Response:
     request.app[SHELL].quit()
     return _json({"quitting": True})
@@ -421,6 +431,8 @@ async def app_quit(request: web.Request) -> web.Response:
 
 class BrowserShell:
     """The app around the API in `main.py ui`: screens open in the browser."""
+
+    kind = "browser"
 
     def __init__(self, stop: asyncio.Event) -> None:
         self.server: Optional["ApiServer"] = None
@@ -502,6 +514,7 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None, shell
     app.router.add_get(f"{API}/events", events)
     if shell is not None:
         app.router.add_post(f"{API}/app/show", app_show)
+        app.router.add_post(f"{API}/app/hide", app_hide)
         app.router.add_post(f"{API}/app/quit", app_quit)
     app.router.add_get("/", index)
     app.router.add_get("/{path:.+}", static_file)

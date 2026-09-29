@@ -354,6 +354,25 @@ Everything that doesn't depend on the visuals is on `main`, with no release: the
 
 **Round 8** builds the owner's Claude Design screens on `ui/src/api.ts` and adds the in-app first-run setup, which replaces the installer's wizard pages. It also adds the designed app and tray icons, then light and dark checks against the design, and releases v0.8.0.
 
+### Added in Round 8: the designed app (v0.8.0)
+The owner's design ("Fluent Deal Radar", made in Google Stitch) covers Deals with its detail panel, Destinations, the setup wizard, a notifications and tray page, the app icon and the design tokens. Activity and Settings aren't in it, so they are built in the same style. Every element shows real data from the API; the mockup's invented figures (build numbers, latency readouts, photos) are left out.
+
+**B41 `feat/design-system`** (M)
+- The design's tokens as Tailwind v4 theme variables: its dark colours, plus a light set derived from its light-mode accents. The fonts (Hanken Grotesk, JetBrains Mono) and icons (Material Symbols) are bundled, so the app works offline.
+- **App shell:**
+  - top bar: status pill (click for the last and next search, or each source's progress while searching), destination quick jump (Ctrl+K), Search now, Pause alerts / Resume, light and dark switch;
+  - sidebar, collapsible to icons: the Deals badge counts unusually cheap deals, and the engine card has "hide to tray".
+- **Theme:** system, light or dark (`THEME`); the window opens in the right colour.
+- **Identity:** the design's mark rendered into the exe and installer icon, the notification icon and one tray icon per engine state (a status dot on the mark). The tray menu gains a status line and Settings.
+
+**B42 `feat/deals-screen`** (L): stat tiles, the learning banner, the filter bar, every card variant, "Best of the rest", and the deal detail slide-over with both charts.
+
+**B43 `feat/destinations-activity`** (L): Destinations (priority cards, all seen with trends, add a destination), Activity, and the Notifications page (toast previews, tray states, tests), with toasts worded like the design.
+
+**B44 `feat/settings-setup`** (L): Settings with a section menu and autosave, and the 5-step setup wizard on first launch, which replaces the installer's wizard pages.
+
+**Release v0.8.0:** version, notes and docs; the merge publishes the installer.
+
 ---
 
 ## 4. Suggested order
@@ -410,3 +429,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B38 | `feat/local-api` | done |
 | B39 | `feat/desktop-notifications` | done |
 | B40 | `feat/desktop-shell` | done |
+| B41 | `feat/design-system` | done |
+| B42 | `feat/deals-screen` | planned |
+| B43 | `feat/destinations-activity` | planned |
+| B44 | `feat/settings-setup` | planned |

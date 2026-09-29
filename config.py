@@ -29,6 +29,8 @@ class Settings(BaseSettings):
 
     # Desktop app (B40): closing the window keeps CheapTrip running in the tray
     close_to_tray: bool = Field(default=True)
+    # The app's colours: "system" (follow Windows), "light" or "dark"
+    theme: str = Field(default="system")
 
     # AI (optional alert polish; prices/dates/links are verified unchanged)
     anthropic_api_key: str = Field(default="")

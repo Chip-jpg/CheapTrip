@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -8,7 +9,7 @@ const engine = process.env.CHEAPTRIP_API ?? "http://127.0.0.1:8765";
 const token = process.env.CHEAPTRIP_TOKEN ?? "";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   base: "./", // served by the engine at /, and opened from ui/dist in the app
   build: { outDir: "dist", emptyOutDir: true, sourcemap: false },
   server: {

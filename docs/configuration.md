@@ -63,6 +63,7 @@ Settings → Notifications and Settings → App in the app change these; they ap
 | `NOTIFY_SOURCE_PROBLEMS` | `true` | A source that starts failing, or recovers. |
 | `NOTIFY_SOUND` | `true` | Desktop notifications play the system sound. |
 | `CLOSE_TO_TRAY` | `true` | Closing the app's window keeps CheapTrip running in the tray. Off: closing it quits. |
+| `THEME` | `system` | The app's colours: `system` follows Windows' light or dark mode; `light` or `dark` fixes one. The sun/moon button in the top bar switches it too. |
 
 ### Schedule and storage
 

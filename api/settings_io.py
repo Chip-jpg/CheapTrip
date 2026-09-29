@@ -34,8 +34,10 @@ SOURCE_SWITCHES = (
 )
 # Settings → Notifications: NOTIFY_<NAME> in .env
 NOTIFY_SWITCHES = ("desktop", "telegram", "instant", "digest", "source_problems", "sound")
-# Settings → App: behaviour of the desktop app's window
+# Settings → App: behaviour of the desktop app's window (switches), and its colours
 APP_SWITCHES = ("close_to_tray",)
+THEMES = ("system", "light", "dark")
+APP_SETTINGS = (*APP_SWITCHES, "theme")
 # Preference lists that Telegram /mute and /priority (and /budget) override: saving them
 # in Settings makes the saved value the truth again
 _OVERRIDES_OF = {
@@ -71,7 +73,7 @@ class SettingsUpdate(BaseModel):
     keys: Optional[Dict[str, Optional[str]]] = None
     sources: Optional[Dict[str, bool]] = None
     notifications: Optional[Dict[str, bool]] = None
-    app: Optional[Dict[str, bool]] = None
+    app: Optional[Dict[str, Any]] = None
 
     @field_validator("notifications")
     @classmethod
@@ -83,10 +85,15 @@ class SettingsUpdate(BaseModel):
 
     @field_validator("app")
     @classmethod
-    def _known_app_switches(cls, value: Optional[Dict[str, bool]]) -> Optional[Dict[str, bool]]:
-        unknown = set(value or {}) - set(APP_SWITCHES)
+    def _known_app_settings(cls, value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        unknown = set(value or {}) - set(APP_SETTINGS)
         if unknown:
             raise ValueError(f"unknown app settings: {', '.join(sorted(unknown))}")
+        for name, setting in (value or {}).items():
+            if name in APP_SWITCHES and not isinstance(setting, bool):
+                raise ValueError(f"{name} must be true or false")
+        if value and "theme" in value and value["theme"] not in THEMES:
+            raise ValueError(f"theme must be one of {', '.join(THEMES)}")
         return value
 
     @field_validator("keys")
@@ -136,7 +143,10 @@ def read_settings() -> Dict[str, Any]:
             **{name: getattr(settings, f"notify_{name}") for name in NOTIFY_SWITCHES},
             "telegram_ready": bool(settings.telegram_bot_token and settings.telegram_chat_id),
         },
-        "app": {name: getattr(settings, name) for name in APP_SWITCHES},
+        "app": {
+            **{name: getattr(settings, name) for name in APP_SWITCHES},
+            "theme": settings.theme if settings.theme in THEMES else "system",
+        },
         "files": {"settings": str(env_path()), "preferences": str(preferences_path())},
     }
 
@@ -207,8 +217,8 @@ async def apply_settings(payload: Dict[str, Any], engine: Any = None) -> Dict[st
         saved.append(f"notifications.{name}")
         applies[f"notifications.{name}"] = "now"
 
-    for name, on in (update.app or {}).items():
-        env[name.upper()] = _env_value(on)
+    for name, value in (update.app or {}).items():
+        env[name.upper()] = _env_value(value)
         saved.append(f"app.{name}")
         applies[f"app.{name}"] = "now"
 

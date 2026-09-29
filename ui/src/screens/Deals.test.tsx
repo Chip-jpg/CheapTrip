@@ -26,7 +26,7 @@ describe("the Deals screen", () => {
     expect(cards[0].textContent).toContain("desktop + telegram");
     expect(cards[0].getAttribute("href")).toBe("#/deals/deal-1");
     expect(screen.getByTestId("summary").textContent).toContain("783 fares");
-    expect((await screen.findByTestId("state")).textContent).toBe("Watching prices");
+    expect((await screen.findByTestId("state")).textContent).toContain("Running · next search");
   });
 
   it("asks the engine again when a filter changes", async () => {

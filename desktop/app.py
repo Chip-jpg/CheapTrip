@@ -28,8 +28,8 @@ from config import get_settings
 from desktop.engine_thread import EngineThread
 from desktop.instance import InstanceLock, hand_over, read_app_file, remove_app_file, write_app_file
 from desktop.links import parse_args
-from desktop.tray import Tray
-from desktop.windows import allow_foreground, message_box, set_app_id, webview2_available
+from desktop.tray import Tray, assets_dir
+from desktop.windows import allow_foreground, message_box, set_app_id, system_prefers_dark, webview2_available
 from notifier.desktop import APP_ID
 from utils.logging_config import get_logger
 
@@ -38,9 +38,20 @@ log = get_logger(__name__)
 WINDOW_SIZE = (1280, 800)
 WINDOW_MIN_SIZE = (1100, 720)
 START_SCREEN = "deals"
+# The window's colour before the screens draw (the design's background), so opening it doesn't flash
+BACKGROUND = {"dark": "#131313", "light": "#F3F3F3"}
+
+
+def window_background() -> str:
+    theme = get_settings().theme
+    if theme not in BACKGROUND:
+        theme = "dark" if system_prefers_dark() else "light"
+    return BACKGROUND[theme]
 
 
 class DesktopApp:
+    kind = "desktop"  # what the screens are told they run in (GET /status "app")
+
     def __init__(self, folder: Path, *, minimized: bool = False, route: Optional[str] = None, port: int = 0) -> None:
         self.folder = folder
         self.minimized = minimized
@@ -57,7 +68,9 @@ class DesktopApp:
         from notifier.desktop import DesktopNotifier
         from scheduler.engine import Engine
 
-        return Engine(desktop=DesktopNotifier(on_action=self.notification_action))
+        icon = assets_dir() / "cheaptrip.png"
+        return Engine(desktop=DesktopNotifier(on_action=self.notification_action,
+                                              icon_path=icon if icon.exists() else None))
 
     # ── Called by the API, the tray and notifications (any thread) ────────────
 
@@ -71,6 +84,15 @@ class DesktopApp:
             self.window.evaluate_js(f"window.location.hash = {json.dumps('#/' + route)}")
         self.window.show()
         self.window.restore()
+
+    def hide(self) -> None:
+        """Hide the window to the tray (minimize it when there is no tray to bring it back from)."""
+        if self.window is None:
+            return
+        if self.tray.available:
+            self.window.hide()
+        else:
+            self.window.minimize()
 
     def quit(self) -> None:
         """Quit the app (returns at once; the engine stops in the background)."""
@@ -107,7 +129,7 @@ class DesktopApp:
         self.window = webview.create_window(
             "CheapTrip", self.server.link(self.route if self.route is not None else START_SCREEN),
             width=WINDOW_SIZE[0], height=WINDOW_SIZE[1], min_size=WINDOW_MIN_SIZE, hidden=hidden,
-            background_color="#FFFFFF",
+            background_color=window_background(),
         )
         self.window.events.closing += self._on_closing
         webview.start()  # returns when the window is destroyed
