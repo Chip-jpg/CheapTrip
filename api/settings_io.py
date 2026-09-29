@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, field_validator
 
 import control
 from config import get_settings
+from desktop import windows
 from preferences import get_preferences, preferences_path, save_preferences
 from storage.database import set_pref_override
 from utils import airports
@@ -34,10 +35,11 @@ SOURCE_SWITCHES = (
 )
 # Settings → Notifications: NOTIFY_<NAME> in .env
 NOTIFY_SWITCHES = ("desktop", "telegram", "instant", "digest", "source_problems", "sound")
-# Settings → App: behaviour of the desktop app's window (switches), and its colours
-APP_SWITCHES = ("close_to_tray",)
+# Settings → App: behaviour of the desktop app's window (switches), its colours, and starting at
+# sign-in (Windows' Run key, not .env: the installer sets it too). setup_done: the first-run wizard ran.
+APP_SWITCHES = ("close_to_tray", "setup_done")
 THEMES = ("system", "light", "dark")
-APP_SETTINGS = (*APP_SWITCHES, "theme")
+APP_SETTINGS = (*APP_SWITCHES, "theme", "start_at_login")
 # Preference lists that Telegram /mute and /priority (and /budget) override: saving them
 # in Settings makes the saved value the truth again
 _OVERRIDES_OF = {
@@ -90,7 +92,7 @@ class SettingsUpdate(BaseModel):
         if unknown:
             raise ValueError(f"unknown app settings: {', '.join(sorted(unknown))}")
         for name, setting in (value or {}).items():
-            if name in APP_SWITCHES and not isinstance(setting, bool):
+            if name in (*APP_SWITCHES, "start_at_login") and not isinstance(setting, bool):
                 raise ValueError(f"{name} must be true or false")
         if value and "theme" in value and value["theme"] not in THEMES:
             raise ValueError(f"theme must be one of {', '.join(THEMES)}")
@@ -146,6 +148,7 @@ def read_settings() -> Dict[str, Any]:
         "app": {
             **{name: getattr(settings, name) for name in APP_SWITCHES},
             "theme": settings.theme if settings.theme in THEMES else "system",
+            "start_at_login": windows.autostart_enabled(),  # None: only the installed Windows app can
         },
         "files": {"settings": str(env_path()), "preferences": str(preferences_path())},
     }
@@ -218,7 +221,10 @@ async def apply_settings(payload: Dict[str, Any], engine: Any = None) -> Dict[st
         applies[f"notifications.{name}"] = "now"
 
     for name, value in (update.app or {}).items():
-        env[name.upper()] = _env_value(value)
+        if name == "start_at_login":
+            windows.set_autostart(value)
+        else:
+            env[name.upper()] = _env_value(value)
         saved.append(f"app.{name}")
         applies[f"app.{name}"] = "now"
 

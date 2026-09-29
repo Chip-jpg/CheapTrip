@@ -485,6 +485,15 @@ async def purge_old_rows(
     return {"price_history": prices.rowcount, "deals": deals.rowcount, "alerts_sent": alerts.rowcount}
 
 
+async def clear_price_history() -> int:
+    """Forget every price seen (Settings → danger zone): usual prices are learned again from scratch."""
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        deleted = await db.execute("DELETE FROM price_history")
+        await db.commit()
+    return deleted.rowcount
+
+
 async def get_recent_alert_timestamps(tier: AlertTier, within_hours: float) -> list:
     """Return UTC datetimes of alerts sent for this tier within the given window."""
     path = await get_db_path()

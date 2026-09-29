@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     close_to_tray: bool = Field(default=True)
     # The app's colours: "system" (follow Windows), "light" or "dark"
     theme: str = Field(default="system")
+    # The app's first-run setup wizard has been finished (it opens at the first launch until then)
+    setup_done: bool = Field(default=False)
 
     # AI (optional alert polish; prices/dates/links are verified unchanged)
     anthropic_api_key: str = Field(default="")

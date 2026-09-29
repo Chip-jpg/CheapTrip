@@ -127,8 +127,9 @@ class DesktopApp:
     def _run_window(self, hidden: bool) -> None:
         import webview
 
+        start = self.route if self.route is not None else START_SCREEN if get_settings().setup_done else "setup"
         self.window = webview.create_window(
-            "CheapTrip", self.server.link(self.route if self.route is not None else START_SCREEN),
+            "CheapTrip", self.server.link(start),
             width=WINDOW_SIZE[0], height=WINDOW_SIZE[1], min_size=WINDOW_MIN_SIZE, hidden=hidden,
             background_color=window_background(),
         )

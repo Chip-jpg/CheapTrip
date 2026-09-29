@@ -38,6 +38,8 @@ export interface Status {
   telegram_configured: boolean;
   timezone: string;
   version: string;
+  /** The first-run setup wizard hasn't been finished */
+  setup_needed: boolean;
   /** Where the screens run: the desktop app's window, or a browser (`main.py ui`) */
   app: "desktop" | "browser" | null;
 }
@@ -255,7 +257,7 @@ export interface Settings {
   };
   sources: Record<string, boolean>;
   notifications: NotificationSettings & { telegram_ready: boolean };
-  app: { close_to_tray: boolean; theme: ThemeChoice };
+  app: { close_to_tray: boolean; setup_done: boolean; theme: ThemeChoice; start_at_login: boolean | null };
   files: { settings: string; preferences: string };
 }
 
@@ -265,7 +267,7 @@ export interface SettingsUpdate {
   keys?: Record<string, string | null>; // "" clears a key; leave a key out to keep it
   sources?: Record<string, boolean>;
   notifications?: Partial<NotificationSettings>;
-  app?: { close_to_tray?: boolean; theme?: ThemeChoice };
+  app?: { close_to_tray?: boolean; setup_done?: boolean; theme?: ThemeChoice; start_at_login?: boolean };
 }
 
 export type ThemeChoice = "system" | "light" | "dark";
@@ -280,6 +282,14 @@ export interface Check {
   level: "ok" | "warn" | "fail";
   name: string;
   detail: string;
+}
+
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  newer: boolean;
+  url: string | null;
+  download: string | null;
 }
 
 export type PreviewKind = "deal" | "error_fare" | "digest" | "notice" | "test";
@@ -370,6 +380,7 @@ export const api = {
   saveSettings: (update: SettingsUpdate) => request<SaveResult>("PUT", "/settings", update),
 
   checks: () => request<{ checks: Check[] }>("GET", "/setup/checks"),
+  checkKey: (what: "telegram" | "anthropic") => request<{ checks: Check[] }>("POST", "/setup/check", { what }),
   testTelegram: () => request<{ sent: boolean; detail: string }>("POST", "/setup/test-telegram"),
   testNotification: (channel?: "desktop" | "telegram", kind?: PreviewKind) =>
     request<{ sent: Record<string, boolean> }>("POST", "/setup/test-notification",
@@ -383,6 +394,8 @@ export const api = {
   quitApp: () => request<{ quitting: boolean }>("POST", "/app/quit"),
   hideWindow: () => request<{ hidden: boolean }>("POST", "/app/hide"),
   open: (what: "logs" | "data" | "notification-settings") => request<{ opened: string }>("POST", "/app/open", { what }),
+  update: () => request<UpdateInfo>("GET", "/app/update"),
+  clearPriceHistory: () => request<{ deleted: number }>("POST", "/data/clear-price-history"),
 };
 
 const EVENT_TYPES = [

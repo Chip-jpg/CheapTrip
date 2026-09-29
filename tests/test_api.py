@@ -7,18 +7,19 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
+import httpx
 import pytest
 import yaml
 from aiohttp.test_utils import TestClient, TestServer
 
 import control
-from api.server import TOKEN_COOKIE, create_app
+from api.server import RELEASES_API, TOKEN_COOKIE, create_app
 from notifier.telegram import TelegramNotifier
 from preferences import UserPreferences, get_preferences, save_preferences
 from scheduler.engine import Engine
 from scrapers.aggregator import ScraperAggregator
 from storage.database import get_pref_overrides, init_db
-from tests.harness import FakeFeedScraper, FakeFlightScraper, FakeHotelScraper, flight
+from tests.harness import FakeFeedScraper, FakeFlightScraper, FakeHotelScraper, flight, mock_doctor_telegram
 from tests.test_engine_service import SlowFlights
 from utils import airports
 from utils.envfile import update_env_file
@@ -261,13 +262,60 @@ async def test_the_screens_open_the_log_and_data_folders(api, monkeypatch):
 
 
 async def test_app_settings_theme_and_close_button(api, tmp_path):
-    assert (await api.get("/settings"))["app"] == {"close_to_tray": True, "theme": "system"}
+    assert (await api.get("/settings"))["app"] == {
+        "close_to_tray": True, "setup_done": False, "theme": "system", "start_at_login": None}  # None: not the Windows app
     result = await api.call("PUT", "/settings", {"app": {"theme": "dark", "close_to_tray": False}})
 
-    assert result["settings"]["app"] == {"close_to_tray": False, "theme": "dark"}
+    assert {k: result["settings"]["app"][k] for k in ("close_to_tray", "theme")} == {"close_to_tray": False, "theme": "dark"}
     assert result["applies"] == {"app.theme": "now", "app.close_to_tray": "now"}
     env = (tmp_path / ".env").read_text(encoding="utf-8")
     assert "THEME=dark" in env and "CLOSE_TO_TRAY=false" in env
+
+
+async def test_the_setup_wizard_runs_until_it_is_finished(api, tmp_path):
+    assert (await api.get("/status"))["setup_needed"] is True
+    await api.call("PUT", "/settings", {"app": {"setup_done": True}})
+    assert (await api.get("/status"))["setup_needed"] is False
+    assert "SETUP_DONE=true" in (tmp_path / ".env").read_text(encoding="utf-8")
+
+
+async def test_starting_at_sign_in_uses_the_run_key(api, monkeypatch):
+    state = {"on": False}
+    monkeypatch.setattr("desktop.windows.autostart_enabled", lambda: state["on"])
+    monkeypatch.setattr("desktop.windows.set_autostart", lambda on: state.update(on=on))
+
+    result = await api.call("PUT", "/settings", {"app": {"start_at_login": True}})
+
+    assert state["on"] is True and result["settings"]["app"]["start_at_login"] is True
+    assert not (Path.cwd() / ".env").exists()  # Windows keeps it (the Run key), not .env
+    monkeypatch.undo()
+    error = await api.call("PUT", "/settings", {"app": {"start_at_login": True}}, status=400)
+    assert "installed Windows app" in error["error"]
+
+
+async def test_keys_are_checked_one_at_a_time(api):
+    mock_doctor_telegram(api.engine.router)
+    checks = (await api.call("POST", "/setup/check", {"what": "telegram"}))["checks"]
+    assert [c["name"] for c in checks] == ["Telegram", "Telegram chat", "Telegram commands"]
+    assert all(c["level"] == "ok" for c in checks)
+    [anthropic] = (await api.call("POST", "/setup/check", {"what": "anthropic"}))["checks"]
+    assert anthropic["level"] == "warn" and "no ANTHROPIC_API_KEY" in anthropic["detail"]
+    await api.call("POST", "/setup/check", {"what": "fax"}, status=400)
+
+
+@pytest.mark.parametrize("tag,newer", [("v99.0.0", True), ("v0.1.0", False)])
+async def test_checking_for_updates(api, tag, newer):
+    api.engine.router.get(RELEASES_API).mock(return_value=httpx.Response(200, json={
+        "tag_name": tag, "html_url": "https://github.com/Chip-jpg/CheapTrip/releases/latest",
+        "assets": [{"name": f"CheapTrip-Setup-{tag[1:]}.exe", "browser_download_url": "https://example.com/setup.exe"}]}))
+    update = await api.get("/app/update")
+    assert update["newer"] is newer and update["latest"] == tag[1:] and update["download"] == "https://example.com/setup.exe"
+
+
+async def test_clearing_the_price_history(api):
+    await api.service.run_cycle()
+    assert (await api.call("POST", "/data/clear-price-history"))["deleted"] == 4
+    assert (await api.get("/destinations?tab=seen"))["destinations"] == []
 
 
 async def test_saving_a_destination_list_replaces_telegram_overrides(api):

@@ -22,6 +22,7 @@ Routes (all under /api/v1):
   GET  /activity                       sources, alerts log, search history
   GET  /settings   PUT /settings
   GET  /setup/checks                   the doctor checks
+  POST /setup/check   {"what": "telegram"|"anthropic"}  check one key (Settings, the setup wizard)
   POST /setup/test-telegram
   POST /setup/test-notification       {"channel": "desktop"|"telegram"} optional: all that are on;
                                        {"kind": "deal"|"error_fare"|"digest"|"notice"}: that preview, on the desktop
@@ -33,12 +34,15 @@ Routes (all under /api/v1):
   POST /app/hide                       hide the window to the tray (the desktop app)
   POST /app/open   {"what": "logs"|"data"|"notification-settings"}  open a folder or Windows' settings
   POST /app/quit                       quit the app
+  GET  /app/update                     is there a newer release? (GitHub)
+  POST /data/clear-price-history       forget every price seen (Settings → danger zone)
 """
 from __future__ import annotations
 
 import asyncio
 import dataclasses
 import json
+import re
 import secrets
 import signal
 import sys
@@ -59,6 +63,7 @@ from preferences import get_preferences
 from scrapers.health_monitor import get_health_monitor
 from storage.database import (
     alert_log,
+    clear_price_history,
     count_alerts_sent_last_hour,
     count_pending_instants,
     get_deal,
@@ -201,6 +206,7 @@ async def full_status(engine: Any) -> Dict[str, Any]:
         "attention": attention,
         "learning": {"trips": last["trips"], "with_usual_price": last["with_usual_price"]} if last else None,
         "telegram_configured": bool(settings.telegram_bot_token and settings.telegram_chat_id),
+        "setup_needed": not settings.setup_done,  # the app opens the setup wizard until it's finished
         "timezone": settings.timezone,
         "version": __version__,
     }
@@ -382,6 +388,19 @@ async def setup_checks(request: web.Request) -> web.Response:
     return _json({"checks": [dataclasses.asdict(check) for check in await run_checks()]})
 
 
+async def setup_check(request: web.Request) -> web.Response:
+    from utils.doctor import check_anthropic, check_telegram
+
+    what = (await request.json()).get("what")
+    if what == "telegram":
+        checks = await check_telegram()
+    elif what == "anthropic":
+        checks = [await check_anthropic()]
+    else:
+        raise ValueError('what must be "telegram" or "anthropic"')
+    return _json({"checks": [dataclasses.asdict(check) for check in checks]})
+
+
 async def setup_test_telegram(request: web.Request) -> web.Response:
     from utils.doctor import send_test_message
 
@@ -533,6 +552,41 @@ async def app_quit(request: web.Request) -> web.Response:
     return _json({"quitting": True})
 
 
+RELEASES_API = "https://api.github.com/repos/Chip-jpg/CheapTrip/releases/latest"
+
+
+def _version_tuple(version: str) -> tuple:
+    return tuple(int(part) for part in re.findall(r"\d+", version)[:3])
+
+
+async def app_update(request: web.Request) -> web.Response:
+    """Settings → App → Check for updates: the latest release on GitHub against this version."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            resp = await client.get(RELEASES_API, headers={"Accept": "application/vnd.github+json"})
+        resp.raise_for_status()
+        release = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        return _error(f"couldn't reach GitHub to check: {exc}", 502)
+    latest = str(release.get("tag_name", "")).lstrip("v")
+    setup = next((a["browser_download_url"] for a in release.get("assets", [])
+                  if str(a.get("name", "")).lower().endswith(".exe")), None)
+    return _json({
+        "current": __version__, "latest": latest,
+        "newer": bool(latest) and _version_tuple(latest) > _version_tuple(__version__),
+        "url": release.get("html_url"), "download": setup,
+    })
+
+
+async def data_clear_price_history(request: web.Request) -> web.Response:
+    deleted = await clear_price_history()
+    log.info("price_history_cleared", rows=deleted)
+    get_event_bus().publish("settings_changed", fields=["price_history"])
+    return _json({"deleted": deleted})
+
+
 class BrowserShell:
     """The app around the API in `main.py ui`: screens open in the browser."""
 
@@ -610,6 +664,7 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None, shell
     app.router.add_get(f"{API}/settings", settings_get)
     app.router.add_put(f"{API}/settings", settings_put)
     app.router.add_get(f"{API}/setup/checks", setup_checks)
+    app.router.add_post(f"{API}/setup/check", setup_check)
     app.router.add_post(f"{API}/setup/test-telegram", setup_test_telegram)
     app.router.add_post(f"{API}/setup/test-notification", setup_test_notification)
     app.router.add_get(f"{API}/notifications/previews", notification_previews)
@@ -619,6 +674,8 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None, shell
     app.router.add_post(f"{API}/engine/resume", resume)
     app.router.add_get(f"{API}/events", events)
     app.router.add_post(f"{API}/app/open", app_open)
+    app.router.add_get(f"{API}/app/update", app_update)
+    app.router.add_post(f"{API}/data/clear-price-history", data_clear_price_history)
     if shell is not None:
         app.router.add_post(f"{API}/app/show", app_show)
         app.router.add_post(f"{API}/app/hide", app_hide)
