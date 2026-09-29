@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { ToastProvider } from "./components/Toast";
 import { TopBar } from "./components/TopBar";
-import { EngineProvider } from "./engine";
-import { useRoute, type Route } from "./router";
+import { EngineProvider, useEngine } from "./engine";
+import { navigate, useRoute, type Route } from "./router";
 import { Activity } from "./screens/Activity";
 import { DealDetail } from "./screens/DealDetail";
 import { Deals } from "./screens/Deals";
@@ -40,12 +40,25 @@ function screenFor(route: Route): ReactNode {
     case "notifications":
       return <Notifications />;
     case "settings":
-      return <div className="legacy"><Settings /></div>;
+      return <Settings section={route.param} />;
     case "setup":
-      return <div className="legacy"><Setup /></div>;
+      return <Setup />;
     default:  // a deal's details slide over the list, which stays as it was
       return <><Deals />{route.dealId && <DealDetail id={route.dealId} />}</>;
   }
+}
+
+/** A new install (setup not finished) opens on the setup wizard, once, unless a screen was asked for. */
+function FirstRun() {
+  const { status } = useEngine();
+  const done = useRef(false);
+  useEffect(() => {
+    if (!status || done.current) return;
+    done.current = true;
+    const hash = window.location.hash.replace(/^#\/?/, "");
+    if (status.setup_needed && (hash === "" || hash === "deals")) navigate({ screen: "setup" });
+  }, [status]);
+  return null;
 }
 
 export function App() {
@@ -59,6 +72,7 @@ export function App() {
     <ThemeProvider>
       <EngineProvider>
         <ToastProvider>
+        <FirstRun />
         <TopBar onToggleSidebar={toggle} />
         <Sidebar screen={route.screen} collapsed={collapsed} />
         <div className={`transition-[padding] ${collapsed ? "pl-16" : "pl-60"}`}>

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
+from typing import Optional
 
 from utils.logging_config import get_logger
 
@@ -58,6 +60,50 @@ def open_path(target: str) -> None:
         subprocess.Popen(["open", target])
     else:
         subprocess.Popen(["xdg-open", target])
+
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+AUTOSTART_NAME = "CheapTrip"  # the same value the installer's "start at sign-in" writes
+
+
+def autostart_command() -> Optional[str]:
+    """What Windows runs at sign-in: the installed app, in the tray; None outside the Windows app."""
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return None
+    exe = Path(sys.executable)
+    if exe.name.lower() != "cheaptrip.exe":  # cheaptrip-cli.exe: the app is next to it
+        exe = exe.with_name("CheapTrip.exe")
+    return f'"{exe}" --minimized'
+
+
+def autostart_enabled() -> Optional[bool]:
+    """Whether CheapTrip starts at sign-in (None: not something this copy can do)."""
+    if autostart_command() is None:
+        return None
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+            winreg.QueryValueEx(key, AUTOSTART_NAME)
+            return True
+    except OSError:
+        return False
+
+
+def set_autostart(on: bool) -> None:
+    command = autostart_command()
+    if command is None:
+        raise ValueError("starting at sign-in needs the installed Windows app")
+    import winreg
+
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+        if on:
+            winreg.SetValueEx(key, AUTOSTART_NAME, 0, winreg.REG_SZ, command)
+        else:
+            try:
+                winreg.DeleteValue(key, AUTOSTART_NAME)
+            except FileNotFoundError:
+                pass
 
 
 def system_prefers_dark() -> bool:

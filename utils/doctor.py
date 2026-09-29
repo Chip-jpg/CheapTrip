@@ -189,6 +189,15 @@ async def _source_checks() -> List[Check]:
     return checks
 
 
+async def check_telegram() -> List[Check]:
+    """The Telegram bot and chat (Settings and the setup wizard's Check button)."""
+    return await _telegram_checks()
+
+
+async def check_anthropic() -> Check:
+    return await _anthropic_check()
+
+
 async def run_checks() -> List[Check]:
     return [
         *(await _telegram_checks()),

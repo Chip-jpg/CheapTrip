@@ -391,7 +391,19 @@ The owner's design ("Fluent Deal Radar", made in Google Stitch) covers Deals wit
   - notices get "Open Activity" and use sources' real names;
   - a deal's toast carries a picture of its price and fare range.
 
-**B44 `feat/settings-setup`** (L): Settings with a section menu and autosave, and the 5-step setup wizard on first launch, which replaces the installer's wizard pages.
+**B44 `feat/settings-setup`** (L)
+- **Settings:** a section menu, with changes saving as they're made and a confirmation that says when each applies. The sections:
+  - Trips: home airports and hubs as chips with autocomplete, travellers, trip lengths, how far ahead, budget, via a hub.
+  - Deals & alerts: % below usual, price floors, the hourly limit, the digest time, the search interval, hotel quality.
+  - Notifications: channels and kinds, with tests.
+  - Accounts & keys: masked keys (never sent back), Telegram steps, and Check buttons for Telegram and Anthropic.
+  - Sources.
+  - App: start at sign-in, the close button, theme, data folder, the setup wizard, check for updates, and clearing the price history in a danger zone.
+- **Setup wizard**, as designed:
+  - five steps (welcome, where you fly from, how to tell you, optional extras, checks) with a stepper and a sticky footer;
+  - it opens at the first launch until finished (`SETUP_DONE`).
+- **Installer:** its question pages go (the wizard asks instead), and so do the Notepad shortcuts. "Start at sign-in" becomes the Run value the app's switch changes; the old Startup shortcut is removed on upgrade.
+- **API:** `POST /setup/check`, `GET /app/update` (GitHub's latest release), `POST /data/clear-price-history`, and `setup_needed` in `/status`.
 
 **Release v0.8.0:** version, notes and docs; the merge publishes the installer.
 
@@ -454,4 +466,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B41 | `feat/design-system` | done |
 | B42 | `feat/deals-screen` | done |
 | B43 | `feat/destinations-activity` | done |
-| B44 | `feat/settings-setup` | planned |
+| B44 | `feat/settings-setup` | done |

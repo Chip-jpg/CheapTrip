@@ -7,10 +7,11 @@ Builds the CheapTrip Windows installer and smoke-tests it (used by CI and the re
      desktop app, and cheaptrip-cli.exe, the console commands.
   3. Builds dist\CheapTrip-Setup-<version>.exe with Inno Setup (packaging\installer.iss).
   4. Installs it silently, as a first-time user gets it, and checks the installed app:
-     the settings the wizard writes, the shortcuts and the cheaptrip:// link, --version,
-     doctor, one real dry-run cycle; then the desktop app started minimized (its API,
-     its first search, Search now, a test notification, a second launch handing over,
-     one engine at a time, Quit), and the uninstaller.
+     the shortcuts, "start at sign-in" and the cheaptrip:// link, --version, doctor on the
+     settings the app creates, one real dry-run cycle; then the desktop app started
+     minimized (its API, its first search, Search now, the setup wizard's settings and the
+     sign-in switch, a test notification, a second launch handing over, one engine at a
+     time, Quit), and the uninstaller.
 
 Usage (PowerShell 7, from anywhere):  pwsh packaging/build_windows.ps1 [-Version 0.6.0]
 #>
@@ -83,28 +84,21 @@ $Exe = Join-Path $AppDir "cheaptrip-cli.exe"
 $App = Join-Path $AppDir "CheapTrip.exe"
 $AppFile = Join-Path $DataDir "app.json"
 $Log = Join-Path $DataDir "logs\engine.log"
-$Startup = Join-Path ([Environment]::GetFolderPath("Startup")) "CheapTrip.lnk"
+$RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+function Get-SignIn { (Get-ItemProperty $RunKey -Name CheapTrip -ErrorAction SilentlyContinue).CheapTrip }
 $Logs = New-Item -ItemType Directory -Force (Join-Path $Root "dist\smoke-logs")
 if (Test-Path $DataDir) { Remove-Item $DataDir -Recurse -Force }
 
 try {
     $install = Start-Process $Setup -Wait -PassThru -ArgumentList @(
-        "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=`"$Logs\install.log`"",
-        "/TELEGRAMCHATID=4242", "/HOMEAIRPORTS=`"lgw stn`""
+        "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=`"$Logs\install.log`""
     )
     Confirm-Step ($install.ExitCode -eq 0) "silent install (exit code $($install.ExitCode))"
     Confirm-Step (Wait-Until { (Test-Path $Exe) -and (Test-Path $App) } 60) "installed $App and $Exe"
-    Confirm-Step (Test-Path $Startup) "'Start CheapTrip when I sign in' is on by default"
-    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($Startup)
-    Confirm-Step ($shortcut.TargetPath -eq $App -and $shortcut.Arguments -eq "--minimized") `
-        "the sign-in shortcut starts the app in the tray ($($shortcut.TargetPath) $($shortcut.Arguments))"
+    $signIn = Get-SignIn
+    Confirm-Step ($signIn -eq "`"$App`" --minimized") "'Start CheapTrip when I sign in' is on by default, in the tray ($signIn)"
     $protocol = (Get-ItemProperty "HKCU:\Software\Classes\cheaptrip\shell\open\command")."(default)"
     Confirm-Step ($protocol -eq "`"$App`" `"%1`"") "cheaptrip:// links open the app"
-
-    $settings = Get-Content (Join-Path $DataDir ".env") -Raw
-    Confirm-Step ($settings -match "(?m)^TELEGRAM_CHAT_ID=4242\s*$") "the wizard's answers are in .env"
-    $prefs = Get-Content (Join-Path $DataDir "config\user_preferences.yaml") -Raw
-    Confirm-Step ($prefs -match "(?m)^home_airports: \[LGW, STN\]\s*$") "the home airports are in the preferences"
 
     # ── Run the installed app ─────────────────────────────────────────────────
     $out = (Invoke-Capture { & $Exe --version }).Trim()
@@ -114,7 +108,9 @@ try {
     $doctorExit = $LASTEXITCODE
     Write-Host $doctor
     Confirm-Step ($doctorExit -eq 1) "doctor exits 1 without a Telegram token"
-    Confirm-Step ($doctor -match "Preferences: .*home LGW, STN") "doctor reads the installed preferences"
+    Confirm-Step ((Test-Path (Join-Path $DataDir ".env")) -and (Test-Path (Join-Path $DataDir "config\user_preferences.yaml"))) `
+        "the first start creates the settings and preferences"
+    Confirm-Step ($doctor -match "Preferences: .*home MXP, LIN, BGY") "doctor reads the new preferences"
     Confirm-Step ($doctor -notmatch "Traceback") "doctor runs without errors"
 
     Invoke-Capture { & $Exe cycle } | Out-File (Join-Path $Logs "cycle.txt")
@@ -131,7 +127,7 @@ try {
     function Invoke-Api([string]$Method, [string]$Path, $Body = $null) {
         $params = @{ Method = $Method; Uri = "$Api$Path"; Headers = $Auth; NoProxy = $true
                      SkipHttpErrorCheck = $true; StatusCodeVariable = "code" }
-        if ($null -ne $Body) { $params.Body = ($Body | ConvertTo-Json -Compress); $params.ContentType = "application/json" }
+        if ($null -ne $Body) { $params.Body = ($Body | ConvertTo-Json -Compress -Depth 6); $params.ContentType = "application/json" }
         $result = Invoke-RestMethod @params
         return [pscustomobject]@{ Status = [int]$code; Body = $result }
     }
@@ -153,6 +149,15 @@ try {
     Confirm-Step $started "Search now starts a search"
     Confirm-Step (Wait-Until { $s = (Invoke-Api GET "/status").Body; -not $s.searching -and $s.searches_today -gt $searches } 300) `
         "the search it started completes"
+
+    # The setup wizard's answers, through the app, as a first-time user gives them
+    Confirm-Step ((Invoke-Api GET "/status").Body.setup_needed) "a new install opens the setup wizard"
+    $saved = Invoke-Api PUT "/settings" @{ preferences = @{ home_airports = @("LGW", "STN") }; app = @{ setup_done = $true; start_at_login = $false } }
+    Confirm-Step ($saved.Status -eq 200 -and -not (Get-SignIn)) "the wizard saves the home airports and turns 'start at sign-in' off"
+    $prefs = Get-Content (Join-Path $DataDir "config\user_preferences.yaml") -Raw
+    Confirm-Step ($prefs -match "(?m)^\s*-\s*LGW\s*$" -and -not (Invoke-Api GET "/status").Body.setup_needed) "the preferences have the new airports and setup is done"
+    $saved = Invoke-Api PUT "/settings" @{ app = @{ start_at_login = $true } }
+    Confirm-Step ((Get-SignIn) -eq "`"$App`" --minimized") "Settings turns 'start at sign-in' back on"
 
     $test = Invoke-Api POST "/setup/test-notification" @{ channel = "desktop" }
     Confirm-Step ($test.Status -in 200, 502) "a test notification is sent or refused cleanly (HTTP $($test.Status): $($test.Body | ConvertTo-Json -Compress))"
@@ -176,7 +181,7 @@ try {
         -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
     Confirm-Step ($uninstall.ExitCode -eq 0) "silent uninstall (exit code $($uninstall.ExitCode))"
     Confirm-Step (Wait-Until { -not (Test-Path $Exe) } 60) "the program is removed"
-    Confirm-Step (-not (Test-Path $Startup)) "the sign-in shortcut is removed"
+    Confirm-Step (-not (Get-SignIn)) "'start at sign-in' is removed"
     Confirm-Step (-not (Test-Path "HKCU:\Software\Classes\cheaptrip")) "the cheaptrip:// link is removed"
     Confirm-Step (Test-Path (Join-Path $DataDir ".env")) "the settings are kept"
 }
