@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     telegram_bot_token: str = Field(default="")
     telegram_chat_id: str = Field(default="")
 
+    # Notifications (B39). Desktop notifications need the desktop app; Telegram needs the bot above.
+    notify_desktop: bool = Field(default=True)
+    notify_telegram: bool = Field(default=True)
+    notify_instant: bool = Field(default=True)
+    notify_digest: bool = Field(default=True)
+    notify_source_problems: bool = Field(default=True)
+    notify_sound: bool = Field(default=True)
+
     # AI (optional alert polish; prices/dates/links are verified unchanged)
     anthropic_api_key: str = Field(default="")
     ai_model: str = Field(default="claude-haiku-4-5")

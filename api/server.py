@@ -23,6 +23,7 @@ Routes (all under /api/v1):
   GET  /settings   PUT /settings
   GET  /setup/checks                   the doctor checks
   POST /setup/test-telegram
+  POST /setup/test-notification       {"channel": "desktop"|"telegram"} optional: all that are on
   POST /engine/search-now   /engine/pause   /engine/resume
   GET  /events                         server-sent events from the engine
 """
@@ -363,6 +364,18 @@ async def setup_test_telegram(request: web.Request) -> web.Response:
     return _json({"sent": sent, "detail": detail}, status=200 if sent else 502)
 
 
+async def setup_test_notification(request: web.Request) -> web.Response:
+    body = await request.json() if request.can_read_body else {}
+    channel = body.get("channel")
+    if channel not in (None, "desktop", "telegram"):
+        raise ValueError('channel must be "desktop" or "telegram"')
+    notifier = request.app[ENGINE].notifier
+    results = await notifier.send_test(only=channel) if hasattr(notifier, "send_test") else {}
+    if not results:
+        return _error("no notification channel is on" + (f" for {channel}" if channel else ""), 409)
+    return _json({"sent": results}, status=200 if any(results.values()) else 502)
+
+
 # ── Engine controls ───────────────────────────────────────────────────────────
 
 async def search_now(request: web.Request) -> web.Response:
@@ -444,6 +457,7 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None) -> we
     app.router.add_put(f"{API}/settings", settings_put)
     app.router.add_get(f"{API}/setup/checks", setup_checks)
     app.router.add_post(f"{API}/setup/test-telegram", setup_test_telegram)
+    app.router.add_post(f"{API}/setup/test-notification", setup_test_notification)
     app.router.add_post(f"{API}/engine/search-now", search_now)
     app.router.add_post(f"{API}/engine/pause", pause)
     app.router.add_post(f"{API}/engine/resume", resume)
@@ -475,6 +489,17 @@ class ApiServer:
         """The address that opens the app, token included."""
         return f"http://127.0.0.1:{self.port}/?token={self.token}"
 
+    def link(self, route: str) -> str:
+        """The address of one screen, e.g. "deals/<id>" (the fragment survives the token redirect)."""
+        return f"{self.url}#/{route}"
+
+    def browser_actions(self, kind: str, value: str) -> Any:
+        """Notification buttons without the app window: open the screen in the browser; Mute mutes."""
+        if kind == "mute":
+            return control.set_muted(value, True)
+        webbrowser.open(self.link(f"deals/{value}" if kind == "details" else value))
+        return None
+
     async def stop(self) -> None:
         if self._runner is not None:
             await self._runner.cleanup()
@@ -483,9 +508,10 @@ class ApiServer:
 
 async def run_ui(port: int = 0, open_browser: bool = True) -> None:
     """`main.py ui`: the engine plus the API and UI in your browser, until Ctrl-C."""
+    from notifier.desktop import DesktopNotifier
     from scheduler.engine import Engine
 
-    engine = Engine()
+    engine = Engine(desktop=DesktopNotifier(on_action=lambda kind, value: server.browser_actions(kind, value)))
     server = ApiServer(engine, static_dir=ui_dir())
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

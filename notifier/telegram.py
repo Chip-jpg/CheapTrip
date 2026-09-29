@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import List, Optional
+from typing import Any, List, Optional, Tuple
 
 import httpx
 
@@ -15,6 +15,7 @@ from config import get_settings
 from notifier.rate_limiter import RateLimiter
 from storage.database import mark_alerted, was_route_alerted_recently
 from storage.models import AlertTier, BookingConfidence, Trip
+from utils.events import get_event_bus
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -57,6 +58,19 @@ class TelegramNotifier:
         self._chat_id = settings.telegram_chat_id
         self._rate_limiter = RateLimiter()  # sync init; call create() for DB-restored state
         self.enabled = bool(self._token and self._chat_id)
+
+    @property
+    def rate_limiter(self) -> RateLimiter:
+        """The hourly/daily limits (shared with the desktop channel by notifier.channels)."""
+        return self._rate_limiter
+
+    async def compose_instant(self, trip: Trip) -> str:
+        """The instant alert's Telegram HTML (formatter, then optional AI polish)."""
+        return await enhance_with_ai(trip, select_formatter(trip)(trip))
+
+    async def deliver(self, text: str) -> bool:
+        """Send one Telegram HTML message; no limits or bookkeeping (see send_instant_alert)."""
+        return await self._send_raw(text)
 
     @classmethod
     async def create(cls) -> "TelegramNotifier":
@@ -136,8 +150,7 @@ class TelegramNotifier:
             log.info("route_recently_alerted_suppressed", route=trip.route)
             return False
 
-        formatter = select_formatter(trip)
-        message = await enhance_with_ai(trip, formatter(trip))
+        message = await self.compose_instant(trip)
 
         if not await self._rate_limiter.try_send_instant():
             log.info("rate_limit_instant_skipped", route=trip.route)
@@ -146,6 +159,8 @@ class TelegramNotifier:
         success = await self._send_raw(message)
         if success:
             await mark_alerted(trip.hash, AlertTier.INSTANT)
+            get_event_bus().publish("alert_sent", id=trip.hash, route=trip.route, price=trip.total_cost_eur,
+                                    channels=["telegram"])
             log.info("instant_alert_sent", route=trip.route, cost=trip.total_cost_eur)
         else:
             await self._rate_limiter.release_instant()
@@ -175,36 +190,42 @@ class TelegramNotifier:
             await self._rate_limiter.release_digest()
         return success
 
-    async def send_system_message(self, html_text: str) -> bool:
-        """Send a system/status message (startup, cycle summary, health). Takes Telegram HTML."""
+    async def send_system_message(self, html_text: str, notice: Optional[Tuple[str, str]] = None) -> bool:
+        """
+        Send a system/status message (startup, cycle summary, health). Takes Telegram HTML.
+        `notice` (title, text) is the plain version for a desktop notification (see notifier.channels).
+        """
         return await self._send_raw(f"ℹ️ {html_text}")
 
     async def process_instant_queue(self, trips: List[Trip]) -> int:
-        """
-        Send as many instant alerts as rate limit allows, best deals first:
-        biggest discount vs the route's usual price, then booking confidence
-        (HIGH first), data confidence, lowest price. Returns count sent.
-        """
-        _bc_order = {BookingConfidence.HIGH: 0, BookingConfidence.MEDIUM: 1, BookingConfidence.LOW: 2}
-        sorted_trips = sorted(
-            trips,
-            key=lambda t: (
-                -(t.discount_pct or 0.0),
-                _bc_order.get(BookingConfidence(t.booking_confidence), 2),
-                -t.data_confidence_score,
-                t.total_cost_eur,
-            ),
-        )
+        """Send as many instant alerts as the hourly limit allows, best deals first; returns how many."""
+        return await run_instant_queue(self, trips)
 
-        sent = 0
-        for trip in sorted_trips:
-            remaining = await self._rate_limiter.instant_remaining()
-            if remaining <= 0:
-                log.info("instant_quota_exhausted", queued=len(sorted_trips) - sent)
-                break
-            if await self.send_instant_alert(trip):
-                sent += 1
-                # Brief pause between messages to avoid Telegram flood limits
-                await _pause(0.5)
 
-        return sent
+def instant_priority(trip: Trip) -> tuple:
+    """
+    Sending order for instant alerts: biggest discount vs the route's usual
+    price, then booking confidence (HIGH first), data confidence, lowest price.
+    """
+    bc_order = {BookingConfidence.HIGH: 0, BookingConfidence.MEDIUM: 1, BookingConfidence.LOW: 2}
+    return (
+        -(trip.discount_pct or 0.0),
+        bc_order.get(BookingConfidence(trip.booking_confidence), 2),
+        -trip.data_confidence_score,
+        trip.total_cost_eur,
+    )
+
+
+async def run_instant_queue(notifier: Any, trips: List[Trip]) -> int:
+    """Offer `trips` to notifier.send_instant_alert, best first, until its hourly limit is used up."""
+    ordered = sorted(trips, key=instant_priority)
+    sent = 0
+    for trip in ordered:
+        if await notifier.rate_limiter.instant_remaining() <= 0:
+            log.info("instant_quota_exhausted", queued=len(ordered) - sent)
+            break
+        if await notifier.send_instant_alert(trip):
+            sent += 1
+            # Brief pause between messages to avoid Telegram flood limits
+            await _pause(0.5)
+    return sent

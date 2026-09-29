@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -16,6 +16,7 @@ from filters.hard_filters import apply_hard_filters
 from filters.time_decay import apply_time_decay
 from normalizers.flight import normalize_flights
 from normalizers.hotel import normalize_hotels
+from notifier.channels import ChannelNotifier
 from notifier.telegram import TelegramNotifier
 from preferences import get_preferences
 from scheduler.planner import SearchPlanner
@@ -43,9 +44,12 @@ DIGEST_MAX_ROUTES = 15
 # Unsent instant deals offered to the notifier per cycle (it stops at the hourly quota).
 PENDING_INSTANT_LIMIT = 20
 
-# Notifier is initialized async in run_forever() to restore rate-limiter state from DB.
-# Fallback sync init is used for cycle/search commands that don't go through run_forever().
-_notifier = TelegramNotifier()
+# Either sends alerts; ChannelNotifier (desktop + Telegram) is what the engine uses.
+Notifier = Union[ChannelNotifier, TelegramNotifier]
+
+# Notifier is initialized async (init_notifier, Engine.start) to restore rate-limiter state from DB.
+# Fallback sync init is used for cycle/search commands that don't go through the engine.
+_notifier: Notifier = ChannelNotifier(TelegramNotifier())
 # Built lazily so importing this module doesn't instantiate every scraper.
 _aggregator: Optional[ScraperAggregator] = None
 _planner = SearchPlanner()
@@ -71,12 +75,12 @@ def reset_aggregator() -> None:
 async def init_notifier() -> None:
     """Re-initialize the notifier with DB-restored rate limiter state."""
     global _notifier
-    _notifier = await TelegramNotifier.create()
+    _notifier = await ChannelNotifier.create()
 
 
 async def run_pipeline_cycle(
     aggregator: Optional[ScraperAggregator] = None,
-    notifier: Optional[TelegramNotifier] = None,
+    notifier: Optional[Notifier] = None,
     trigger: str = "scheduled",
 ) -> Dict[str, Any]:
     """
@@ -240,7 +244,7 @@ async def run_pipeline_cycle(
     return stats
 
 
-async def _send_best_finds_summary(trips: list, notifier: TelegramNotifier) -> None:
+async def _send_best_finds_summary(trips: list, notifier: Notifier) -> None:
     """Send a Telegram summary of the cheapest deals found this cycle."""
     try:
         await notifier.send_system_message(format_best_finds_summary(trips, total_found=len(trips)))
@@ -248,7 +252,7 @@ async def _send_best_finds_summary(trips: list, notifier: TelegramNotifier) -> N
         log.warning("best_finds_summary_failed", error=str(exc))
 
 
-async def _report_health(notifier: TelegramNotifier) -> None:
+async def _report_health(notifier: Notifier) -> None:
     """Log scraper health after each cycle; notify once when a source starts failing or recovers."""
     try:
         monitor = get_health_monitor()
@@ -261,6 +265,9 @@ async def _report_health(notifier: TelegramNotifier) -> None:
             log.info("scraper_health_ok", ok_count=ok, total=len(report))
 
         for health, change in await monitor.pending_notifications():
+            if not get_settings().notify_source_problems:  # switched off in Settings: nothing to send
+                await monitor.mark_notified(health.source_id, health.status)
+                continue
             if change == "failing":
                 text = (
                     f"⚠️ <b>Source failing:</b> {html.escape(health.source_id)}\n"
@@ -269,9 +276,12 @@ async def _report_health(notifier: TelegramNotifier) -> None:
                 )
                 if health.last_error:
                     text += f"\n<i>{html.escape(health.last_error[:200])}</i>"
+                notice = (f"{health.source_id} isn't working",
+                          f"{health.consecutive_failures} searches failed in a row. Deals from it may be missing.")
             else:
                 text = f"✅ <b>Source recovered:</b> {html.escape(health.source_id)}"
-            if await notifier.send_system_message(text):
+                notice = (f"{health.source_id} works again", "Its deals are back in your searches.")
+            if await notifier.send_system_message(text, notice=notice):
                 await monitor.mark_notified(health.source_id, health.status)
     except Exception as exc:
         log.warning("health_report_failed", error=str(exc))
@@ -291,7 +301,7 @@ def select_digest_trips(trips: List[Trip], limit: int = DIGEST_MAX_ROUTES) -> Li
     return ranked[:limit]
 
 
-async def run_daily_digest(notifier: Optional[TelegramNotifier] = None) -> None:
+async def run_daily_digest(notifier: Optional[Notifier] = None) -> None:
     """Send the daily digest of best deals."""
     notifier = notifier or _notifier
     log.info("digest_run_start")

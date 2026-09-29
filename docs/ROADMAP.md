@@ -316,7 +316,13 @@ The owner is designing the desktop app in Claude Design. This round builds every
 - A local, token-protected API feeding every screen, with live updates.
 
 **B39 `feat/desktop-notifications`** (M)
-- Windows notifications for deals, alongside Telegram.
+- Windows notifications for deals, alongside Telegram:
+  - a deal says what, how much, why and when, with **Book**, **Details** and **Mute <city>** buttons;
+  - variants for price drops, possible error fares, packages, hotels, trips with a hotel and routes via a hub, plus the daily digest, source problems and a test.
+- `notifier/channels.py` sends each alert to the channels that are on. One hourly limit covers both, and `alerts_sent` records where each alert went. If one channel fails, the other still gets the alert.
+- Settings: `NOTIFY_DESKTOP`, `NOTIFY_TELEGRAM`, `NOTIFY_INSTANT`, `NOTIFY_DIGEST`, `NOTIFY_SOURCE_PROBLEMS` and `NOTIFY_SOUND`, applied at once. Telegram command replies are sent even when alerts there are off.
+- `POST /setup/test-notification`; `main.py ui` shows desktop notifications, whose buttons open the deal in the browser.
+- Tests: the engine fixture now restores environment variables that saving settings sets.
 
 **B40 `feat/desktop-shell`** (L)
 - The app window (WebView2), tray icon, single instance, a basic working UI, and packaging.
@@ -375,5 +381,5 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B36 | `feat/windows-installer` | done (released as v0.6.0) |
 | B37 | `feat/engine-service` | done |
 | B38 | `feat/local-api` | done |
-| B39 | `feat/desktop-notifications` | planned |
+| B39 | `feat/desktop-notifications` | done |
 | B40 | `feat/desktop-shell` | planned |

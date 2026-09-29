@@ -23,6 +23,7 @@ from typing import Any, Coroutine, Dict, Optional, Set
 
 import control
 from config import POPULAR_DESTINATIONS, get_settings
+from notifier.channels import ChannelNotifier
 from notifier.commands import CommandBot
 from notifier.telegram import TelegramNotifier
 from preferences import get_preferences
@@ -44,8 +45,10 @@ class Engine:
         aggregator: Any = None,
         *,
         telegram_commands: bool = True,
+        desktop: Any = None,
     ) -> None:
         self._notifier = notifier
+        self._desktop = desktop  # a notifier.desktop.DesktopNotifier: the app shows desktop notifications
         self._aggregator = aggregator
         self._telegram_commands = telegram_commands
         self._scheduler = None
@@ -74,7 +77,7 @@ class Engine:
         await init_db()
         await close_interrupted_cycles()
         if self._notifier is None:
-            self._notifier = await TelegramNotifier.create()
+            self._notifier = await ChannelNotifier.create(self._desktop)
         self._scheduler = runner.create_scheduler(self._scheduled_cycle, self._scheduled_digest)
         self._scheduler.start()
         self._running = True
@@ -193,8 +196,11 @@ class Engine:
                 "pipeline_cycle", trigger=IntervalTrigger(minutes=settings.scrape_interval_minutes))
             self._scheduler.reschedule_job("daily_digest", trigger=CronTrigger(
                 hour=settings.digest_hour, minute=settings.digest_minute, timezone=settings.timezone))
-        if reload_notifier and isinstance(self._notifier, TelegramNotifier):
-            self._notifier = await TelegramNotifier.create()
+        if reload_notifier and isinstance(self._notifier, (ChannelNotifier, TelegramNotifier)):
+            if isinstance(self._notifier, ChannelNotifier):
+                await self._notifier.reload_telegram()
+            else:
+                self._notifier = await TelegramNotifier.create()
             if self._telegram_commands and self._running:
                 for task in [t for t in self._tasks if getattr(t, "is_command_bot", False)]:
                     task.cancel()
@@ -205,7 +211,9 @@ class Engine:
                  reload_sources=reload_sources)
 
     def _start_command_bot(self) -> None:
-        task = self._spawn(CommandBot(self._notifier).run(self._stop))
+        # Command replies go to Telegram even when alerts there are switched off
+        telegram = getattr(self._notifier, "telegram", self._notifier)
+        task = self._spawn(CommandBot(telegram).run(self._stop))
         task.is_command_bot = True  # type: ignore[attr-defined]
 
     # ── Status ────────────────────────────────────────────────────────────────
