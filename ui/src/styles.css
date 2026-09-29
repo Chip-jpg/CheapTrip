@@ -1,0 +1,68 @@
+/* Plain, readable styling: Round 8 replaces the look with the owner's design. */
+:root {
+  --bg: #ffffff; --panel: #f5f6f8; --text: #1b1d22; --muted: #666b75; --line: #e1e4e8;
+  --accent: #2563eb; --ok: #16803c; --warn: #b45309; --bad: #c62828;
+  color-scheme: light dark;
+  font-family: "Segoe UI", system-ui, sans-serif; font-size: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #16181d; --panel: #1f2229; --text: #e8eaed; --muted: #9aa0aa; --line: #2e323b; --accent: #6b9bff; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+h1 { font-size: 22px; margin: 4px 0 8px; }
+h2 { font-size: 16px; margin: 20px 0 8px; }
+.muted { color: var(--muted); }
+.error { color: var(--bad); }
+.app { display: flex; min-height: 100vh; }
+.sidebar { width: 190px; background: var(--panel); border-right: 1px solid var(--line); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; }
+.sidebar .brand { font-weight: 700; font-size: 18px; padding: 4px 10px 14px; }
+.sidebar a { color: var(--text); padding: 7px 10px; border-radius: 6px; }
+.sidebar a.active { background: var(--bg); font-weight: 600; }
+.main { flex: 1; min-width: 0; }
+main { padding: 16px 24px 40px; max-width: 1100px; }
+.status-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 24px; border-bottom: 1px solid var(--line); }
+.status-bar .spacer { flex: 1; }
+.attention { flex-basis: 100%; color: var(--warn); }
+.pill { padding: 3px 10px; border-radius: 999px; font-weight: 600; color: #fff; }
+.pill-running { background: var(--ok); } .pill-searching { background: var(--accent); }
+.pill-paused { background: #7a7f8a; } .pill-attention { background: var(--warn); } .pill-stopped { background: var(--bad); }
+button, .button, select, input { font: inherit; }
+button, .button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; display: inline-block; }
+button.primary, .button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+input, select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; margin-right: 4px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+.deal-card { display: block; color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--panel); }
+.deal-card.error-fare { border-color: var(--warn); }
+.deal-top { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.price { font-weight: 700; font-size: 16px; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.tag { font-size: 12px; border-radius: 4px; padding: 1px 6px; background: var(--bg); border: 1px solid var(--line); }
+.tag.ok { color: var(--ok); } .tag.warn { color: var(--warn); }
+.status-ok { color: var(--ok); } .status-failing, .status-stale { color: var(--bad); } .status-degraded { color: var(--warn); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.chart { width: 100%; max-width: 640px; height: auto; background: var(--panel); border-radius: 8px; }
+.chart .median { stroke: var(--muted); stroke-dasharray: 4 4; }
+.chart .label { fill: var(--muted); font-size: 11px; }
+.chart .this { fill: var(--accent); } .chart .other { fill: var(--muted); }
+.chart .line { fill: none; stroke: var(--accent); stroke-width: 2; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.row-actions { white-space: nowrap; display: flex; gap: 6px; }
+.tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.tabs .active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.add-airport { position: relative; margin-bottom: 10px; max-width: 420px; }
+.add-airport input { width: 100%; }
+.suggestions { position: absolute; z-index: 1; list-style: none; margin: 2px 0 0; padding: 4px; width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.suggestions button { width: 100%; text-align: left; border: 0; }
+.settings-section { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 0 0 14px; display: grid; gap: 8px; }
+.settings-section legend { font-weight: 600; padding: 0 6px; }
+.settings-section > button { justify-self: start; }
+.field { display: grid; grid-template-columns: 320px 1fr; align-items: center; gap: 12px; }
+.notice { background: var(--panel); border-left: 3px solid var(--accent); padding: 6px 10px; }
+.checks { list-style: none; padding: 0; } .checks li { padding: 4px 0; }
