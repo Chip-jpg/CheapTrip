@@ -62,7 +62,11 @@ The installer (`CheapTrip-Setup-<version>.exe`, attached to each [GitHub release
 - `--version`, `doctor`, a real dry-run cycle and a running engine;
 - the uninstaller.
 
-CI runs this on every pull request. `.github/workflows/release.yml` runs it on a `v*` tag and attaches the installer to the release. To release, bump `utils/version.py` and `pyproject.toml`, update `packaging/release-notes.md`, merge, then tag `v<version>`.
+CI runs this on every pull request. `.github/workflows/release.yml` runs it and publishes the release `v<version>` with the installer attached:
+- **Automatically:** when a merge to `main` carries a version that has no release yet.
+- **By hand:** on a `v*` tag, or when started manually.
+
+To release, bump `utils/version.py` and `pyproject.toml`, update `packaging/release-notes.md`, and merge.
 
 ## systemd (VPS without Docker)
 
