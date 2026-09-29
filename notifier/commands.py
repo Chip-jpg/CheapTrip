@@ -6,9 +6,8 @@ Only messages from TELEGRAM_CHAT_ID are accepted; everything else is
 ignored. The update offset is kept in the engine_state table, so a restart
 never replays a command.
 
-Commands change preference overrides (stored in pref_overrides, merged over
-config/user_preferences.yaml by preferences.apply_overrides) or the pause
-state (engine_state "paused_until"):
+Commands change preference overrides or the pause state through control.py,
+the same functions the desktop app uses:
 
   /deals              top deals of the last 24 hours, one per route
   /status             last cycle, deals and alerts today, pause and overrides
@@ -23,22 +22,27 @@ from __future__ import annotations
 
 import asyncio
 import html
-from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import httpx
 
+import control
 from ai_layer.formatter import digest_lines
 from config import get_settings
+from control import (  # noqa: F401 (re-exported: older imports use notifier.commands)
+    DEFAULT_PAUSE_HOURS,
+    LAST_CYCLE_KEY,
+    PAUSED_UNTIL_KEY,
+    load_overrides,
+    paused_until,
+)
 from notifier.telegram import TelegramNotifier
-from preferences import apply_overrides, get_preferences, load_preferences, preferences_path
+from preferences import get_preferences
 from storage.database import (
     count_deals_since,
     get_digest_deals,
-    get_pref_overrides,
     get_recent_alert_timestamps,
     get_state,
-    set_pref_override,
     set_state,
 )
 from storage.models import AlertTier
@@ -50,10 +54,7 @@ log = get_logger(__name__)
 
 _TELEGRAM_API = "https://api.telegram.org"
 POLL_TIMEOUT_S = 25
-DEFAULT_PAUSE_HOURS = 24
 _OFFSET_KEY = "telegram_update_offset"
-PAUSED_UNTIL_KEY = "paused_until"
-LAST_CYCLE_KEY = "last_cycle_at"
 
 HELP = (
     "<b>Commands</b>\n"
@@ -67,46 +68,14 @@ HELP = (
 )
 
 
-async def paused_until() -> Optional[datetime]:
-    """When alerts resume, if they are paused now."""
-    value = await get_state(PAUSED_UNTIL_KEY)
-    if not value:
-        return None
-    until = datetime.fromisoformat(value)
-    return until if until > utcnow() else None
-
-
-async def load_overrides() -> None:
-    """Apply the stored command overrides to get_preferences() (called at every cycle start)."""
-    apply_overrides(await get_pref_overrides())
-
-
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 def _code(args: List[str]) -> Optional[str]:
-    code = args[0].strip().upper() if args else ""
-    return code if len(code) == 3 and airports.is_known(code) else None
+    return control.airport_code(args[0]) if args else None
 
 
 def _place(code: str) -> str:
     return f"{html.escape(airports.city_of(code))} ({code})"
-
-
-async def _toggle(list_key: str, undo_key: str, yaml_list: List[str], code: str, on: bool) -> None:
-    """Add (on) or remove a code via overrides, relative to the YAML list."""
-    overrides = await get_pref_overrides()
-    added, removed = list(overrides.get(list_key, [])), list(overrides.get(undo_key, []))
-    if on:
-        removed = [c for c in removed if c != code]
-        if code not in yaml_list and code not in added:
-            added.append(code)
-    else:
-        added = [c for c in added if c != code]
-        if code in yaml_list and code not in removed:
-            removed.append(code)
-    await set_pref_override(list_key, added or None)
-    await set_pref_override(undo_key, removed or None)
-    await load_overrides()
 
 
 async def _cmd_help(args: List[str]) -> str:
@@ -152,7 +121,7 @@ async def _cmd_mute(args: List[str], on: bool = True) -> str:
     code = _code(args)
     if not code:
         return f"Usage: /{'mute' if on else 'unmute'} KRK (an airport code)"
-    await _toggle("muted", "unmuted", load_preferences(preferences_path()).excluded_destinations, code, on)
+    await control.set_muted(code, on)
     return f"🔇 Muted {_place(code)}: no more alerts." if on else f"🔔 {_place(code)} is back in your alerts."
 
 
@@ -160,8 +129,7 @@ async def _cmd_priority(args: List[str], on: bool = True) -> str:
     code = _code(args)
     if not code:
         return f"Usage: /{'priority' if on else 'unpriority'} KRK (an airport code)"
-    yaml_list = load_preferences(preferences_path()).priority_destinations
-    await _toggle("priority_added", "priority_removed", yaml_list, code, on)
+    await control.set_priority(code, on)
     if on:
         return f"⭐ {_place(code)} is a priority: every deal there alerts instantly."
     return f"{_place(code)} is no longer a priority."
@@ -171,8 +139,7 @@ async def _cmd_budget(args: List[str]) -> str:
     if not args:
         return "Usage: /budget 300 or /budget off"
     if args[0].lower() == "off":
-        await set_pref_override("max_trip_budget", "off")
-        await load_overrides()
+        await control.set_budget(None)
         return "💶 No budget limit."
     try:
         amount = float(args[0].replace("€", "").replace(",", "."))
@@ -180,8 +147,7 @@ async def _cmd_budget(args: List[str]) -> str:
         return "Usage: /budget 300 or /budget off"
     if amount <= 0:
         return "The budget must be a positive amount."
-    await set_pref_override("max_trip_budget", amount)
-    await load_overrides()
+    await control.set_budget(amount)
     return f"💶 Trips above €{amount:.0f} are skipped."
 
 
@@ -192,13 +158,12 @@ async def _cmd_pause(args: List[str]) -> str:
         return "Usage: /pause or /pause 12 (hours)"
     if hours <= 0:
         return "Usage: /pause or /pause 12 (hours)"
-    until = utcnow() + timedelta(hours=hours)
-    await set_state(PAUSED_UNTIL_KEY, until.isoformat())
+    until = await control.pause(hours)
     return f"⏸ Alerts paused until {until:%d %b %H:%M} UTC. Searching continues; /resume to undo."
 
 
 async def _cmd_resume(args: List[str]) -> str:
-    await set_state(PAUSED_UNTIL_KEY, None)
+    await control.resume()
     return "▶️ Alerts are back on."
 
 

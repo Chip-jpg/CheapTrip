@@ -299,6 +299,28 @@ Decision: we are not investing further in Skyscanner. This branch only stops it 
 **B36 `feat/windows-installer`** (M–L)
 - One setup `.exe` (PyInstaller + Inno Setup) built and smoke-tested on Windows in CI, published with each `v*` release.
 
+### Added in Round 7: desktop app foundations
+
+The owner is designing the desktop app in Claude Design. This round builds everything that doesn't depend on the visuals; Round 8 then builds the design and releases v0.8.0.
+
+**B37 `feat/engine-service`** (M)
+- An `Engine` service:
+  - search now (never two cycles at once), pause and resume;
+  - a status snapshot;
+  - an event bus announcing cycles and per-source progress.
+- `control.py` shares mute, priority, budget and pause between Telegram and the app.
+- New tables and columns: a `cycles` history, the channel of each sent alert, and hideable deals.
+- aiosqlite 0.20 → 0.22.1: stopping mid-search could leave a database thread running, which kept the process from exiting.
+
+**B38 `feat/local-api`** (L)
+- A local, token-protected API feeding every screen, with live updates.
+
+**B39 `feat/desktop-notifications`** (M)
+- Windows notifications for deals, alongside Telegram.
+
+**B40 `feat/desktop-shell`** (L)
+- The app window (WebView2), tray icon, single instance, a basic working UI, and packaging.
+
 ---
 
 ## 4. Suggested order
@@ -351,3 +373,7 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B34 | `feat/baseline-30-day-window` | done |
 | B35 | `feat/windows-support` | done |
 | B36 | `feat/windows-installer` | done (released as v0.6.0) |
+| B37 | `feat/engine-service` | done |
+| B38 | `feat/local-api` | planned |
+| B39 | `feat/desktop-notifications` | planned |
+| B40 | `feat/desktop-shell` | planned |

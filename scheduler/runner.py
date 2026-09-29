@@ -2,21 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import html
-import signal
-from typing import Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from ai_layer.formatter import format_best_finds_summary
-from config import DECAY_INSTANT_CUTOFF, POPULAR_DESTINATIONS, get_settings
+from config import DECAY_INSTANT_CUTOFF, get_settings
+from control import LAST_CYCLE_KEY, load_overrides, paused_until
 from filters.deduplication import collapse_similar, deduplicate_trips
 from filters.hard_filters import apply_hard_filters
 from filters.time_decay import apply_time_decay
 from normalizers.flight import normalize_flights
 from normalizers.hotel import normalize_hotels
-from notifier.commands import LAST_CYCLE_KEY, CommandBot, load_overrides, paused_until
 from notifier.telegram import TelegramNotifier
 from preferences import get_preferences
 from scheduler.planner import SearchPlanner
@@ -24,14 +23,16 @@ from scrapers.aggregator import ScraperAggregator
 from scrapers.health_monitor import get_health_monitor
 from storage.database import (
     downgrade_stale_instants,
+    finish_cycle_record,
     get_digest_deals,
     get_pending_instant_alerts,
-    init_db,
     purge_old_rows,
     set_state,
+    start_cycle_record,
 )
 from storage.models import Trip
 from trip_builder.builder import build_trips
+from utils.events import get_event_bus
 from utils.logging_config import get_logger
 from utils.timeutil import utcnow
 
@@ -66,7 +67,8 @@ async def init_notifier() -> None:
 async def run_pipeline_cycle(
     aggregator: Optional[ScraperAggregator] = None,
     notifier: Optional[TelegramNotifier] = None,
-) -> None:
+    trigger: str = "scheduled",
+) -> Dict[str, Any]:
     """
     Full pipeline execution:
     1. Load user preferences + generate flexible date windows
@@ -79,11 +81,26 @@ async def run_pipeline_cycle(
     8. Send instant alerts (up to quota)
 
     `aggregator` and `notifier` default to the module-level instances; tests inject fakes.
+    Every cycle is recorded in the cycles table and announced on the event bus
+    (cycle_started, cycle_planned, source_done per source, cycle_finished).
+    Returns the cycle's counts: fares, trips, new_instant, new_digest, sent,
+    duration_s, status ("ok", "failed" or "stopped") and error.
     """
     aggregator = aggregator or _get_aggregator()
     notifier = notifier or _notifier
     cycle_start = utcnow()
-    log.info("pipeline_cycle_start", ts=cycle_start.isoformat())
+    log.info("pipeline_cycle_start", ts=cycle_start.isoformat(), trigger=trigger)
+    bus = get_event_bus()
+    stats: Dict[str, Any] = {
+        "trigger": trigger, "status": "ok", "error": None,
+        "fares": 0, "trips": 0, "new_instant": 0, "new_digest": 0, "sent": 0,
+    }
+    cycle_id: Optional[int] = None
+    try:
+        cycle_id = await start_cycle_record(trigger)
+    except Exception as exc:  # the history is nice to have; never block a cycle on it
+        log.warning("cycle_record_failed", error=str(exc))
+    bus.publish("cycle_started", trigger=trigger)
 
     try:
         await load_overrides()  # /mute, /priority, /budget from Telegram
@@ -98,6 +115,9 @@ async def run_pipeline_cycle(
 
         # Plan this cycle's searches (budgets + rotation) for every source
         plan = await _planner.plan(prefs, aggregator.sources)
+        bus.publish("cycle_planned", sources=[
+            s.source_id for s in aggregator.sources if s.enabled and (s.is_feed or plan.for_source(s.source_id))
+        ])
 
         # Deal feeds (no search params) run once; search sources run their planned tasks
         feed_result, flight_result, hotel_result = await asyncio.gather(
@@ -123,6 +143,7 @@ async def run_pipeline_cycle(
             flights=len(all_raw_flights),
             hotels=len(all_raw_hotels),
         )
+        stats["fares"] = len(all_raw_flights) + len(all_raw_hotels)
 
         # ── Normalize ─────────────────────────────────────────────────────────
         normalize_result = await asyncio.gather(
@@ -139,6 +160,7 @@ async def run_pipeline_cycle(
 
         # ── Build trips ───────────────────────────────────────────────────────
         trips = collapse_similar(await build_trips(flight_legs, hotel_deals))
+        stats["trips"] = len(trips)
         new_instant: List[Trip] = []
         new_digest: List[Trip] = []
         if trips:
@@ -160,6 +182,7 @@ async def run_pipeline_cycle(
             )
         else:
             log.info("no_trips_built_this_cycle")
+        stats["new_instant"], stats["new_digest"] = len(new_instant), len(new_digest)
 
         # ── Send instant alerts ───────────────────────────────────────────────
         # New instant deals were just saved unsent; the pending queue also
@@ -174,6 +197,7 @@ async def run_pipeline_cycle(
             log.info("alerts_paused", until=paused.isoformat(), pending=len(pending))
         elif pending:
             sent = await notifier.process_instant_queue(pending)
+            stats["sent"] = sent
             log.info("instant_alerts_sent", count=sent, queued=len(pending))
 
         # ── Send cycle summary of best cheap finds ───────────────────────────
@@ -187,9 +211,22 @@ async def run_pipeline_cycle(
         duration = (utcnow() - cycle_start).total_seconds()
         log.info("pipeline_cycle_complete", duration_s=round(duration, 1))
 
+    except asyncio.CancelledError:  # the engine stopped (app quit, docker stop) during the search
+        stats["status"] = "stopped"
+        raise
     except Exception as exc:
+        stats["status"], stats["error"] = "failed", str(exc) or type(exc).__name__
         log.error("pipeline_cycle_failed", error=str(exc), exc_info=True)
         # Do NOT crash the scheduler — just log
+    finally:
+        stats["duration_s"] = round((utcnow() - cycle_start).total_seconds(), 1)
+        if cycle_id is not None:
+            try:
+                await finish_cycle_record(cycle_id, stats)
+            except Exception as exc:
+                log.warning("cycle_record_failed", error=str(exc))
+        bus.publish("cycle_finished", **stats)
+    return stats
 
 
 async def _send_best_finds_summary(trips: list, notifier: TelegramNotifier) -> None:
@@ -261,13 +298,17 @@ async def run_daily_digest(notifier: Optional[TelegramNotifier] = None) -> None:
         log.error("digest_failed", error=str(exc), exc_info=True)
 
 
-def create_scheduler() -> AsyncIOScheduler:
+def create_scheduler(
+    cycle_job: Callable[[], Awaitable[Any]] = run_pipeline_cycle,
+    digest_job: Callable[[], Awaitable[Any]] = run_daily_digest,
+) -> AsyncIOScheduler:
+    """The search cycle every SCRAPE_INTERVAL_MINUTES and the daily digest (the Engine passes its own jobs)."""
     settings = get_settings()
     scheduler = AsyncIOScheduler(timezone=settings.timezone)
 
     # Main scraping cycle
     scheduler.add_job(
-        run_pipeline_cycle,
+        cycle_job,
         trigger=IntervalTrigger(minutes=settings.scrape_interval_minutes),
         id="pipeline_cycle",
         name="Main scraping + alert pipeline",
@@ -278,7 +319,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
     # Daily digest
     scheduler.add_job(
-        run_daily_digest,
+        digest_job,
         trigger=CronTrigger(
             hour=settings.digest_hour,
             minute=settings.digest_minute,
@@ -294,60 +335,7 @@ def create_scheduler() -> AsyncIOScheduler:
 
 
 async def run_forever() -> None:
-    """
-    Main entry point for continuous operation.
-    Initializes DB, starts scheduler, runs pipeline immediately on boot.
-    """
-    await init_db()
-    log.info("database_initialized")
+    """Headless 24/7 operation (`main.py run`, Docker): the Engine until SIGTERM or SIGINT."""
+    from scheduler.engine import Engine
 
-    # Re-initialize notifier now that DB is ready — restores rate-limiter state
-    global _notifier
-    _notifier = await TelegramNotifier.create()
-
-    prefs = get_preferences()
-    scheduler = create_scheduler()
-    scheduler.start()
-    log.info(
-        "scheduler_started",
-        interval_min=get_settings().scrape_interval_minutes,
-        home_airports=prefs.home_airports,
-        trip_lengths=prefs.preferred_trip_lengths,
-        search_window_days=prefs.search_window_days,
-    )
-
-    await _notifier.send_system_message(
-        "🚀 <b>Travel Deal Intelligence Engine started</b>\n"
-        f"Origins: {html.escape(', '.join(prefs.home_airports))}\n"
-        f"Profiles: {html.escape(', '.join(prefs.preferred_trip_lengths))}\n"
-        f"Monitoring {len(POPULAR_DESTINATIONS)} destinations"
-    )
-
-    # SIGTERM (docker stop) and SIGINT (Ctrl-C) end the loop cleanly
-    stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            loop.add_signal_handler(sig, stop.set)
-        except (NotImplementedError, RuntimeError):  # e.g. Windows
-            pass
-
-    # Telegram commands (/deals, /mute, /pause, ...) are polled alongside the scheduler
-    commands = asyncio.create_task(CommandBot(_notifier).run(stop))
-
-    # Run immediately on startup
-    await run_pipeline_cycle()
-
-    try:
-        await stop.wait()
-    except asyncio.CancelledError:
-        stop.set()
-    log.info("scheduler_stopping")
-    scheduler.shutdown(wait=True)
-    await asyncio.gather(commands, return_exceptions=True)
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            loop.remove_signal_handler(sig)
-        except (NotImplementedError, RuntimeError):
-            pass
-    log.info("engine_stopped")
+    await Engine().run()

@@ -47,7 +47,23 @@ pending instant queue ─► sorted by discount, sent up to INSTANT_ALERTS_PER_H
                           the same route alerts at most every 6h unless the price dropped
 ```
 
-`run_forever` also starts the Telegram command poller (`notifier/commands.py`), schedules the daily digest, records the last completed cycle (used by `main.py healthcheck`) and stops cleanly on SIGTERM.
+Every cycle is recorded in the `cycles` table and announced on the event bus (`utils/events.py`): `cycle_started`, `cycle_planned` (the sources that will run), `source_done` per source, and `cycle_finished` with its counts.
+
+## The engine as a service (`scheduler/engine.py`)
+
+`Engine` owns what runs 24/7:
+- the scheduler (a search every `SCRAPE_INTERVAL_MINUTES` and the daily digest);
+- the notifier;
+- the Telegram command poller (`notifier/commands.py`).
+
+It also gives the desktop app its controls:
+- `search_now()`: cycles share a lock, so two never run at once;
+- `pause()` / `resume()`;
+- `status()`: state, next and last search, searches today.
+
+The pause state and the mute, priority and budget overrides live in `control.py`. The Telegram commands and the app call the same functions, and each change is published on the event bus.
+
+`main.py run` (and Docker) is `Engine().run()`, which stops cleanly on SIGTERM or SIGINT; stopping cancels a running search. The last completed cycle time is still recorded for `main.py healthcheck`.
 
 ## Key design decisions
 
@@ -69,8 +85,9 @@ Each fare gets a `data_confidence_score` (freshness, number of sources, field co
 
 | Table | Contents |
 |---|---|
-| `deals` | Every saved trip: tier, sent flag, JSON payload, dedup key and departure date |
-| `alerts_sent` | Delivery history (rate limiting) |
+| `deals` | Every saved trip: tier, sent flag, JSON payload, dedup key, departure date, hidden flag |
+| `alerts_sent` | Delivery history (rate limiting) and the channel each alert went to |
+| `cycles` | One row per search: trigger, duration, fares, trips, new deals, sent, status or error |
 | `price_history` | Fare observations with their key (cities, trip type, length), dates and cycle |
 | `scraper_health` | Last outcome, streaks and notices per source |
 | `search_cursor` | Planner rotation positions |
