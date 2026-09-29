@@ -243,18 +243,20 @@ async def promote_deal(trip: Trip) -> bool:
     Re-offer a saved, never-sent deal as instant (same hash: same price and
     dates) — e.g. a fare saved to the digest on a cold start that now stands
     out against the route's history. Resets created_at so the stale-instant
-    sweep treats it as fresh.
+    sweep treats it as fresh, and refreshes the discount and confidence the
+    instant queue sorts on (a cold-start deal was saved without a discount).
     """
     now = utcnow()
     path = await get_db_path()
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
             """
-            UPDATE deals SET alert_tier = ?, created_at = ?, expires_at = ?, payload = ?
+            UPDATE deals SET alert_tier = ?, created_at = ?, expires_at = ?, payload = ?,
+                             discount_pct = ?, confidence = ?
              WHERE hash = ? AND is_alerted = 0
             """,
             (AlertTier(trip.alert_tier).value, now.isoformat(), (now + timedelta(days=7)).isoformat(),
-             trip.model_dump_json(), trip.hash),
+             trip.model_dump_json(), trip.discount_pct, trip.data_confidence_score, trip.hash),
         )
         await db.commit()
     return bool(cursor.rowcount)

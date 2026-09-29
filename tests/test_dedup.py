@@ -166,6 +166,26 @@ async def test_similar_fare_becoming_instant_retires_the_digest_copy(engine):
     assert tiers == {40.0: "archive", 39.5: "instant"}
 
 
+async def test_promoted_fare_is_queued_by_its_new_discount(engine):
+    # Round 4 dry run: promoted deals kept an empty discount, so the queue ranked them last
+    from storage.database import get_pending_instant_alerts
+
+    await init_db()
+    await deduplicate_trips([_trip(40.0, tier=AlertTier.DIGEST)])  # cold start: no discount yet
+    other = _trip(30.0, dest="PRG", tier=AlertTier.INSTANT)
+    other.discount_pct = 36.0
+    await deduplicate_trips([other])
+
+    promoted = _trip(40.0, tier=AlertTier.INSTANT)
+    promoted.discount_pct = 45.0
+    await deduplicate_trips([promoted])
+
+    assert [t.discount_pct for t in await get_pending_instant_alerts(limit=1)] == [45.0]
+    async with aiosqlite.connect(await get_db_path()) as db:
+        row = await (await db.execute("SELECT discount_pct, confidence FROM deals WHERE total_cost = 40.0")).fetchone()
+    assert row == (45.0, 0.8)
+
+
 async def test_already_sent_fare_is_not_offered_again(engine):
     from storage.database import mark_alerted
 
