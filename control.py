@@ -10,7 +10,8 @@ published on the event bus so open screens and the tray update at once.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from preferences import apply_overrides, load_preferences, preferences_path
 from storage.database import get_pref_overrides, get_state, set_pref_override, set_state
@@ -21,6 +22,8 @@ from utils.timeutil import utcnow
 PAUSED_UNTIL_KEY = "paused_until"
 LAST_CYCLE_KEY = "last_cycle_at"
 DEFAULT_PAUSE_HOURS = 24
+PAUSE_INDEFINITELY_DAYS = 3650  # "until I resume"
+MORNING_HOUR = 8  # "until tomorrow" ends at 08:00 local time
 
 
 # ── Pause ─────────────────────────────────────────────────────────────────────
@@ -51,6 +54,24 @@ async def pause(hours: Optional[float] = None, until: Optional[datetime] = None)
 async def resume() -> None:
     await set_state(PAUSED_UNTIL_KEY, None)
     get_event_bus().publish("resumed")
+
+
+def pause_end(hours: Optional[float] = None, until: Optional[str] = None) -> Dict[str, Any]:
+    """
+    The app's pause choices as pause() arguments: {"hours": n}, "tomorrow"
+    (08:00 local time tomorrow) or "resume" (until the user resumes).
+    """
+    if hours is not None:
+        return {"hours": float(hours)}
+    if until == "tomorrow":
+        from config import get_settings
+
+        tz = ZoneInfo(get_settings().timezone)
+        morning = (datetime.now(tz) + timedelta(days=1)).replace(hour=MORNING_HOUR, minute=0, second=0, microsecond=0)
+        return {"until": morning.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)}
+    if until == "resume":
+        return {"hours": PAUSE_INDEFINITELY_DAYS * 24}
+    raise ValueError('pause needs {"hours": n}, {"until": "tomorrow"} or {"until": "resume"}')
 
 
 # ── Preference overrides ──────────────────────────────────────────────────────

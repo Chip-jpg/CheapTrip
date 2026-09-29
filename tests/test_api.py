@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pytest
+import yaml
 from aiohttp.test_utils import TestClient, TestServer
 
 import control
@@ -326,6 +327,29 @@ def test_saving_preferences_keeps_the_comments(tmp_path):
     with pytest.raises(ValueError):
         save_preferences({"adults": "many"}, path)
     assert UserPreferences.model_fields  # sanity: the model is what validates
+
+
+def test_saving_the_documented_preferences_changes_only_what_changed(tmp_path):
+    """The example file the installer writes: every setting's description must survive a save."""
+    example = Path(__file__).resolve().parent.parent / "config" / "user_preferences.yaml.example"
+    original = example.read_text(encoding="utf-8")
+    path = tmp_path / "prefs.yaml"
+    path.write_text(original, encoding="utf-8")
+    values = yaml.safe_load(original)
+
+    save_preferences({k: values[k] for k in ("home_airports", "preferred_trip_lengths", "max_trip_budget")}, path)
+    assert path.read_text(encoding="utf-8") == original  # the Settings screen re-sent unchanged values
+
+    save_preferences({"home_airports": ["LGW"], "max_trip_budget": 300, "repositioning_hubs": [],
+                      "excluded_destinations": ["KRK"]}, path)
+    changed = path.read_text(encoding="utf-8")
+    comments = [line for line in original.splitlines() if line.lstrip().startswith("#")]
+    assert [line for line in changed.splitlines() if line.lstrip().startswith("#")] == comments
+    assert "home_airports:\n  - LGW\n" in changed and "repositioning_hubs: []" in changed
+
+    save_preferences({"max_trip_budget": None, **{k: values[k] for k in (
+        "home_airports", "repositioning_hubs", "excluded_destinations")}}, path)
+    assert path.read_text(encoding="utf-8") == original  # and back again, exactly
 
 
 def test_airport_names_and_search():

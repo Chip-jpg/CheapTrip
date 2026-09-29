@@ -48,7 +48,21 @@ Start from `.env.example`. Names are case-insensitive environment variables.
 | `FLIGHT_DISCOUNT_MIN_PCT` | `60` | Discount vs the usual price that makes a flight instant. |
 | `HOTEL_DISCOUNT_MIN_PCT` | `60` | The same for hotel deals with a known usual price. |
 | `BOOKING_CONFIDENCE_MIN_FOR_INSTANT` | `MEDIUM` | `LOW`, `MEDIUM` or `HIGH`. |
-| `INSTANT_ALERTS_PER_HOUR` | `5` | Best discounts go first. |
+| `INSTANT_ALERTS_PER_HOUR` | `5` | Best discounts go first. One limit covers desktop and Telegram. |
+
+### Notifications and the desktop app
+
+Settings → Notifications and Settings → App in the app change these; they apply at once.
+
+| Variable | Default | Description |
+|---|---|---|
+| `NOTIFY_DESKTOP` | `true` | Windows notifications (the desktop app, and `main.py ui`). |
+| `NOTIFY_TELEGRAM` | `true` | Telegram, when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set. Replies to Telegram commands are sent either way. |
+| `NOTIFY_INSTANT` | `true` | Deals as they are found. Off: they wait for the digest. |
+| `NOTIFY_DIGEST` | `true` | The daily digest. |
+| `NOTIFY_SOURCE_PROBLEMS` | `true` | A source that starts failing, or recovers. |
+| `NOTIFY_SOUND` | `true` | Desktop notifications play the system sound. |
+| `CLOSE_TO_TRAY` | `true` | Closing the app's window keeps CheapTrip running in the tray. Off: closing it quits. |
 
 ### Schedule and storage
 

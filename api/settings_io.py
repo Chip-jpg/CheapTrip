@@ -34,6 +34,8 @@ SOURCE_SWITCHES = (
 )
 # Settings → Notifications: NOTIFY_<NAME> in .env
 NOTIFY_SWITCHES = ("desktop", "telegram", "instant", "digest", "source_problems", "sound")
+# Settings → App: behaviour of the desktop app's window
+APP_SWITCHES = ("close_to_tray",)
 # Preference lists that Telegram /mute and /priority (and /budget) override: saving them
 # in Settings makes the saved value the truth again
 _OVERRIDES_OF = {
@@ -69,6 +71,7 @@ class SettingsUpdate(BaseModel):
     keys: Optional[Dict[str, Optional[str]]] = None
     sources: Optional[Dict[str, bool]] = None
     notifications: Optional[Dict[str, bool]] = None
+    app: Optional[Dict[str, bool]] = None
 
     @field_validator("notifications")
     @classmethod
@@ -76,6 +79,14 @@ class SettingsUpdate(BaseModel):
         unknown = set(value or {}) - set(NOTIFY_SWITCHES)
         if unknown:
             raise ValueError(f"unknown notification switches: {', '.join(sorted(unknown))}")
+        return value
+
+    @field_validator("app")
+    @classmethod
+    def _known_app_switches(cls, value: Optional[Dict[str, bool]]) -> Optional[Dict[str, bool]]:
+        unknown = set(value or {}) - set(APP_SWITCHES)
+        if unknown:
+            raise ValueError(f"unknown app settings: {', '.join(sorted(unknown))}")
         return value
 
     @field_validator("keys")
@@ -125,6 +136,7 @@ def read_settings() -> Dict[str, Any]:
             **{name: getattr(settings, f"notify_{name}") for name in NOTIFY_SWITCHES},
             "telegram_ready": bool(settings.telegram_bot_token and settings.telegram_chat_id),
         },
+        "app": {name: getattr(settings, name) for name in APP_SWITCHES},
         "files": {"settings": str(env_path()), "preferences": str(preferences_path())},
     }
 
@@ -194,6 +206,11 @@ async def apply_settings(payload: Dict[str, Any], engine: Any = None) -> Dict[st
         env[f"NOTIFY_{name.upper()}"] = _env_value(on)
         saved.append(f"notifications.{name}")
         applies[f"notifications.{name}"] = "now"
+
+    for name, on in (update.app or {}).items():
+        env[name.upper()] = _env_value(on)
+        saved.append(f"app.{name}")
+        applies[f"app.{name}"] = "now"
 
     if env:
         update_env_file(env_path(), env)

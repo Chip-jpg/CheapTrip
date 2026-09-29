@@ -117,20 +117,58 @@ def get_preferences() -> UserPreferences:
     return merge_overrides(load_preferences(preferences_path()), _overrides)
 
 
+def _round_trip_yaml() -> Any:
+    from ruamel.yaml import YAML
+
+    yaml = YAML()  # round-trip: comments, key order and layout survive
+    yaml.preserve_quotes = True
+    yaml.indent(mapping=2, sequence=4, offset=2)  # "  - MXP", as the example file is written
+    yaml.representer.add_representer(
+        type(None), lambda rep, _: rep.represent_scalar("tag:yaml.org,2002:null", "null"))
+    return yaml
+
+
+def _set_value(doc: Any, key: str, value: Any) -> None:
+    """
+    Set one preference in the loaded YAML. A block list's last item carries the
+    comment that follows it (the next setting's description), so lists are
+    changed in place and that comment moves to the new last item.
+    """
+    from ruamel.yaml.comments import CommentedSeq
+
+    old = doc.get(key)
+    if old == value:
+        return  # untouched: its layout stays exactly as written
+    if not (isinstance(old, CommentedSeq) and isinstance(value, list) and old and not old.fa.flow_style()):
+        doc[key] = value
+        return
+    tail = old.ca.items.get(len(old) - 1)
+    if value:
+        del old[:]
+        old.extend(value)
+        old.ca.items.clear()
+        if tail:
+            old.ca.items[len(value) - 1] = tail
+        return
+    empty = CommentedSeq()
+    empty.fa.set_flow_style()  # "key: []"
+    doc[key] = empty
+    if tail:
+        doc.ca.items[key] = [None, None, tail[0], None]
+
+
 def save_preferences(updates: Dict[str, Any], path: Optional[Path] = None) -> Path:
     """
     Write preference values to the YAML file (B38: the app's Settings screen),
-    keeping its comments and the order of its keys. Unknown keys are refused;
-    values are validated as UserPreferences first. Clears the cached preferences.
+    keeping its comments, key order and layout; values that didn't change are
+    left as written. Unknown keys are refused; values are validated as
+    UserPreferences first. Clears the cached preferences.
     """
-    from ruamel.yaml import YAML
-
     unknown = set(updates) - set(UserPreferences.model_fields)
     if unknown:
         raise ValueError(f"unknown preferences: {', '.join(sorted(unknown))}")
     path = path or preferences_path()
-    yaml = YAML()  # round-trip: comments and layout survive
-    yaml.preserve_quotes = True
+    yaml = _round_trip_yaml()
     data = yaml.load(path.read_text(encoding="utf-8-sig")) if path.exists() else None
     if data is None:
         from ruamel.yaml.comments import CommentedMap
@@ -139,7 +177,7 @@ def save_preferences(updates: Dict[str, Any], path: Optional[Path] = None) -> Pa
     UserPreferences(**{**{k: v for k, v in data.items() if k in UserPreferences.model_fields and v is not None},
                        **{k: v for k, v in updates.items() if v is not None}})  # raises on bad values
     for key, value in updates.items():
-        data[key] = value
+        _set_value(data, key, value)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         yaml.dump(data, f)

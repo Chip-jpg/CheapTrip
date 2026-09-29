@@ -21,6 +21,7 @@ known-first-party = [
     "api",
     "config",
     "control",
+    "desktop",
     "filters",
     "main",
     "normalizers",

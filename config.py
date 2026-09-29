@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     notify_source_problems: bool = Field(default=True)
     notify_sound: bool = Field(default=True)
 
+    # Desktop app (B40): closing the window keeps CheapTrip running in the tray
+    close_to_tray: bool = Field(default=True)
+
     # AI (optional alert polish; prices/dates/links are verified unchanged)
     anthropic_api_key: str = Field(default="")
     ai_model: str = Field(default="claude-haiku-4-5")
