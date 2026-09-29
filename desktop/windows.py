@@ -23,6 +23,19 @@ def set_app_id(app_id: str) -> None:
         log.warning("app_id_not_set", error=str(exc))
 
 
+def allow_foreground() -> None:
+    """
+    Let another process (the running app) bring its window to the front: Windows
+    only lets the program the user just started do that, so it passes the right on.
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    ASFW_ANY = -1
+    ctypes.windll.user32.AllowSetForegroundWindow(ASFW_ANY)
+
+
 def message_box(title: str, text: str) -> None:
     """A plain message the user must see (the windowed app has no console)."""
     if sys.platform != "win32":

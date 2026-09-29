@@ -289,7 +289,7 @@ def test_the_app_starts_hands_over_and_quits(engine, tmp_path, monkeypatch):
     first.join(timeout=30)
     assert not first.is_alive() and result == [0]
     assert read_app_file(tmp_path) is None
-    assert len(boxes) == (sys.platform == "win32")  # "no WebView2: opens in your browser"
+    assert boxes == []  # started at sign-in: no "opened in your browser" message
 
 
 class _Taken:

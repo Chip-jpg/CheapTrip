@@ -29,7 +29,7 @@ from desktop.engine_thread import EngineThread
 from desktop.instance import InstanceLock, hand_over, read_app_file, remove_app_file, write_app_file
 from desktop.links import parse_args
 from desktop.tray import Tray
-from desktop.windows import message_box, set_app_id, webview2_available
+from desktop.windows import allow_foreground, message_box, set_app_id, webview2_available
 from notifier.desktop import APP_ID
 from utils.logging_config import get_logger
 
@@ -121,12 +121,12 @@ class DesktopApp:
         return False
 
     def _run_in_browser(self, tray: bool) -> None:
-        if sys.platform == "win32":
-            message_box("CheapTrip", "CheapTrip opens in your web browser: this PC doesn't have the Microsoft Edge "
-                                     "WebView2 Runtime that its window needs. Installing it (free, from Microsoft) "
-                                     "gives CheapTrip its own window.")
-        if not self.minimized:
+        if not self.minimized:  # started at sign-in: nothing to say until the user opens it
             self.show(self.route)
+            if sys.platform == "win32":
+                message_box("CheapTrip", "CheapTrip opened in your web browser: this PC doesn't have the Microsoft "
+                                         "Edge WebView2 Runtime that its window needs. Installing it (free, from "
+                                         "Microsoft) gives CheapTrip its own window.")
         if not tray:
             print(f"CheapTrip is running at {self.server.url}\nPress Ctrl+C to stop.", flush=True)
         self._done.wait()
@@ -158,6 +158,7 @@ def run(argv: Sequence[str], folder: Optional[Path] = None) -> int:
     if not lock.acquire():
         if args.minimized:  # signed in again while CheapTrip runs: nothing to show
             return 0
+        allow_foreground()  # the running app may bring its window to the front
         if hand_over(folder, args.route):
             return 0
         if read_app_file(folder) is None:
