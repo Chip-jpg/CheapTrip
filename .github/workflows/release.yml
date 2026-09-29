@@ -1,10 +1,14 @@
 name: Release
 
-# Publishes a GitHub release with the Windows installer.
-# Push a tag `v<version>` matching utils/version.py, or run this workflow by
-# hand with that version (it then tags the commit it runs on).
+# Publishes a GitHub release with the Windows installer, tagged v<version>.
+# - A merge to main publishes the version in utils/version.py when it has no
+#   release yet (so bumping the version and merging is a release); otherwise
+#   the run stops after checking.
+# - Pushing a tag `v<version>`, or running this workflow by hand with a
+#   version, publishes that version (it must match utils/version.py).
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -31,19 +35,32 @@ jobs:
         id: version
         shell: pwsh
         env:
+          GH_TOKEN: ${{ github.token }}
+          REF_TYPE: ${{ github.ref_type }}
           TAG: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          $v = if ($env:GITHUB_EVENT_NAME -eq "push") { $env:TAG.TrimStart("v") } else { $env:INPUT_VERSION }
+          $fromCode = (python -c "from utils.version import __version__; print(__version__)").Trim()
+          $v = if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") { $env:INPUT_VERSION }
+               elseif ($env:REF_TYPE -eq "tag") { $env:TAG.TrimStart("v") }
+               else { $fromCode }
           if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Not a version: '$v'" }
           "version=$v" >> $env:GITHUB_OUTPUT
+          # A merge to main only publishes a version that has no release yet
+          gh release view "v$v" --repo $env:GITHUB_REPOSITORY *> $null
+          $exists = $LASTEXITCODE -eq 0
+          $skip = $env:REF_TYPE -eq "branch" -and $env:GITHUB_EVENT_NAME -eq "push" -and $exists
+          "skip=$($skip.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          Write-Host "Version $v; release exists: $exists; skip: $skip"
+          $global:LASTEXITCODE = 0
 
       - name: Build and smoke-test the installer
+        if: steps.version.outputs.skip != 'true'
         shell: pwsh
         run: ./packaging/build_windows.ps1 -Version ${{ steps.version.outputs.version }}
 
       - name: Keep the smoke-test logs
-        if: always()
+        if: always() && steps.version.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: release-smoke-logs
@@ -51,6 +68,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Publish the release
+        if: steps.version.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
