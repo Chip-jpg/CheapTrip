@@ -365,7 +365,13 @@ The owner's design ("Fluent Deal Radar", made in Google Stitch) covers Deals wit
 - **Theme:** system, light or dark (`THEME`); the window opens in the right colour.
 - **Identity:** the design's mark rendered into the exe and installer icon, the notification icon and one tray icon per engine state (a status dot on the mark). The tray menu gains a status line and Settings.
 
-**B42 `feat/deals-screen`** (L): stat tiles, the learning banner, the filter bar, every card variant, "Best of the rest", and the deal detail slide-over with both charts.
+**B42 `feat/deals-screen`** (L)
+- Summary tiles (unusually cheap, best today, last search, learning prices) and the learning banner, shown while fewer than half the trips have a usual price.
+- The filter bar: deal-type chips, trip-length segments, destination text, a max price slider, a departure date window, "Priority only" and the sort order.
+- The unusually cheap deals as large cards, one variant per type: flight, error fare, package, hotel, via a hub, flight + hotel. The first six are large; the rest are compact cards. Each card has a fare-range sparkline, why it's here, its sources, whether the alert went out, and Book / Hotels / Details plus a menu: mute, priority, copy link, hide (with Undo).
+- "Best of the rest" as a table.
+- The deal detail slides over the list: booking confidence in plain words, the reasons, "How this fare compares" (the fares around it with the usual price), "This fare over time", the flights, both legs of a trip via a hub, and the hotel.
+- The API adds each unusually cheap deal's fare range to `/deals`; "Best today" is the most unusually cheap deal.
 
 **B43 `feat/destinations-activity`** (L): Destinations (priority cards, all seen with trends, add a destination), Activity, and the Notifications page (toast previews, tray states, tests), with toasts worded like the design.
 
@@ -430,6 +436,6 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B39 | `feat/desktop-notifications` | done |
 | B40 | `feat/desktop-shell` | done |
 | B41 | `feat/design-system` | done |
-| B42 | `feat/deals-screen` | planned |
+| B42 | `feat/deals-screen` | done |
 | B43 | `feat/destinations-activity` | planned |
 | B44 | `feat/settings-setup` | planned |

@@ -1,4 +1,4 @@
-import type { Deal, DealsResponse, Status } from "../api";
+import type { Deal, DealDetail, DealsResponse, Status } from "../api";
 
 export function deal(overrides: Partial<Deal> = {}): Deal {
   return {
@@ -13,12 +13,28 @@ export function deal(overrides: Partial<Deal> = {}): Deal {
   };
 }
 
+const COMPARISON = {
+  window_days: 30, median: 56,
+  points: [
+    { depart: "2026-10-02", price: 68, route: "BGY-BER", is_this: false },
+    { depart: "2026-10-11", price: 58, route: "BGY-BER", is_this: false },
+    { depart: "2026-10-21", price: 30, route: "BGY-BER", is_this: true },
+    { depart: "2026-11-01", price: 55, route: "MXP-BER", is_this: false },
+  ],
+  history: [{ at: "2026-09-28T04:12:00", price: 38 }, { at: "2026-09-29T09:58:00", price: 30 }],
+};
+
 export const DEALS: DealsResponse = {
-  summary: { unusually_cheap: 1, best: { id: "deal-1", route: "Milan → Berlin", price: 30 },
-             last_search: { at: "2026-09-29T09:58:00", fares: 783 } },
-  instant: [deal()],
+  summary: { unusually_cheap: 1, best: deal(), last_search: { at: "2026-09-29T09:58:00", fares: 783 } },
+  instant: [deal({ comparison: COMPARISON, previous_price: 38 })],
   digest: [deal({ id: "deal-2", tier: "digest", route: "Milan → Prague", price: 35, usual_price: null,
                   discount_pct: null, notified: null, destination: { code: "PRG", city: "Prague", country: "CZ" } })],
+};
+
+export const DETAIL: DealDetail = {
+  ...deal({ previous_price: 38 }), comparison: COMPARISON, verdict: "", feasibility_notes: [],
+  flight: { airline: "Ryanair", departure_time: "2026-10-21T06:40:00", arrival_time: "2026-10-21T08:25:00", stops: 0,
+            duration_minutes: 105, round_trip: true },
 };
 
 export const STATUS: Status = {

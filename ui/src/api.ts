@@ -114,6 +114,8 @@ export interface Deal {
   notified: { at: string; channels: string[] } | null;
   waiting: boolean;
   found_at: string;
+  /** Unusually cheap deals: similar fares within ±30 days, for the card's fare range */
+  comparison?: FareComparison | null;
 }
 
 export interface FareComparison {
@@ -132,7 +134,8 @@ export interface DealDetail extends Deal {
 export interface DealsResponse {
   summary: {
     unusually_cheap: number;
-    best: { id: string; route: string; price: number } | null;
+    /** The most unusually cheap deal, else the cheapest of all */
+    best: Deal | null;
     last_search: { at: string; fares: number } | null;
   };
   instant: Deal[];

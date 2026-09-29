@@ -99,3 +99,44 @@ export function shortDay(iso: string | null | undefined): string {
   const d = day(iso.slice(0, 10));
   return `${d.date} ${d.month}`;
 }
+
+/** The engine's reasons ("historical anomaly: 46% below the usual €56 (…)") in plain words. */
+export function reasonText(reason: string): string {
+  let text = reason.replace(/^historical anomaly:\s*/, "");
+  const floor = text.match(/^at or under the (€\d+) (short|long)-haul backstop price$/);
+  if (floor) text = `under your ${floor[1]} ${floor[2]}-haul price floor`;
+  if (/^priority destination /.test(text)) text = "priority destination";
+  text = text.replace(/^price dropped from/, "dropped from");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Every reason, anomalies split into their parts, without repeats. */
+export function reasons(list: string[]): string[] {
+  const out: string[] = [];
+  for (const reason of list) {
+    for (const part of reason.replace(/^historical anomaly:\s*/, "").split("; ")) {
+      const text = reasonText(part);
+      if (!out.includes(text)) out.push(text);
+    }
+  }
+  return out;
+}
+
+/** "7 nights", "1 night". */
+export function nightsLabel(nights: number | null | undefined): string {
+  if (!nights) return "";
+  return nights === 1 ? "1 night" : `${nights} nights`;
+}
+
+/** "Wed 21 Oct → Wed 28 Oct · 7 nights" (the cards' long form). */
+export function tripDates(deal: Pick<Deal, "depart_date" | "return_date" | "travel_window" | "nights">): string {
+  if (!deal.depart_date) return deal.travel_window ?? "";
+  const out = dayLabel(deal.depart_date);
+  if (!deal.return_date) return `${out} · one way`;
+  return [`${out} → ${dayLabel(deal.return_date)}`, nightsLabel(deal.nights)].filter(Boolean).join(" · ");
+}
+
+/** "46%" from a discount. */
+export function pct(discount: number | null | undefined): string {
+  return discount ? `${Math.round(discount)}%` : "";
+}

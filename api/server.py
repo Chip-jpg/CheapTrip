@@ -221,30 +221,40 @@ _SORTS = {
 }
 
 
+async def _comparison(row: Any) -> Optional[Dict[str, Any]]:
+    """The "how this fare compares" data for a dated flight (None for a deal-site post or a hotel)."""
+    leg = row.trip.outbound_flight
+    return await fare_comparison(leg) if leg and leg.departure_date and not leg.is_feed_deal else None
+
+
 async def deals(request: web.Request) -> web.Response:
     rows = await get_recent_deals(hours=24)
     prefs = get_preferences()
     notified = await latest_alerts_for([row.trip.hash for row in rows])
     records = [deal_record(row, prefs, notified.get(row.trip.hash)) for row in rows]
+    by_id = {row.trip.hash: row for row in rows}
     filters = _filters(request)
+    sort = request.query.get("sort")
 
-    instant_all = [r for r in records if r["tier"] == "instant"]
-    instant = sorted((r for r in instant_all if matches(r, filters)), key=_SORTS["discount"])
+    instant_all = sorted((r for r in records if r["tier"] == "instant"), key=_SORTS["discount"])
+    instant = sorted((r for r in instant_all if matches(r, filters)), key=_SORTS.get(sort, _SORTS["discount"]))
+    for record, comparison in zip(instant, await asyncio.gather(*(_comparison(by_id[r["id"]]) for r in instant))):
+        record["comparison"] = comparison  # each card's "30-day fare range"
     best_per_route: Dict[str, Dict[str, Any]] = {}
     for record in records:
         if record["tier"] == "digest":
             current = best_per_route.get(record["route"])
             if current is None or record["price"] < current["price"]:
                 best_per_route[record["route"]] = record
-    sort = _SORTS.get(request.query.get("sort", "price"), _SORTS["price"])
-    digest = sorted((r for r in best_per_route.values() if matches(r, filters)), key=sort)
+    digest = sorted((r for r in best_per_route.values() if matches(r, filters)), key=_SORTS.get(sort, _SORTS["price"]))
 
     finished = [c for c in await recent_cycles(limit=5) if c["status"] != "running"]
-    best = min(records, key=lambda r: r["price"]) if records else None
+    # "Best today": the most unusually cheap deal, else the cheapest of all
+    best = instant_all[0] if instant_all else min(records, key=lambda r: r["price"]) if records else None
     return _json({
         "summary": {
             "unusually_cheap": len(instant_all),
-            "best": {"id": best["id"], "route": best["route"], "price": best["price"]} if best else None,
+            "best": best,
             "last_search": {"at": finished[0]["finished_at"], "fares": finished[0]["fares"]} if finished else None,
         },
         "instant": instant,
@@ -258,8 +268,7 @@ async def deal_detail(request: web.Request) -> web.Response:
         return _error("no such deal", 404)
     notified = await latest_alerts_for([row.trip.hash])
     record = deal_record(row, get_preferences(), notified.get(row.trip.hash))
-    leg = row.trip.outbound_flight
-    record["comparison"] = await fare_comparison(leg) if leg and leg.departure_date and not leg.is_feed_deal else None
+    record["comparison"] = await _comparison(row)
     record["verdict"] = row.trip.verdict
     record["feasibility_notes"] = list(row.trip.feasibility_notes)
     return _json(record)
