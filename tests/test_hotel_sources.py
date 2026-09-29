@@ -128,3 +128,15 @@ def test_holiday_pirates_hotel_price_is_per_night():
     result = HolidayPiratesHotelScraper()._parse_hotel_card(card)
     assert result.nights == 3
     assert result.price_per_night == 100.0   # package price / nights, not €300 a night
+    assert result.source == "holiday_pirates_hotels"
+
+
+def test_every_source_has_its_own_id(engine):
+    # The HolidayPirates hotel scraper shared the flight scraper's id, merging their health records
+    from scrapers.aggregator import build_flight_scrapers, build_hotel_scrapers
+    from utils.confidence import SOURCE_RELIABILITY
+
+    ids = [s.source_id for s in [*build_flight_scrapers(), *build_hotel_scrapers()]]
+
+    assert len(ids) == len(set(ids)), f"duplicate source ids: {sorted(i for i in ids if ids.count(i) > 1)}"
+    assert set(ids) <= set(SOURCE_RELIABILITY)

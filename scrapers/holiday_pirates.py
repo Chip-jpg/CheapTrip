@@ -230,7 +230,7 @@ class HolidayPiratesFlightScraper(BaseFeedScraper):
 class HolidayPiratesHotelScraper(BaseHotelScraper):
     """Scrapes HolidayPirates hotel deal pages (a feed: once per cycle, no search params)."""
 
-    source_id = "holiday_pirates"
+    source_id = "holiday_pirates_hotels"
     capability = SearchCapability.FEED
 
     def __init__(self) -> None:
