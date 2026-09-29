@@ -146,7 +146,7 @@ def _preference_checks() -> List[Check]:
     if not path.exists():
         return [Check("warn", "Preferences", f"{path} not found: using defaults (Milan)")]
     try:
-        data = yaml.safe_load(path.read_text()) or {}
+        data = yaml.safe_load(path.read_text(encoding="utf-8-sig")) or {}
         known = UserPreferences.model_fields.keys()
         prefs = UserPreferences(**{k: v for k, v in data.items() if k in known and v is not None})
     except Exception as exc:  # the engine itself would silently fall back to defaults

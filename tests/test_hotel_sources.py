@@ -17,7 +17,7 @@ from scrapers.google_hotels import GoogleHotelsScraper, dates_match, parse_cards
 from scrapers.holiday_pirates import HolidayPiratesHotelScraper
 from storage.models import SearchTask
 
-FIXTURE = (Path(__file__).parent / "fixtures" / "google_hotels_krakow.html").read_text()
+FIXTURE = (Path(__file__).parent / "fixtures" / "google_hotels_krakow.html").read_text(encoding="utf-8")
 
 
 @pytest.fixture

@@ -19,7 +19,7 @@ from tests.test_piratinviaggio import FEED, FakeClaude
 
 FIXTURES = Path(__file__).parent / "fixtures"
 HOTEL_URL = "https://www.piratinviaggio.it/hotel/cappadocia-che-sogno-questo-hotel"
-HOTEL_HTML = (FIXTURES / "piratinviaggio_post_cappadocia.html").read_text()
+HOTEL_HTML = (FIXTURES / "piratinviaggio_post_cappadocia.html").read_text(encoding="utf-8")
 POST = parse_post(HOTEL_HTML, HOTEL_URL)
 TODAY = date(2026, 9, 28)
 

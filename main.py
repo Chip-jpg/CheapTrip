@@ -19,13 +19,26 @@ import sys
 import click
 
 from utils.logging_config import configure_logging, get_logger
+from utils.paths import enter_app_home
+from utils.version import __version__
 
 log = get_logger(__name__)
 
 
+def _console_never_crashes() -> None:
+    """On Windows, a character the console code page lacks (an emoji, a city name) prints as '?'."""
+    if sys.platform == "win32":
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(errors="replace")
+
+
 @click.group()
+@click.version_option(__version__, prog_name="CheapTrip")
 def cli() -> None:
     """Travel Deal Intelligence Engine"""
+    _console_never_crashes()
+    enter_app_home()  # the installed Windows app keeps its files in %APPDATA%\CheapTrip
     configure_logging()
 
 

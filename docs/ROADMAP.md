@@ -337,5 +337,5 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B32 | `fix/promoted-deal-order` | done |
 | B33 | `fix/holiday-pirates-hotel-id` | done |
 | B34 | `feat/baseline-30-day-window` | done |
-| B35 | `feat/windows-support` | planned |
+| B35 | `feat/windows-support` | done |
 | B36 | `feat/windows-installer` | planned |

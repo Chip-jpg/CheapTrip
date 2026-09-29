@@ -31,7 +31,7 @@ def test_db(tmp_path_factory):
 def engine(tmp_path, monkeypatch):
     """Isolated engine: temp DB + temp preferences + mocked Telegram API."""
     prefs_path = tmp_path / "user_preferences.yaml"
-    prefs_path.write_text(yaml.safe_dump(DEFAULT_PREFS))
+    prefs_path.write_text(yaml.safe_dump(DEFAULT_PREFS), encoding="utf-8")
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'engine.db'}")
     monkeypatch.setenv("CHEAPTRIP_PREFS_PATH", str(prefs_path))

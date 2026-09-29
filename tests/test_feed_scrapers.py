@@ -64,7 +64,7 @@ def test_going_cards_in_usd():
 def test_enable_flags_are_read_from_the_env_file(tmp_path):
     # They used os.getenv, so setting them in .env had no effect outside Docker.
     env = tmp_path / ".env"
-    env.write_text("ENABLE_SECRET_FLYING=true\nENABLE_GOING=true\n")
+    env.write_text("ENABLE_SECRET_FLYING=true\nENABLE_GOING=true\n", encoding="utf-8")
     settings = Settings(_env_file=env)
     assert settings.enable_secret_flying is True
     assert settings.enable_going is True

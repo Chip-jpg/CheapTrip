@@ -128,7 +128,7 @@ def _deep_find_entity_id(obj: object) -> Optional[str]:
 def _load_cache() -> dict:
     try:
         if _CACHE_PATH.exists():
-            return json.loads(_CACHE_PATH.read_text())
+            return json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
     except Exception:
         pass
     return {}
@@ -137,7 +137,7 @@ def _load_cache() -> dict:
 def _save_cache(data: dict) -> None:
     try:
         _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _CACHE_PATH.write_text(json.dumps(data, indent=2))
+        _CACHE_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except Exception as exc:
         log.debug("skyscanner_cache_write_failed", error=str(exc))
 

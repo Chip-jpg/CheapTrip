@@ -18,11 +18,11 @@ from scrapers.piratinviaggio import FEED_URL, PiratinViaggioScraper, parse_feed,
 from storage.database import get_db_path, init_db
 
 FIXTURES = Path(__file__).parent / "fixtures"
-FEED = (FIXTURES / "piratinviaggio_feed.xml").read_text()
+FEED = (FIXTURES / "piratinviaggio_feed.xml").read_text(encoding="utf-8")
 PARIS_URL = "https://www.piratinviaggio.it/pacchetti/capodanno-parigi-colazione"
 FLIGHTS_URL = "https://www.piratinviaggio.it/voli/voli-low-cost-weekend-ottobre-europa"
-PARIS_HTML = (FIXTURES / "piratinviaggio_post_parigi.html").read_text()
-FLIGHTS_HTML = (FIXTURES / "piratinviaggio_post_voli.html").read_text()
+PARIS_HTML = (FIXTURES / "piratinviaggio_post_parigi.html").read_text(encoding="utf-8")
+FLIGHTS_HTML = (FIXTURES / "piratinviaggio_post_voli.html").read_text(encoding="utf-8")
 TODAY = date(2026, 9, 28)
 HOME = ["MXP", "LIN", "BGY"]
 
