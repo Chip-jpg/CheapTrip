@@ -182,7 +182,10 @@ async def test_mute_from_a_notification_mutes_at_once(engine):
     await desktop.send_deal(_trip())
 
     backend.sent[0]["buttons"][2].on_pressed()  # "Mute Berlin": a coroutine, run on the event loop
-    await asyncio.sleep(0.05)
+    for _ in range(100):  # it runs in the background: wait for it (up to 5 s on a slow machine)
+        if "BER" in get_preferences().excluded_destinations:
+            break
+        await asyncio.sleep(0.05)
 
     assert "BER" in get_preferences().excluded_destinations
 
