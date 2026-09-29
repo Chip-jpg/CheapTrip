@@ -36,6 +36,34 @@ docker-compose down      # SIGTERM: the engine stops its scheduler and Telegram 
   ```
 - **Healthcheck:** `python main.py healthcheck` exits 1 when no cycle has completed in the last 3 × `SCRAPE_INTERVAL_MINUTES` (4.5 hours by default) or the database is unreadable. Compose runs it every 5 minutes after a 15-minute start period; `docker ps` shows the container as unhealthy when the engine is stuck.
 
+## Windows
+
+The installer (`CheapTrip-Setup-<version>.exe`, attached to each [GitHub release](https://github.com/Chip-jpg/CheapTrip/releases)) installs the app for the current user, without administrator rights:
+
+| What | Where |
+|---|---|
+| Program | `%LOCALAPPDATA%\Programs\CheapTrip\cheaptrip.exe` (replaced on upgrade) |
+| Settings (`.env`) | `%APPDATA%\CheapTrip\.env`, written once from the installer's answers |
+| Preferences | `%APPDATA%\CheapTrip\config\user_preferences.yaml` |
+| Database and logs | `%APPDATA%\CheapTrip\data\`, `%APPDATA%\CheapTrip\logs\engine.log` |
+
+- **Start menu:**
+  - **CheapTrip** runs the engine; keep its window open, or minimize it.
+  - **Check setup** runs `doctor`, and **Send a test message** runs `test-alert`.
+  - **Edit settings** and **Edit preferences** open the files in Notepad. Restart CheapTrip after changing them.
+- **Start at sign-in:** the installer's option, ticked by default, puts a minimized CheapTrip in the Startup folder. Remove it from there, or reinstall without the option, to turn it off.
+- **Upgrade:** run the new installer. It closes a running CheapTrip, replaces the program and keeps the settings, so it doesn't ask for them again.
+- **Uninstall:** Settings → Apps, or Start menu → Uninstall CheapTrip. It stops the engine and removes the program and shortcuts, but keeps `%APPDATA%\CheapTrip`; delete that folder to remove your settings and price history.
+- **Command line:** `"%LOCALAPPDATA%\Programs\CheapTrip\cheaptrip.exe" <command>` accepts every command in the README (`doctor`, `read-feed`, `status`, ...). Set `CHEAPTRIP_HOME` to keep the files somewhere else.
+- **Silent install** (e.g. for several PCs): `CheapTrip-Setup-<version>.exe /VERYSILENT /TELEGRAMTOKEN=... /TELEGRAMCHATID=... /HOMEAIRPORTS="MXP, LIN, BGY"`. `/ANTHROPICKEY=` and `/TRAVELPAYOUTSTOKEN=` also work.
+
+**How it's built:** `packaging/build_windows.ps1` freezes the app with PyInstaller (`packaging/cheaptrip.spec`) and wraps it with Inno Setup (`packaging/installer.iss`). It then installs the result silently and checks the installed app:
+- the settings the wizard writes and the sign-in shortcut;
+- `--version`, `doctor`, a real dry-run cycle and a running engine;
+- the uninstaller.
+
+CI runs this on every pull request. `.github/workflows/release.yml` runs it on a `v*` tag and attaches the installer to the release. To release, bump `utils/version.py` and `pyproject.toml`, update `packaging/release-notes.md`, merge, then tag `v<version>`.
+
 ## systemd (VPS without Docker)
 
 ```ini

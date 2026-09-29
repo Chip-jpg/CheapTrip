@@ -84,6 +84,14 @@ Ryanair and Google Flights need no key.
 
 ## Installation
 
+### Windows — one installer
+
+1. Download `CheapTrip-Setup-<version>.exe` from the [latest release](https://github.com/Chip-jpg/CheapTrip/releases/latest) and run it. No administrator rights are needed. If SmartScreen says *"Windows protected your PC"*, click **More info → Run anyway**: the installer isn't code-signed.
+2. Enter your Telegram bot token and chat ID ([how to get them](docs/telegram_setup.md)), the optional Anthropic and Travelpayouts keys, and your home airports. Any of them can be left empty for now.
+3. Leave **Check my setup now** ticked. Then start **CheapTrip** from the Start menu. It also starts minimized when you sign in, unless you untick that option in the installer.
+
+The Start menu also has **Check setup**, **Send a test message**, **Edit settings**, **Edit preferences** and **Open data folder**. Settings, preferences, the database and logs live in `%APPDATA%\CheapTrip`, and upgrades and uninstalling keep them. More in the [deployment guide](docs/deployment.md#windows).
+
 ### Option A — Python 3.11+
 
 ```bash

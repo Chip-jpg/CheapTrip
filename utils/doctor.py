@@ -4,6 +4,7 @@ for a human setting the engine up.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Tuple
@@ -171,7 +172,7 @@ async def _database_check() -> Check:
         await set_state("doctor_checked_at", utcnow().isoformat())
     except Exception as exc:
         return Check("fail", "Database", f"not writable: {exc}")
-    return Check("ok", "Database", await get_db_path())
+    return Check("ok", "Database", os.path.abspath(await get_db_path()))  # where to find it on Windows too
 
 
 async def _source_checks() -> List[Check]:
