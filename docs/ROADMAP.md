@@ -250,6 +250,18 @@ Decision: we are not investing further in Skyscanner. This branch only stops it 
 - Found in the Round 2 dry run: fares saved to the digest on a cold start never alert, even once history shows them to be unusually cheap (7 qualified in cycle 3, 0 sent). Offer such a deal as instant once.
 - Google Flights was rate-limited in 2 of 3 cycles: lower budget, wider spacing, and a cooldown after a block.
 
+### Added in Round 4
+
+**B28 `fix/error-fare-rule`** (S)
+- Found in the Round 3 dry run: 3 of 6 instant alerts said "possible error fare", including Berlin at €30 against a usual €79. The rule was "under 40% of the usual price" on baselines only hours old.
+- Now a fare is a possible error fare only at ≤ 35% of a usual price built from ≥ 20 fares over ≥ 3 days, and ≥ €100 under it (or when the source flags it).
+
+**B29 `fix/google-cooldown-persist`** (S)
+- The Google Flights cooldown is kept in memory only, so separate `main.py cycle` runs (cron) forget it. Store it in the database.
+
+**B30 `feat/first-live-run`** (S–M)
+- Checks for the first run with real keys: `doctor` verifies the chat, webhook and Anthropic key; `main.py test-alert` sends a test message; `main.py read-feed` shows what the Claude reader extracts without saving anything.
+
 ---
 
 ## 4. Suggested order
@@ -293,3 +305,6 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B25 | `fix/city-names` | done |
 | B26 | `feat/hotel-search-link` | done |
 | B27 | `fix/first-anomaly-google-calm` | done |
+| B28 | `fix/error-fare-rule` | done |
+| B29 | `fix/google-cooldown-persist` | planned |
+| B30 | `feat/first-live-run` | planned |

@@ -10,6 +10,7 @@ import pytest
 from storage.database import get_db_path, get_pending_instant_alerts, init_db, purge_old_rows, save_deal
 from storage.models import AlertTier, DealType, FlightLeg, Trip
 from storage.price_analytics import (
+    ERROR_FARE_MIN_DAYS,
     MIN_SAMPLES,
     PriceIndex,
     PriceKey,
@@ -30,8 +31,12 @@ def _leg(price: float = 60.0, origin: str = "MXP", dest: str = "KRK", nights: Op
     )
 
 
-def _history(key: PriceKey, prices_per_cycle):
-    return [(key, price, f"cycle{i}") for i, prices in enumerate(prices_per_cycle) for price in prices]
+def _history(key: PriceKey, prices_per_cycle, days_apart: int = 0):
+    """One cycle per list; cycle i is recorded `i * days_apart` days after the first."""
+    return [
+        (key, price, f"cycle{i}", (date(2026, 9, 1) + timedelta(days=i * days_apart)).isoformat())
+        for i, prices in enumerate(prices_per_cycle) for price in prices
+    ]
 
 
 KEY = price_key(_leg())
@@ -97,6 +102,46 @@ def test_other_lengths_and_months_have_their_own_baseline():
     assert index.baseline(_leg(dep=date(2026, 12, 11))) is None
 
 
+# ── Possible error fares (B28) ────────────────────────────────────────────────
+
+JFK = dict(dest="JFK", nights=10)
+JFK_KEY = price_key(_leg(**JFK))
+JFK_HISTORY = [[540.0, 550.0, 560.0, 545.0, 555.0, 550.0, 552.0]] * 3  # 21 fares, median €550
+
+
+def test_cheap_short_haul_fare_is_unusually_cheap_not_an_error_fare():
+    # Round 3 dry run: Berlin at €30 against a usual €79 was labelled a possible error fare
+    berlin = PriceIndex(_history(price_key(_leg(dest="BER")), [[78.0, 79.0, 80.0] * 3] * 3, days_apart=2))
+
+    result = berlin.check(_leg(dest="BER", price=30.0))
+
+    assert result.is_anomaly and not result.is_possible_error_fare
+
+
+def test_far_below_a_well_established_price_is_a_possible_error_fare():
+    index = PriceIndex(_history(JFK_KEY, JFK_HISTORY, days_apart=1))
+
+    result = index.check(_leg(price=150.0, **JFK))
+
+    assert result.is_anomaly and result.is_possible_error_fare
+
+
+def test_young_or_thin_history_is_not_enough_for_an_error_fare():
+    same_day = PriceIndex(_history(JFK_KEY, JFK_HISTORY))
+    two_days = PriceIndex(_history(JFK_KEY, JFK_HISTORY[:ERROR_FARE_MIN_DAYS - 1], days_apart=1))
+    few_fares = PriceIndex(_history(JFK_KEY, [[550.0, 552.0]] * 3, days_apart=1))
+
+    for index in (same_day, two_days, few_fares):
+        result = index.check(_leg(price=150.0, **JFK))
+        assert result.is_anomaly and not result.is_possible_error_fare
+
+
+def test_error_fare_needs_a_fare_far_under_the_usual_price():
+    index = PriceIndex(_history(JFK_KEY, JFK_HISTORY, days_apart=1))
+
+    assert not index.check(_leg(price=200.0, **JFK)).is_possible_error_fare  # 36% of €550
+
+
 # ── Through the database and the builder ──────────────────────────────────────
 
 async def test_first_cycle_has_no_anomalies(engine):
@@ -128,6 +173,44 @@ async def test_drop_after_three_cycles_is_flagged(engine):
     assert trip.normal_price_eur == 60.0
     assert trip.discount_pct == pytest.approx(41.7, abs=0.1)
     assert "below the usual €60" in trip.anomaly_description
+
+
+async def _record_jfk_history(days_apart: int) -> None:
+    for i, prices in enumerate(JFK_HISTORY):
+        await record_fares([_leg(price=p, **JFK) for p in prices], f"c{i}")
+    async with aiosqlite.connect(await get_db_path()) as db:
+        for i in range(len(JFK_HISTORY)):
+            day = (datetime.utcnow() - timedelta(days=(len(JFK_HISTORY) - i) * days_apart)).isoformat()
+            await db.execute("UPDATE price_history SET recorded_at = ? WHERE cycle_id = ?", (day, f"c{i}"))
+        await db.commit()
+
+
+async def test_error_fare_label_uses_history_spread_over_days(engine):
+    await init_db()
+    await _record_jfk_history(days_apart=1)
+
+    [trip] = await build_trips([_leg(price=150.0, **JFK)], [])
+
+    assert trip.is_error_fare and trip.deal_type == DealType.ERROR_FARE
+    assert trip.is_anomaly
+
+
+async def test_hours_of_history_make_an_anomaly_but_no_error_fare(engine):
+    await init_db()
+    await _record_jfk_history(days_apart=0)
+
+    [trip] = await build_trips([_leg(price=150.0, **JFK)], [])
+
+    assert trip.is_anomaly
+    assert not trip.is_error_fare and trip.deal_type == DealType.FLIGHT_ONLY
+
+
+async def test_source_flag_still_marks_an_error_fare(engine):
+    await init_db()
+
+    [trip] = await build_trips([_leg(price=150.0, is_error_fare_hint=True, **JFK)], [])
+
+    assert trip.is_error_fare and trip.deal_type == DealType.ERROR_FARE
 
 
 async def test_feed_deals_stay_out_of_the_history(engine):
