@@ -373,7 +373,23 @@ The owner's design ("Fluent Deal Radar", made in Google Stitch) covers Deals wit
 - The deal detail slides over the list: booking confidence in plain words, the reasons, "How this fare compares" (the fares around it with the usual price), "This fare over time", the flights, both legs of a trip via a hub, and the hotel.
 - The API adds each unusually cheap deal's fare range to `/deals`; "Best today" is the most unusually cheap deal.
 
-**B43 `feat/destinations-activity`** (L): Destinations (priority cards, all seen with trends, add a destination), Activity, and the Notifications page (toast previews, tray states, tests), with toasts worded like the design.
+**B43 `feat/destinations-activity`** (L)
+- **Destinations:**
+  - tiles: priority, muted, lowest fare, last search;
+  - Priority / Muted / All seen tabs, with priority destinations as cards (best fare, usual price, 30-day trend);
+  - a table of every destination seen, with rule menus and Undo;
+  - "Add a destination": autocomplete, then always or never notify;
+  - the top bar's quick jump opens a destination here.
+- **Activity:** the engine with the learning progress, the hourly limit, every source with its status, note and on/off switch, the notifications sent, the search history, and "Open log folder".
+- **Notifications & tray** (the design's "Windows Toasts" page):
+  - previews of the toasts CheapTrip would show now, built by the engine from today's deals, and each can be sent to this PC;
+  - the tray icon's states and menu;
+  - the desktop and sound switches, and a link to Windows' notification settings.
+- **Toasts as designed:**
+  - buttons read "Book €30", "Grab €150", "View package" and "Reserve";
+  - the digest reads "Daily digest: 15 deals from €30";
+  - notices get "Open Activity" and use sources' real names;
+  - a deal's toast carries a picture of its price and fare range.
 
 **B44 `feat/settings-setup`** (L): Settings with a section menu and autosave, and the 5-step setup wizard on first launch, which replaces the installer's wizard pages.
 
@@ -437,5 +453,5 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B40 | `feat/desktop-shell` | done |
 | B41 | `feat/design-system` | done |
 | B42 | `feat/deals-screen` | done |
-| B43 | `feat/destinations-activity` | planned |
+| B43 | `feat/destinations-activity` | done |
 | B44 | `feat/settings-setup` | planned |

@@ -84,15 +84,17 @@ The desktop app's screens read JSON from a small aiohttp server (`api/server.py`
 | Route (`/api/v1`) | For |
 |---|---|
 | `GET /status` | Top bar: state, next and last search, learning progress, attention |
-| `GET /deals` | Deals: unusually cheap and best of the rest, with filters and sorting |
+| `GET /deals` | Deals: unusually cheap (each with its fare range) and best of the rest, with filters and sorting |
 | `GET /deals/{id}`, `POST /deals/{id}/hide` | Deal detail, with both charts' data (`storage/price_analytics.fare_comparison`) |
-| `GET /destinations?tab=`, `POST`/`DELETE /destinations/{code}/priority\|mute`, `GET /airports?q=` | Destinations; the same overrides as Telegram's `/priority` and `/mute` |
+| `GET /destinations?tab=`, `POST`/`DELETE /destinations/{code}/priority\|mute`, `GET /airports?q=` | Destinations (best fare, usual price, 30-day trend); the same overrides as Telegram's `/priority` and `/mute` |
 | `GET /activity` | Sources, alerts log, search history |
 | `GET`/`PUT /settings` | Settings: `.env` (keys masked) and the preferences YAML (comments kept), applied live (`api/settings_io.py`) |
-| `GET /setup/checks`, `POST /setup/test-telegram`, `POST /setup/test-notification` | First-run checks (`utils/doctor.py`) and a test notification on each channel that is on |
+| `GET /setup/checks`, `POST /setup/test-telegram`, `POST /setup/test-notification` | First-run checks (`utils/doctor.py`) and a test notification on each channel that is on (or one of the previews, `{"kind": …}`) |
+| `GET /notifications/previews`, `GET /notifications/image/{name}` | The Notifications screen: the toasts CheapTrip would show now, built by `notifier/desktop.py` from today's deals, and a deal toast's picture |
 | `POST /engine/search-now`, `/pause`, `/resume` | Controls |
 | `GET /events` | Server-sent events from the event bus |
-| `POST /app/show`, `/app/quit` | The app around the API: show a screen (a second launch, a `cheaptrip://` link), quit |
+| `POST /app/show`, `/app/hide`, `/app/quit` | The app around the API: show a screen (a second launch, a `cheaptrip://` link), hide to the tray, quit |
+| `POST /app/open` | Open the log or data folder, or Windows' notification settings |
 
 ## The desktop app (`desktop/`, `ui/`)
 
@@ -106,7 +108,7 @@ The desktop app's screens read JSON from a small aiohttp server (`api/server.py`
 - **One engine at a time** (`desktop/instance.py`):
   - The app, `run` and `ui` take one lock: a named mutex on Windows, a lock file elsewhere.
   - A second launch reads `app.json` (the running app's port and token, readable by this user only) and asks it to show its window via `POST /app/show`, then exits. `cheaptrip://` links (`desktop/links.py`) take the same path.
-- **Notifications:** `Engine(desktop=DesktopNotifier(on_action=...))`. Their Details and Mute buttons reach the app on the engine's loop.
+- **Notifications:** `Engine(desktop=DesktopNotifier(on_action=..., image_folder=...))`. Their Details and Mute buttons reach the app on the engine's loop. A deal's toast carries a picture of its price and fare range (`notifier/toast_image.py`, Pillow, in `data/toasts/`).
 
 The screens (`ui/`, React + Vite + TypeScript + Tailwind) follow the owner's design ("Fluent Deal Radar"):
 - `ui/src/theme.css` holds its tokens: colours as CSS variables with a dark and a light set, which `<html data-theme>` picks (`ui/src/theme.ts`: Windows' mode, or `THEME`). It also holds the type scale and the shared components (cards, buttons, fields, chips). Fonts and icons are bundled.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -182,11 +183,15 @@ async def test_destinations_tabs_and_toggles(api):
     seen = (await api.get("/destinations?tab=seen"))["destinations"]
     prague = next(d for d in seen if d["code"] == "PRG")
     assert (prague["city"], prague["best_price"], prague["fares"]) == ("Prague", 35.0, 2)
+    assert prague["best_route"].endswith("-PRG") and prague["best_return"]
+    assert [point["price"] for point in prague["trend"]] == [35.0]  # the day's cheapest fare
 
     assert (await api.call("POST", "/destinations/PRG/mute"))["is_muted"] is True
     assert [d["code"] for d in (await api.get("/destinations?tab=muted"))["destinations"]] == ["PRG"]
     assert "PRG" in get_preferences().excluded_destinations  # the same state as Telegram /mute
 
+    [krakow] = (await api.get("/destinations?tab=priority"))["destinations"]
+    assert krakow["is_priority"] and "trend" in krakow
     await api.call("DELETE", "/destinations/KRK/priority")
     assert (await api.get("/destinations?tab=priority"))["destinations"] == []
 
@@ -244,6 +249,15 @@ async def test_saving_settings_writes_env_and_preferences(api, tmp_path):
     assert settings["preferences"]["home_airports"] == ["LGW"] and settings["preferences"]["adults"] == 2
     job = api.service._scheduler.get_job("daily_digest")
     assert str(job.trigger).startswith("cron[") and "hour='7'" in str(job.trigger)
+
+
+async def test_the_screens_open_the_log_and_data_folders(api, monkeypatch):
+    opened = []
+    monkeypatch.setattr("api.server.open_path", opened.append)
+    assert (await api.call("POST", "/app/open", {"what": "logs"}))["opened"].endswith("logs")
+    await api.call("POST", "/app/open", {"what": "data"})
+    await api.call("POST", "/app/open", {"what": "C:/Windows"}, status=400)
+    assert len(opened) == 2 and opened[1] == os.getcwd()
 
 
 async def test_app_settings_theme_and_close_button(api, tmp_path):

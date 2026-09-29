@@ -3,11 +3,15 @@ Windows notifications (B39), through desktop-notifier (WinRT toasts on
 Windows, the desktop's notification service elsewhere).
 
 What goes in a toast is built by the pure functions below (deal_toast,
-digest_toast, ...), so it can be tested without a desktop. Buttons carry an
-action: "open" opens a link; "details", "mute" and "show" are handed to
-`on_action`, which shows the deal or screen, or mutes the destination (it may
-return a coroutine: it runs on the event loop the toast was sent from).
-Without an `on_action`, only the links are offered.
+digest_toast, ...), so it can be tested without a desktop, and the app's
+Notifications screen previews exactly these. Buttons carry an action: "open"
+opens a link; "details", "mute" and "show" are handed to `on_action`, which
+shows the deal or screen, or mutes the destination (it may return a coroutine:
+it runs on the event loop the toast was sent from). Without an `on_action`,
+only the links are offered.
+
+With an `image_folder`, a deal's toast also shows a picture of its price and
+fare range (toast_image.py), as in the design.
 
 Windows shows the toasts as "CheapTrip": desktop-notifier registers the app
 name and icon for APP_ID in the registry, and the installer's Start menu
@@ -22,13 +26,14 @@ import webbrowser
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from config import get_settings
 from storage.models import DealType, Trip
 from utils import airports
 from utils.links import stay_label
 from utils.logging_config import get_logger
+from utils.sources import source_name
 
 log = get_logger(__name__)
 
@@ -43,6 +48,11 @@ class Toast:
     message: str
     buttons: List[Tuple[str, Action]] = field(default_factory=list)
     click: Optional[Action] = None
+    image: Optional[Path] = None
+
+    def preview(self) -> Dict[str, Any]:
+        """What the app's Notifications screen shows of it."""
+        return {"title": self.title, "message": self.message, "buttons": [label for label, _ in self.buttons]}
 
 
 # ── Content ───────────────────────────────────────────────────────────────────
@@ -111,7 +121,8 @@ def deal_toast(trip: Trip) -> Toast:
         parts = [_how_cheap(trip), f"{trip.nights or trip.hotel.nights} nights at {trip.hotel.name}", when]
     else:
         title = f"{trip.route} · {price}"
-        parts = [_how_cheap(trip), when, (leg.airline if leg else None) or (trip.source_list or [None])[0]]
+        source = (trip.source_list or [None])[0]
+        parts = [_how_cheap(trip), when, (leg.airline if leg else None) or (source_name(source) if source else None)]
     if trip.is_error_fare:
         title = f"⚠ Possible error fare: {title}"
         parts.insert(0, "Book fast, verify after")
@@ -119,7 +130,9 @@ def deal_toast(trip: Trip) -> Toast:
     buttons: List[Tuple[str, Action]] = []
     book = (leg.booking_url if leg else None) or (trip.hotel.booking_url if trip.hotel else None)
     if book:
-        buttons.append(("Book", ("open", book)))
+        label = (f"Grab {price}" if trip.is_error_fare else "View package" if kind == DealType.PACKAGE
+                 else "Reserve" if kind == DealType.HOTEL_ONLY else f"Book {price}")
+        buttons.append((label, ("open", book)))
     buttons.append(("Details", ("details", trip.hash)))
     if code:
         buttons.append((f"Mute {city}", ("mute", code)))
@@ -128,13 +141,14 @@ def deal_toast(trip: Trip) -> Toast:
 
 def digest_toast(trips: Sequence[Trip]) -> Toast:
     best = sorted(trips, key=lambda t: t.total_cost_eur)
-    named = [f"{_destination(t)[1]} {_euros(t.total_cost_eur)}" for t in best[:2]]
-    more = f" and {len(best) - 2} more" if len(best) > 2 else ""
-    return Toast("Today's best deals", ", ".join(named) + more, click=("show", "deals"))
+    named = [f"{_destination(t)[1]} {_euros(t.total_cost_eur)}" for t in best[:3]]
+    more = f" and {len(best) - 3} more" if len(best) > 3 else ""
+    title = f"Daily digest: {len(best)} deal{'s' if len(best) != 1 else ''} from {_euros(best[0].total_cost_eur)}"
+    return Toast(title, ", ".join(named) + more, [("Open deals", ("show", "deals"))], click=("show", "deals"))
 
 
 def notice_toast(title: str, message: str) -> Toast:
-    return Toast(title, message, click=("show", "activity"))
+    return Toast(title, message, [("Open Activity", ("show", "activity"))], click=("show", "activity"))
 
 
 def test_toast() -> Toast:
@@ -162,9 +176,11 @@ class DesktopNotifier:
         icon_path: Optional[Path] = None,
         open_url: Callable[[str], Any] = webbrowser.open,
         on_action: Optional[Callable[[str, str], Any]] = None,
+        image_folder: Optional[Path] = None,
     ) -> None:
         self._backend = backend
         self._icon_path = icon_path
+        self._image_folder = image_folder
         self._open_url = open_url
         self._on_action = on_action
         self._actions: Set[asyncio.Task] = set()
@@ -202,7 +218,7 @@ class DesktopNotifier:
 
     async def show(self, toast: Toast) -> bool:
         try:
-            from desktop_notifier import DEFAULT_SOUND, Button
+            from desktop_notifier import DEFAULT_SOUND, Attachment, Button
 
             buttons = [Button(title=label, on_pressed=handler)
                        for label, action in toast.buttons if (handler := self._handler(action))]
@@ -214,6 +230,7 @@ class DesktopNotifier:
                 on_clicked=self._handler(toast.click) if toast.click else None,
                 on_dispatched=lambda: shown.append(True),
                 sound=DEFAULT_SOUND if get_settings().notify_sound else None,
+                attachment=Attachment(path=toast.image) if toast.image else None,
             )
             if not shown:  # desktop-notifier logs a refused notification instead of raising
                 raise RuntimeError("the system didn't accept the notification")
@@ -223,8 +240,25 @@ class DesktopNotifier:
             log.warning("desktop_notification_failed", error=str(exc), title=toast.title)
             return False
 
+    async def deal_image(self, trip: Trip) -> Optional[Path]:
+        """The deal's picture (its price and fare range), when this notifier draws them."""
+        if self._image_folder is None:
+            return None
+        from notifier import toast_image
+        from storage.price_analytics import fare_comparison
+
+        leg = trip.outbound_flight
+        try:
+            comparison = await fare_comparison(leg) if leg and leg.departure_date and not leg.is_feed_deal else None
+        except Exception as exc:  # the picture is a nicety: never lose the alert over it
+            log.warning("toast_comparison_failed", error=str(exc))
+            comparison = None
+        return toast_image.render(trip, comparison, self._image_folder)
+
     async def send_deal(self, trip: Trip) -> bool:
-        return await self.show(deal_toast(trip))
+        toast = deal_toast(trip)
+        toast.image = await self.deal_image(trip)
+        return await self.show(toast)
 
     async def send_digest(self, trips: Sequence[Trip]) -> bool:
         return await self.show(digest_toast(trips)) if trips else True

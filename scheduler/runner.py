@@ -35,6 +35,7 @@ from storage.models import Trip
 from trip_builder.builder import build_trips
 from utils.events import get_event_bus
 from utils.logging_config import get_logger
+from utils.sources import source_name
 from utils.timeutil import utcnow
 
 log = get_logger(__name__)
@@ -276,11 +277,11 @@ async def _report_health(notifier: Notifier) -> None:
                 )
                 if health.last_error:
                     text += f"\n<i>{html.escape(health.last_error[:200])}</i>"
-                notice = (f"{health.source_id} isn't working",
+                notice = (f"{source_name(health.source_id)} isn't working",
                           f"{health.consecutive_failures} searches failed in a row. Deals from it may be missing.")
             else:
                 text = f"✅ <b>Source recovered:</b> {html.escape(health.source_id)}"
-                notice = (f"{health.source_id} works again", "Its deals are back in your searches.")
+                notice = (f"{source_name(health.source_id)} works again", "Its deals are back in your searches.")
             if await notifier.send_system_message(text, notice=notice):
                 await monitor.mark_notified(health.source_id, health.status)
     except Exception as exc:

@@ -70,7 +70,8 @@ class DesktopApp:
 
         icon = assets_dir() / "cheaptrip.png"
         return Engine(desktop=DesktopNotifier(on_action=self.notification_action,
-                                              icon_path=icon if icon.exists() else None))
+                                              icon_path=icon if icon.exists() else None,
+                                              image_folder=self.folder / "data" / "toasts"))
 
     # ── Called by the API, the tray and notifications (any thread) ────────────
 
