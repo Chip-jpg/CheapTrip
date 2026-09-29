@@ -3,7 +3,7 @@
 ; Wraps the PyInstaller build in dist\cheaptrip\ (packaging\cheaptrip.spec):
 ; CheapTrip.exe (the desktop app) and cheaptrip-cli.exe (the console commands).
 ; packaging\build_windows.ps1 builds it with:
-;   ISCC.exe /DAppVersion=0.6.0 packaging\installer.iss
+;   ISCC.exe /DAppVersion=0.8.0 packaging\installer.iss
 ;
 ; Installs per user (no admin prompt) to %LOCALAPPDATA%\Programs\CheapTrip.
 ; Settings, preferences, the database and logs live in %APPDATA%\CheapTrip

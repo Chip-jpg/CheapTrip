@@ -1,8 +1,8 @@
 # CheapTrip — Travel Deal Intelligence Engine
 
-A self-hosted bot that searches cheap flights (and flight + hotel deals) from your home airports around the clock, learns what each route usually costs, and sends a Telegram alert when something is genuinely cheap.
+Your own travel-deal radar: a Windows desktop app (or a self-hosted service) that searches cheap flights (and flight + hotel deals) from your home airports around the clock, learns what each route usually costs, and tells you, with a Windows notification and/or on Telegram, when something is genuinely cheap.
 
-You set your home airports, trip lengths and budget once; it runs every 90 minutes and sends a daily digest. You can steer it from Telegram (`/deals`, `/mute KRK`, `/priority JFK`, `/pause`).
+You set your home airports, trip lengths and budget once in its setup wizard. It searches every 90 minutes from the tray and sends a daily digest. You can steer it from the app, or from Telegram (`/deals`, `/mute KRK`, `/priority JFK`, `/pause`).
 
 ---
 
@@ -99,14 +99,22 @@ The Start menu also has **Check setup (console)**, for when the app won't start,
 
 ### The desktop app
 
-From the next release (v0.8.0), CheapTrip on Windows is a desktop app. Release v0.6.0 is the console version.
-- **The window** has these screens:
-  - **Deals:** unusually cheap first, then the best of the rest, with filters. Each deal opens with charts of how its price compares.
-  - **Destinations:** priority, muted and all seen.
-  - **Activity:** sources, alerts sent and every search.
-  - **Settings**, and **Setup checks**.
-- **The tray icon** shows whether CheapTrip is watching prices, searching, paused or needs attention. Its menu has **Search now**, **Pause alerts**, **Resume alerts** and **Quit**. Closing the window keeps CheapTrip running in the tray; Settings → App changes that.
-- **Notifications:** deals arrive as Windows notifications, with **Book**, **Details** and **Mute** buttons, and on Telegram when a bot is set up. Settings → Notifications chooses where they go and which kinds are sent.
+On Windows, CheapTrip is a desktop app (from v0.8.0), designed in light and dark:
+- **The top bar** says what the engine is doing ("Running · next search in 42 min", "Searching… 2 of 4 sources"). It has **Search now**, **Pause alerts** and a quick jump to any destination (Ctrl+K).
+- **Deals:**
+  - today's unusually cheap fares as cards: how far below the usual price each is, where it sits among similar fares, and why it's here;
+  - then the best of the rest, with filters;
+  - each deal opens a panel with **How this fare compares**, **This fare over time**, the flights and **Book**.
+- **Destinations:** priority (always notify), muted (never notify), and every destination seen with its 30-day trend. **Add destination** has a search box.
+- **Activity:** the engine, what each source found (each can be switched on or off), the notifications sent and every search.
+- **Notifications & tray:** CheapTrip's notifications as Windows will show them, with today's deals. Each can be sent to your PC.
+- **Settings:** trips, deal rules, notifications, keys (with Check buttons), sources and the app. Changes save as you make them.
+- **Setup wizard:** opens at the first launch, and stays in the sidebar.
+- **Windows notifications:**
+  - each deal comes with a picture of its price and fare range, and **Book**, **Details** and **Mute Berlin** buttons;
+  - Telegram too, when a bot is set up;
+  - one hourly limit covers both.
+- **The tray icon** shows whether CheapTrip is running, searching, paused or needs attention. Its menu has **Search now**, **Pause alerts**, **Settings** and **Quit**. Closing the window keeps CheapTrip searching; Settings → App changes that.
 - **One at a time:** only one CheapTrip runs. Opening it again, or a `cheaptrip://deal/<id>` link, brings the running one forward.
 
 The window uses Microsoft Edge WebView2, which Windows 10 and 11 already have. Without it, the screens open in your web browser. The same screens run anywhere with `python main.py ui`.

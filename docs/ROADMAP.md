@@ -1,26 +1,28 @@
 # CheapTrip — Status Report & Branch Roadmap
 
-## Where things stand (end of Round 6, release v0.6.0)
+## Where things stand (end of Round 8, release v0.8.0)
 
-Every card below (B01–B36) is merged into `main`, and v0.6.0 is published on GitHub Releases with a Windows installer. The progress tracker at the end has the details. In short:
+Every card below (B01–B44) is merged into `main`, and v0.8.0 is published on GitHub Releases with a Windows installer. The progress tracker at the end has the details. In short:
 
-- **Install:**
-  - **Windows:** one setup `.exe` from the [releases](https://github.com/Chip-jpg/CheapTrip/releases), with no admin rights needed. Its wizard asks for the Telegram bot, the optional keys and the home airports, and it adds Start menu shortcuts and starts at sign-in.
-  - **Elsewhere:** Python or Docker, as before.
-  - CI builds the installer, installs it and runs the installed app on Windows for every change.
-- **Data:** Ryanair's fare API is the backbone (about 700 fares per cycle). Google Flights adds exact-route searches and pauses after a block, even across separate runs. Travelpayouts is ready once a token is set. PiratinViaggio posts (flights, packages, hotels) are read by Claude when an Anthropic key is set.
+- **The app (Windows):** one setup `.exe` from the [releases](https://github.com/Chip-jpg/CheapTrip/releases), with no admin rights needed.
+  - It is a desktop app in the owner's design ("Fluent Deal Radar"), in light and dark. Its screens: Deals with a detail panel and charts, Destinations, Activity, Notifications & tray, Settings, and a setup wizard at the first launch.
+  - Windows notifications with Book / Details / Mute and a picture of the price; a tray icon showing the engine's state.
+  - It starts at sign-in; one instance at a time; `cheaptrip://` links.
+  - CI builds the installer, installs it and drives the installed app through its API on every change.
+  - Elsewhere: Python (`main.py run`, or `main.py ui` for the screens in a browser) or Docker, as before.
+- **Data:** Ryanair's fare API is the backbone (about 700–780 fares per search). Google Flights adds exact-route searches and pauses itself after a block. Travelpayouts is ready once a token is set. PiratinViaggio posts (flights, packages, hotels) are read by Claude when an Anthropic key is set.
 - **Alerts:** a fare is instant in any of these cases:
-  - it is well below the usual price for its route and trip length, among fares departing within 30 days either side (each fare counts once, at its latest price). In a 10-cycle dry run, a third to a half of trips had a usual price from the third cycle on;
+  - it is well below the usual price for its route and trip length, among fares departing within 30 days either side;
   - it's for a priority destination;
   - it's a possible error fare;
-  - it's under the €25/€250 backstop.
+  - it's under the €25/€250 price floor.
 
-  Near-duplicates merge, and a known deal alerts again only after a real price drop.
-- **Control:** Telegram commands (`/deals`, `/mute`, `/priority`, `/budget`, `/pause`), any home airport, `doctor`, `test-alert`, `read-feed`, and a Docker healthcheck.
+  Alerts go to the desktop and/or Telegram, with one hourly limit for both.
+- **Control:** the app, the tray, and Telegram commands (`/deals`, `/mute`, `/priority`, `/budget`, `/pause`).
 - **Still open:**
   - real hotel prices: flight alerts link a Booking.com search instead;
-  - the first live run with the owner's keys;
-  - a code-signing certificate, so Windows SmartScreen stops warning about the installer.
+  - a code-signing certificate, so Windows SmartScreen stops warning about the installer;
+  - how the window, tray and notifications look on real PCs: CI can't display notifications.
 
 The rest of this document is the original review and plan; its "Status at a glance" section describes the code before Round 1.
 
@@ -407,6 +409,12 @@ The owner's design ("Fluent Deal Radar", made in Google Stitch) covers Deals wit
 
 **Release v0.8.0:** version, notes and docs; the merge publishes the installer.
 
+### Round 8 status
+The owner's design is built and released as v0.8.0:
+- **Design system:** the Stitch tokens in light and dark, bundled fonts and icons, the app shell, and the icons in the exe, installer, tray and notifications.
+- **Screens:** Deals (with the detail panel), Destinations, Activity, Notifications & tray, Settings and the setup wizard, all on the live API. Each was checked in headless Chromium in dark and light, with the design's sample data and against live searches.
+- **Installer:** the in-app wizard replaces its question pages, and "start at sign-in" is a switch in the app.
+
 ---
 
 ## 4. Suggested order
@@ -467,3 +475,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B42 | `feat/deals-screen` | done |
 | B43 | `feat/destinations-activity` | done |
 | B44 | `feat/settings-setup` | done |
+| — | `release/v0.8.0` | done (released as v0.8.0) |

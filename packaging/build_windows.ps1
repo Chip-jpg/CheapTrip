@@ -13,7 +13,7 @@ Builds the CheapTrip Windows installer and smoke-tests it (used by CI and the re
      sign-in switch, a test notification, a second launch handing over, one engine at a
      time, Quit), and the uninstaller.
 
-Usage (PowerShell 7, from anywhere):  pwsh packaging/build_windows.ps1 [-Version 0.6.0]
+Usage (PowerShell 7, from anywhere):  pwsh packaging/build_windows.ps1 [-Version 0.8.0]
 #>
 param([string]$Version = "")
 
