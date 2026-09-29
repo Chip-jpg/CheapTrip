@@ -42,7 +42,7 @@ Start from `.env.example`. Names are case-insensitive environment variables.
 
 | Variable | Default | Description |
 |---|---|---|
-| `PRICE_ANOMALY_MIN_DROP_PCT` | `35` | % below the route's usual price (same length and month, earlier cycles) that makes a fare instant. |
+| `PRICE_ANOMALY_MIN_DROP_PCT` | `35` | % below the route's usual price (same trip length, departures within 30 days either side, earlier cycles) that makes a fare instant. |
 | `EUROPE_TRIP_MAX_EUR` | `25` | Backstop: dated short-haul trips at or under this are instant. |
 | `LONGHAUL_TRIP_MAX_EUR` | `250` | Backstop for long-haul trips. |
 | `FLIGHT_DISCOUNT_MIN_PCT` | `60` | Discount vs the usual price that makes a flight instant. |

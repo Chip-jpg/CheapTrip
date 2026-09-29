@@ -175,7 +175,8 @@ async def build_trips(
             trips.append(trip)
 
     recorded = await record_fares(flight_legs, cycle_id)
-    log.info("trips_built", count=len(trips), fares_recorded=recorded)
+    log.info("trips_built", count=len(trips), fares_recorded=recorded,
+             with_usual_price=sum(1 for t in trips if t.normal_price_eur is not None))
     return trips
 
 

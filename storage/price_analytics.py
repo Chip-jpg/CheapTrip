@@ -2,19 +2,21 @@
 Price history and anomaly detection.
 
 Every dated search fare is recorded under a key: origin city, destination
-city, round trip or one way, stay-length bucket (the trip profile) and
-departure month, e.g. "Milan → Krakow, weekend round trips, November".
-A fare is only ever compared with the same key's prices from *earlier*
-cycles, so a cycle can never be its own baseline.
+city, round trip or one way, and stay-length bucket (the trip profile), e.g.
+"Milan → Krakow, weekend round trips". A fare is compared with the same key's
+fares departing within BASELINE_WINDOW_DAYS of it (so a 13 Nov weekend is
+judged against weekends from mid-October to mid-December, not against
+Christmas or summer), and only with fares from *earlier* cycles, so a cycle
+can never be its own baseline.
 
 Each fare (route plus departure and return date) counts once in a baseline,
 at its latest price: a fare seen in every cycle, or by two sources, is still
 one fare, so dates that happen to be searched more often can't skew the usual
-price. A key has a baseline once it holds at least MIN_SAMPLES different fares,
-seen over at least MIN_CYCLES earlier cycles within LOOKBACK_DAYS. A fare is
-an anomaly when it is PRICE_ANOMALY_MIN_DROP_PCT below the baseline median, or
-a new low (NEW_LOW_MARGIN under the cheapest of those fares). Deal-feed posts
-and undated fares are never recorded or judged.
+price. A fare has a baseline once that window holds at least MIN_SAMPLES
+different fares, seen over at least MIN_CYCLES earlier cycles within
+LOOKBACK_DAYS. A fare is an anomaly when it is PRICE_ANOMALY_MIN_DROP_PCT below
+the baseline median, or a new low (NEW_LOW_MARGIN under the cheapest of those
+fares). Deal-feed posts and undated fares are never recorded or judged.
 
 "Possible error fare" asks for more: a baseline of at least
 ERROR_FARE_MIN_SAMPLES different fares, recorded on ERROR_FARE_MIN_DAYS different days,
@@ -25,9 +27,9 @@ fare that is merely cheap (€30 against a usual €79), doesn't qualify.
 from __future__ import annotations
 
 import statistics
-from dataclasses import astuple, dataclass
-from datetime import datetime, timedelta
-from typing import Dict, Iterable, List, NamedTuple, Optional, Set
+from dataclasses import astuple, dataclass, field
+from datetime import date, timedelta
+from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 from config import get_settings
 from storage.database import load_price_history, record_prices
@@ -40,6 +42,7 @@ from utils.timeutil import utcnow
 log = get_logger(__name__)
 
 LOOKBACK_DAYS = 30
+BASELINE_WINDOW_DAYS = 30  # compare with fares departing up to this many days before or after
 MIN_SAMPLES = 6
 MIN_CYCLES = 2
 NEW_LOW_MARGIN = 0.05
@@ -56,12 +59,10 @@ class PriceKey:
     dest_city: str
     trip_type: str      # "rt" | "ow"
     nights_bucket: str  # trip profile ("weekend", "short", ...) or "ow"
-    depart_month: str   # "YYYY-MM"
 
-    def describe(self) -> str:
-        month = datetime.strptime(self.depart_month, "%Y-%m").strftime("%B")
+    def describe(self, around: date) -> str:
         kind = "one-way" if self.trip_type == "ow" else f"{self.nights_bucket} trips"
-        return f"{kind}, {month}"
+        return f"{kind} around {around.day} {around:%b}"
 
 
 def _city(code: str) -> str:
@@ -79,8 +80,7 @@ def price_key(leg: FlightLeg) -> Optional[PriceKey]:
         return None  # a round-trip price without a return date can't be compared
     else:
         trip_type = bucket = "ow"
-    return PriceKey(_city(leg.origin), _city(leg.destination), trip_type, bucket,
-                    leg.departure_date.strftime("%Y-%m"))
+    return PriceKey(_city(leg.origin), _city(leg.destination), trip_type, bucket)
 
 
 class Observation(NamedTuple):
@@ -89,6 +89,17 @@ class Observation(NamedTuple):
     price: float
     cycle_id: str
     day: str        # YYYY-MM-DD it was recorded on
+    depart: date
+
+
+@dataclass
+class _Fare:
+    """One itinerary's history: its departure, latest price, and when it was seen."""
+
+    depart: date
+    price: float
+    cycles: Set[str] = field(default_factory=set)
+    days: Set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -116,40 +127,47 @@ class AnomalyResult:
 
 
 class PriceIndex:
-    """Baselines per key, built from earlier cycles' observations."""
+    """Each key's earlier fares; baselines are drawn per departure date from the fares around it."""
 
     def __init__(self, observations: Iterable[Observation]) -> None:
         """Observations oldest first: a fare seen again replaces its earlier price."""
-        latest: Dict[PriceKey, Dict[str, float]] = {}
-        cycles: Dict[PriceKey, Set[str]] = {}
-        days: Dict[PriceKey, Set[str]] = {}
+        self._fares: Dict[PriceKey, Dict[str, _Fare]] = {}
         for obs in observations:
-            latest.setdefault(obs.key, {})[obs.itinerary] = obs.price
-            cycles.setdefault(obs.key, set()).add(obs.cycle_id)
-            days.setdefault(obs.key, set()).add(obs.day)
-        self._baselines: Dict[PriceKey, Baseline] = {}
-        for key, fares in latest.items():
-            prices = list(fares.values())
-            if len(prices) >= MIN_SAMPLES and len(cycles[key]) >= MIN_CYCLES:
-                self._baselines[key] = Baseline(
-                    statistics.median(prices), min(prices), len(prices), len(cycles[key]), len(days[key]),
-                )
+            fare = self._fares.setdefault(obs.key, {}).setdefault(obs.itinerary, _Fare(obs.depart, obs.price))
+            fare.price = obs.price
+            fare.cycles.add(obs.cycle_id)
+            fare.days.add(obs.day)
+        self._baselines: Dict[Tuple[PriceKey, date], Optional[Baseline]] = {}
 
     @classmethod
     async def load(cls, exclude_cycle: str) -> "PriceIndex":
         since = utcnow() - timedelta(days=LOOKBACK_DAYS)
         rows = await load_price_history(since, exclude_cycle)
-        index = cls(Observation(PriceKey(*row[:5]), *row[5:]) for row in rows)
-        log.info("price_index_loaded", observations=len(rows), baselines=len(index._baselines))
+        index = cls(Observation(PriceKey(*row[:4]), *row[4:8], date.fromisoformat(row[8])) for row in rows)
+        log.info("price_index_loaded", observations=len(rows), keys=len(index._fares),
+                 fares=sum(len(f) for f in index._fares.values()))
         return index
+
+    def _baseline_around(self, key: PriceKey, depart: date) -> Optional[Baseline]:
+        if (key, depart) not in self._baselines:
+            window = timedelta(days=BASELINE_WINDOW_DAYS)
+            near = [f for f in self._fares.get(key, {}).values() if abs(f.depart - depart) <= window]
+            prices = [f.price for f in near]
+            cycles = set().union(*(f.cycles for f in near))
+            days = set().union(*(f.days for f in near))
+            base = None
+            if len(prices) >= MIN_SAMPLES and len(cycles) >= MIN_CYCLES:
+                base = Baseline(statistics.median(prices), min(prices), len(prices), len(cycles), len(days))
+            self._baselines[(key, depart)] = base
+        return self._baselines[(key, depart)]
 
     def baseline(self, leg: FlightLeg) -> Optional[Baseline]:
         key = price_key(leg)
-        return self._baselines.get(key) if key else None
+        return self._baseline_around(key, leg.departure_date) if key else None
 
     def check(self, leg: FlightLeg) -> AnomalyResult:
         key = price_key(leg)
-        base = self._baselines.get(key) if key else None
+        base = self._baseline_around(key, leg.departure_date) if key else None
         if key is None or base is None:
             return AnomalyResult()
 
@@ -157,7 +175,8 @@ class PriceIndex:
         result = AnomalyResult(deviation_pct=round(deviation, 1), normal_price=round(base.median, 2))
         reasons: List[str] = []
         if -deviation >= get_settings().price_anomaly_min_drop_pct:
-            reasons.append(f"{-deviation:.0f}% below the usual €{base.median:.0f} ({key.describe()})")
+            reasons.append(f"{-deviation:.0f}% below the usual €{base.median:.0f} "
+                           f"({key.describe(leg.departure_date)})")
         if leg.price_eur < base.low * (1 - NEW_LOW_MARGIN):
             result.is_all_time_low = True
             reasons.append(f"new low, under the previous best of €{base.low:.0f}")
@@ -180,7 +199,8 @@ async def record_fares(legs: Iterable[FlightLeg], cycle_id: str) -> int:
         if key:
             rows.append((
                 f"{leg.origin}-{leg.destination}", leg.price_eur, leg.source, *astuple(key),
-                leg.departure_date.isoformat(), leg.return_date.isoformat() if leg.return_date else "",
+                leg.departure_date.strftime("%Y-%m"), leg.departure_date.isoformat(),
+                leg.return_date.isoformat() if leg.return_date else "",
             ))
     await record_prices(rows, cycle_id)
     return len(rows)
