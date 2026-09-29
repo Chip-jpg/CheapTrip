@@ -152,6 +152,29 @@ def parse_post(html: str, url: str) -> Optional[FeedPost]:
     )
 
 
+def describe_offer(option: Any) -> str:
+    """One line per validated offer, for `main.py read-feed`."""
+    if isinstance(option, ValidHotelOption):
+        when = f"{option.check_in} → {option.check_out}" if option.check_in else option.travel_window
+        return (f"hotel: {option.hotel_name}, {option.city}: €{option.price_per_night:g}/night "
+                f"{option.price_basis}, {when or 'dates not given'}")
+    arrow = "⇄" if option.round_trip else "→"
+    when = option.departure_date and " → ".join(d for d in (option.departure_date, option.return_date) if d)
+    stay = f" + {option.hotel_name}" if option.hotel_name else ""
+    return (f"{option.kind}: {option.origin} {arrow} {option.destination}{stay}, €{option.price_eur:g}, "
+            f"{when or option.travel_window or 'dates not given'}")
+
+
+@dataclass
+class Judgement:
+    """What one post holds, as cached per URL."""
+
+    outcome: str                    # "deal", "rejected: …", "skipped: …", "unreadable" or "error: …"
+    post: Optional[FeedPost] = None
+    option: Any = None              # the validated offer when outcome == "deal"
+    cache: bool = True              # False for fetch and API errors: retried next cycle
+
+
 class _PostReader:
     """
     Shared by the flight and hotel readers: feed → new posts in the reader's
@@ -169,8 +192,12 @@ class _PostReader:
         italian_home = home_country(get_preferences()) == "IT"  # an Italian site: departures from Italy
         self.enabled = settings.enable_piratinviaggio and bool(settings.anthropic_api_key) and italian_home
         if not self.enabled:
-            reason = ("home airports are not in Italy" if not italian_home
-                      else "needs ANTHROPIC_API_KEY (posts are read by Claude)")
+            if not settings.enable_piratinviaggio:
+                reason = "switched off (ENABLE_PIRATINVIAGGIO=false)"
+            elif not italian_home:
+                reason = "home airports are not in Italy"
+            else:
+                reason = "needs ANTHROPIC_API_KEY (posts are read by Claude)"
             self.disabled_reason = reason
             log.info("scraper_disabled", source=self.source_id, reason=reason)
 
@@ -196,33 +223,55 @@ class _PostReader:
             return None
         return resp.text
 
-    async def _extract(self, client: httpx.AsyncClient, ai_client: Any, item: FeedItem, today: date) -> Any:
-        """Read one new post and cache the outcome; None when it has no usable offer."""
+    async def _judge(self, client: httpx.AsyncClient, ai_client: Any, item: FeedItem, today: date) -> Judgement:
+        """Read one post and decide what it holds; saves nothing."""
         html = await self._fetch(client, item.url)
         if html is None:
-            return None  # not cached: retried next cycle
+            return Judgement("error: page not fetched", cache=False)
         post = parse_post(html, item.url)
         if post is None:
-            await save_feed_extraction(item.url, self.source_id, "unreadable")
-            return None
+            return Judgement("unreadable")
         if post.category not in self.categories:
-            await save_feed_extraction(item.url, self.source_id, f"skipped: {post.category or 'no category'}")
-            return None
+            return Judgement(f"skipped: {post.category or 'no category'}", post=post)
         if post.expires and post.expires < today:
-            await save_feed_extraction(item.url, self.source_id, "skipped: expired")
-            return None
+            return Judgement("skipped: expired", post=post)
 
         try:
             valid, reason = await self._read(ai_client, post, today)
         except Exception as exc:  # API or network error: not cached, retried next cycle
             self._record_error(f"{item.url}: {type(exc).__name__}: {exc}")
-            return None
+            return Judgement(f"error: {type(exc).__name__}: {exc}", post=post, cache=False)
         if valid is None:
-            log.info("feed_post_rejected", url=item.url, reason=reason)
-            await save_feed_extraction(item.url, self.source_id, f"rejected: {reason}")
-            return None
-        await save_feed_extraction(item.url, self.source_id, "deal", json.dumps(valid.to_dict()))
-        return valid
+            return Judgement(f"rejected: {reason}", post=post)
+        return Judgement("deal", post=post, option=valid)
+
+    async def _extract(self, client: httpx.AsyncClient, ai_client: Any, item: FeedItem, today: date) -> Any:
+        """Read one new post and cache the outcome; None when it has no usable offer."""
+        judgement = await self._judge(client, ai_client, item, today)
+        if judgement.outcome.startswith("rejected: "):
+            log.info("feed_post_rejected", url=item.url, reason=judgement.outcome.removeprefix("rejected: "))
+        if judgement.cache:
+            payload = json.dumps(judgement.option.to_dict()) if judgement.option else None
+            await save_feed_extraction(item.url, self.source_id, judgement.outcome, payload)
+        return judgement.option
+
+    async def preview(self, limit: int) -> Optional[List[Tuple[FeedItem, Judgement]]]:
+        """
+        Read the `limit` newest posts in this reader's sections with the real model,
+        ignoring and never writing the cache (`main.py read-feed`). None when the
+        feed can't be fetched.
+        """
+        settings = get_settings()
+        today = _now().date()
+        async with build_client(timeout=25.0) as client:
+            xml = await self._fetch(client, FEED_URL)
+            if xml is None:
+                return None
+            items = [i for i in parse_feed(xml) if i.in_section(self.sections)][:limit]
+            ai_client = _make_client(
+                settings.anthropic_api_key, max(settings.ai_timeout_seconds, _MIN_EXTRACTION_TIMEOUT_S)
+            )
+            return [(item, await self._judge(client, ai_client, item, today)) for item in items]
 
     async def _collect(self) -> List[Any]:
         settings = get_settings()

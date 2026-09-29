@@ -28,6 +28,17 @@ from storage.models import RawFlightResult, RawHotelResult, SearchTask
 TEST_BOT_TOKEN = "123456:TEST-TOKEN"
 TEST_CHAT_ID = "4242"
 SEND_MESSAGE_URL = f"https://api.telegram.org/bot{TEST_BOT_TOKEN}/sendMessage"
+BOT_API = f"https://api.telegram.org/bot{TEST_BOT_TOKEN}"
+
+
+def mock_doctor_telegram(router, chat: Optional[httpx.Response] = None, webhook: str = "") -> None:
+    """The Telegram calls `main.py doctor` makes: getMe, getChat, getWebhookInfo."""
+    router.get(f"{BOT_API}/getMe").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": {"username": "CheapTripBot"}}))
+    router.get(f"{BOT_API}/getChat").mock(
+        return_value=chat or httpx.Response(200, json={"ok": True, "result": {"id": 4242, "first_name": "Sam"}}))
+    router.get(f"{BOT_API}/getWebhookInfo").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": {"url": webhook}}))
 
 # Small search space so each cycle makes few scraper calls.
 DEFAULT_PREFS: Dict[str, Any] = {

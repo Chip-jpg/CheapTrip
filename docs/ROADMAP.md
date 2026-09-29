@@ -1,13 +1,14 @@
 # CheapTrip — Status Report & Branch Roadmap
 
-## Where things stand (end of Round 3)
+## Where things stand (end of Round 4)
 
-Every card below (B01–B27) is merged into `main`; the progress tracker at the end has the details. In short:
+Every card below (B01–B30) is merged into `main`; the progress tracker at the end has the details. In short:
 
-- **Data:** Ryanair's fare API is the backbone (about 750 fares per cycle), Google Flights adds exact-route searches with a cooldown when Google throttles, and Travelpayouts is ready once a token is set. PiratinViaggio posts (flights, packages, hotels) are read by Claude when an Anthropic key is set.
-- **Alerts:** a fare is instant when it is well below the usual price for its route, length and month in earlier cycles (or a priority destination, a possible error fare, or under the €25/€250 backstop). Near-duplicates merge, and a known deal alerts again only after a real price drop.
+- **Data:** Ryanair's fare API is the backbone (about 750 fares per cycle), Google Flights adds exact-route searches with a cooldown when Google throttles (kept in the database, so it holds across separate runs), and Travelpayouts is ready once a token is set. PiratinViaggio posts (flights, packages, hotels) are read by Claude when an Anthropic key is set.
+- **Alerts:** a fare is instant when it is well below the usual price for its route, length and month in earlier cycles (or a priority destination, a possible error fare, or under the €25/€250 backstop). "Possible error fare" needs several days of price history and a saving of at least €100. Near-duplicates merge, and a known deal alerts again only after a real price drop.
 - **Control:** Telegram commands (`/deals`, `/mute`, `/priority`, `/budget`, `/pause`), any home airport, `main.py doctor` and a Docker healthcheck.
-- **Still open:** real hotel prices (flight alerts link a Booking.com search instead), and live runs of the Claude reader and Telegram commands, which need the owner's keys.
+- **First run:** `doctor` checks the bot, the chat, the webhook and the Anthropic key; `test-alert` and `read-feed` show Telegram delivery and the Claude reader working with your keys.
+- **Still open:** real hotel prices (flight alerts link a Booking.com search instead; the Hotellook hotel API that Travelpayouts offered no longer answers), and the first live run with the owner's keys.
 
 The rest of this document is the original review and plan; its "Status at a glance" section describes the code before Round 1.
 
@@ -307,4 +308,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B27 | `fix/first-anomaly-google-calm` | done |
 | B28 | `fix/error-fare-rule` | done |
 | B29 | `fix/google-cooldown-persist` | done |
-| B30 | `feat/first-live-run` | planned |
+| B30 | `feat/first-live-run` | done (run it with your keys: `doctor`, `test-alert`, `read-feed`) |

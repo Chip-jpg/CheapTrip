@@ -6,13 +6,12 @@ import os
 import signal
 from datetime import datetime, timedelta, timezone
 
-import httpx
 from click.testing import CliRunner
 
 from main import cli
 from notifier.commands import LAST_CYCLE_KEY
 from storage.database import init_db, set_state
-from tests.harness import TEST_BOT_TOKEN
+from tests.harness import mock_doctor_telegram
 from utils.doctor import health_status, run_checks
 from utils.timeutil import utcnow
 
@@ -57,8 +56,7 @@ def _lines(checks):
 
 
 async def test_doctor_reports_setup(engine, monkeypatch):
-    engine.router.get(f"https://api.telegram.org/bot{TEST_BOT_TOKEN}/getMe").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {"username": "CheapTripBot"}}))
+    mock_doctor_telegram(engine.router)
 
     checks = _lines(await run_checks())
 
@@ -89,8 +87,7 @@ async def test_doctor_flags_blocking_problems(engine, monkeypatch):
 async def test_doctor_shows_a_stored_google_cooldown(engine):
     from scrapers.google_flights import COOLDOWN_STATE_KEY
 
-    engine.router.get(f"https://api.telegram.org/bot{TEST_BOT_TOKEN}/getMe").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {"username": "CheapTripBot"}}))
+    mock_doctor_telegram(engine.router)
     await init_db()
     await set_state(COOLDOWN_STATE_KEY, (utcnow() + timedelta(hours=2)).isoformat())
 
