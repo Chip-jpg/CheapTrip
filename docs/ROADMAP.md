@@ -325,7 +325,34 @@ The owner is designing the desktop app in Claude Design. This round builds every
 - Tests: the engine fixture now restores environment variables that saving settings sets.
 
 **B40 `feat/desktop-shell`** (L)
-- The app window (WebView2), tray icon, single instance, a basic working UI, and packaging.
+- `desktop/`: `CheapTrip.exe`.
+  - The engine and API run in a background thread.
+  - The window is pywebview on Edge WebView2 (the browser without it). Closing it keeps CheapTrip in the tray.
+  - The tray icon shows the state, and its menu has Search now, Pause, Resume and Quit.
+  - One engine at a time: a named mutex shared with `run` and `ui`. A second launch or a `cheaptrip://` link hands over to the running app.
+- `ui/`: React + Vite + TypeScript screens on the real API with live progress:
+  - Deals with filters, and deal detail with both charts;
+  - Destinations, Activity, Settings and Setup checks.
+  - The typed client `ui/src/api.ts` stays for Round 8.
+- Packaging:
+  - Two programs: `CheapTrip.exe` (the app) and `cheaptrip-cli.exe` (was `cheaptrip.exe`; Windows file names ignore case).
+  - The installer registers `cheaptrip://` and the AppUserModelID, and the sign-in shortcut runs `--minimized`.
+  - The smoke test drives the installed app through its API.
+  - CI has a `ui` job.
+- Fixed on the way:
+  - Saving settings rewrote the whole preferences file and dropped a comment. Unchanged values are now left exactly as written.
+  - The screens could load before a new install's database tables existed.
+
+### Round 7 status
+Everything that doesn't depend on the visuals is on `main`, with no release: the next one is v0.8.0, after Round 8.
+- **Engine:** a controllable service.
+- **API:** a local, token-protected API for every screen.
+- **Notifications:** Windows notifications alongside Telegram.
+- **The app:** window, tray, single instance and `cheaptrip://` links.
+- **Screens:** plain but working, checked in headless Chromium against live searches.
+- **Installer:** smoke-tested in CI.
+
+**Round 8** builds the owner's Claude Design screens on `ui/src/api.ts` and adds the in-app first-run setup, which replaces the installer's wizard pages. It also adds the designed app and tray icons, then light and dark checks against the design, and releases v0.8.0.
 
 ---
 
@@ -382,4 +409,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B37 | `feat/engine-service` | done |
 | B38 | `feat/local-api` | done |
 | B39 | `feat/desktop-notifications` | done |
-| B40 | `feat/desktop-shell` | planned |
+| B40 | `feat/desktop-shell` | done |

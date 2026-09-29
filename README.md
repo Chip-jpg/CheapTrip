@@ -88,9 +88,23 @@ Ryanair and Google Flights need no key.
 
 1. Download `CheapTrip-Setup-<version>.exe` from the [latest release](https://github.com/Chip-jpg/CheapTrip/releases/latest) and run it. No administrator rights are needed. If SmartScreen says *"Windows protected your PC"*, click **More info → Run anyway**: the installer isn't code-signed.
 2. Enter your Telegram bot token and chat ID ([how to get them](docs/telegram_setup.md)), the optional Anthropic and Travelpayouts keys, and your home airports. Any of them can be left empty for now.
-3. Leave **Check my setup now** ticked. Then start **CheapTrip** from the Start menu. It also starts minimized when you sign in, unless you untick that option in the installer.
+3. Leave **Open CheapTrip now** ticked. CheapTrip also starts in the tray when you sign in, unless you untick that option in the installer.
 
 The Start menu also has **Check setup**, **Send a test message**, **Edit settings**, **Edit preferences** and **Open data folder**. Settings, preferences, the database and logs live in `%APPDATA%\CheapTrip`, and upgrades and uninstalling keep them. More in the [deployment guide](docs/deployment.md#windows).
+
+### The desktop app
+
+From the next release (v0.8.0), CheapTrip on Windows is a desktop app. Release v0.6.0 is the console version.
+- **The window** has these screens:
+  - **Deals:** unusually cheap first, then the best of the rest, with filters. Each deal opens with charts of how its price compares.
+  - **Destinations:** priority, muted and all seen.
+  - **Activity:** sources, alerts sent and every search.
+  - **Settings**, and **Setup checks**.
+- **The tray icon** shows whether CheapTrip is watching prices, searching, paused or needs attention. Its menu has **Search now**, **Pause alerts**, **Resume alerts** and **Quit**. Closing the window keeps CheapTrip running in the tray; Settings → App changes that.
+- **Notifications:** deals arrive as Windows notifications, with **Book**, **Details** and **Mute** buttons, and on Telegram when a bot is set up. Settings → Notifications chooses where they go and which kinds are sent.
+- **One at a time:** only one CheapTrip runs. Opening it again, or a `cheaptrip://deal/<id>` link, brings the running one forward.
+
+The window uses Microsoft Edge WebView2, which Windows 10 and 11 already have. Without it, the screens open in your web browser. The same screens run anywhere with `python main.py ui`.
 
 ### Option A — Python 3.11+
 
@@ -152,6 +166,7 @@ python main.py doctor         # configuration check (exit 1 on blocking problems
 python main.py test-alert     # send a test message with the current top deals to Telegram
 python main.py read-feed      # show what Claude reads from the newest PiratinViaggio posts (saves nothing)
 python main.py ui             # the engine plus the app's screens in your browser (local, token-protected)
+python main.py app            # the desktop app: window, tray, notifications (Windows; elsewhere the browser)
 python main.py health         # per-source health (OK / DEGRADED / FAILING / DISABLED and why)
 python main.py healthcheck    # exit 1 if no cycle completed recently (Docker healthcheck)
 python main.py status         # database statistics
