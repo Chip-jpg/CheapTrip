@@ -85,7 +85,8 @@ $App = Join-Path $AppDir "CheapTrip.exe"
 $AppFile = Join-Path $DataDir "app.json"
 $Log = Join-Path $DataDir "logs\engine.log"
 $RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-function Get-SignIn { (Get-ItemProperty $RunKey -Name CheapTrip -ErrorAction SilentlyContinue).CheapTrip }
+# The "start at sign-in" command, or $null when it's off (a missing value, which strict mode can't read as a property)
+function Get-SignIn { (Get-Item $RunKey).GetValue("CheapTrip") }
 $Logs = New-Item -ItemType Directory -Force (Join-Path $Root "dist\smoke-logs")
 if (Test-Path $DataDir) { Remove-Item $DataDir -Recurse -Force }
 
