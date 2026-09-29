@@ -9,7 +9,7 @@ let fetch: ReturnType<typeof fakeFetch>;
 function start(status = STATUS) {
   fetch = fakeFetch({
     "/deals": DEALS, "/status": status, "/engine/search-now": { started: true }, "/engine/pause": {},
-    "/engine/resume": {}, "/settings": { app: { theme: "system", close_to_tray: true } },
+    "/engine/resume": {}, "/settings": { app: { theme: "system", close_to_tray: true }, preferences: { home_airports: ["MXP"] } },
     "/airports": [{ code: "KRK", name: "John Paul II", city: "Kraków", country: "PL" }],
   });
   vi.stubGlobal("fetch", fetch.impl);

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Sidebar } from "./components/Sidebar";
+import { ToastProvider } from "./components/Toast";
 import { TopBar } from "./components/TopBar";
 import { EngineProvider } from "./engine";
 import { useRoute, type Route } from "./router";
@@ -30,7 +31,6 @@ function store(key: string, value: string): void {
 }
 
 function screenFor(route: Route): ReactNode {
-  if (route.dealId) return <div className="legacy"><DealDetail id={route.dealId} /></div>;
   switch (route.screen) {
     case "destinations":
       return <div className="legacy"><Destinations /></div>;
@@ -41,8 +41,8 @@ function screenFor(route: Route): ReactNode {
     case "setup":
     case "notifications":
       return <div className="legacy"><Setup /></div>;
-    default:
-      return <div className="legacy"><Deals /></div>;
+    default:  // a deal's details slide over the list, which stays as it was
+      return <><Deals />{route.dealId && <DealDetail id={route.dealId} />}</>;
   }
 }
 
@@ -56,6 +56,7 @@ export function App() {
   return (
     <ThemeProvider>
       <EngineProvider>
+        <ToastProvider>
         <TopBar onToggleSidebar={toggle} />
         <Sidebar screen={route.screen} collapsed={collapsed} />
         <div className={`transition-[padding] ${collapsed ? "pl-16" : "pl-60"}`}>
@@ -63,6 +64,7 @@ export function App() {
             <div className="p-space-lg">{screenFor(route)}</div>
           </main>
         </div>
+        </ToastProvider>
       </EngineProvider>
     </ThemeProvider>
   );

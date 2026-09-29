@@ -122,8 +122,11 @@ async def test_deals_split_unusually_cheap_from_the_best_of_the_rest(api):
     prague = deals["digest"][0]
     assert prague["price"] == 35.0 and prague["type"] == "flight" and prague["length"] == "weekend"
     assert prague["links"]["book"] and "booking.com" in prague["links"]["hotels"]
-    assert deals["summary"]["unusually_cheap"] == 1 and deals["summary"]["best"]["price"] == 35.0
+    assert deals["summary"]["unusually_cheap"] == 1
+    assert deals["summary"]["best"]["id"] == krakow["id"]  # the most unusually cheap deal, in full
     assert deals["summary"]["last_search"]["fares"] == 4
+    assert krakow["comparison"]["window_days"] == 30  # the card's fare range
+    assert "comparison" not in prague
 
 
 @pytest.mark.parametrize("query,routes", [
@@ -131,6 +134,7 @@ async def test_deals_split_unusually_cheap_from_the_best_of_the_rest(api):
     ("lengths=short", ["Milan → Barcelona"]),
     ("q=barc", ["Milan → Barcelona"]),
     ("sort=date", ["Milan → Prague", "Milan → Barcelona"]),
+    ("sort=discount", ["Milan → Prague", "Milan → Barcelona"]),
     ("priority_only=1", []),
 ])
 async def test_deal_filters(api, query, routes):
