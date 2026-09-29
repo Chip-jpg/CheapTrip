@@ -1,6 +1,7 @@
 ; CheapTrip for Windows: one setup .exe (Inno Setup 6).
 ;
-; Wraps the PyInstaller build in dist\cheaptrip\ (packaging\cheaptrip.spec).
+; Wraps the PyInstaller build in dist\cheaptrip\ (packaging\cheaptrip.spec):
+; CheapTrip.exe (the desktop app) and cheaptrip-cli.exe (the console commands).
 ; packaging\build_windows.ps1 builds it with:
 ;   ISCC.exe /DAppVersion=0.6.0 packaging\installer.iss
 ;
@@ -16,7 +17,10 @@
   #define AppVersion "0.0.0"
 #endif
 #define AppName "CheapTrip"
-#define AppExe "cheaptrip.exe"
+#define AppExe "CheapTrip.exe"
+#define CliExe "cheaptrip-cli.exe"
+; The app's AppUserModelID (notifier/desktop.py APP_ID): groups its window, taskbar button and notifications
+#define AppUserModelId "CheapTrip"
 #define RepoUrl "https://github.com/Chip-jpg/CheapTrip"
 
 [Setup]
@@ -48,31 +52,44 @@ RestartApplications=no
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "autostart"; Description: "Start CheapTrip when I sign in to Windows (runs minimized)"; GroupDescription: "Startup:"
+Name: "autostart"; Description: "Start CheapTrip when I sign in to Windows (in the tray)"; GroupDescription: "Startup:"
+
+[InstallDelete]
+; Up to 0.6 the console program was cheaptrip.exe: remove it so CheapTrip.exe keeps its name's case
+Type: files; Name: "{app}\cheaptrip.exe"
 
 [Files]
 Source: "..\dist\cheaptrip\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Registry]
+; cheaptrip:// links (a notification's buttons, cheaptrip://deal/<id>) open the app
+Root: HKCU; Subkey: "Software\Classes\cheaptrip"; ValueType: string; ValueName: ""; ValueData: "URL:CheapTrip"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\cheaptrip"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\cheaptrip\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExe},0"
+Root: HKCU; Subkey: "Software\Classes\cheaptrip\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""
+; Written by the app for its notifications' name and icon: removed with it
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#AppUserModelId}"; Flags: uninsdeletekey dontcreatekey
 
 [Dirs]
 Name: "{userappdata}\{#AppName}\config"; Flags: uninsneveruninstall
 
 [Icons]
-Name: "{group}\CheapTrip"; Filename: "{app}\{#AppExe}"; Parameters: "run"; WorkingDir: "{userappdata}\{#AppName}"; Comment: "Search for deals and send Telegram alerts (keep the window open)"
-Name: "{group}\Check setup"; Filename: "{cmd}"; Parameters: "/k """"{app}\{#AppExe}"" doctor"""; WorkingDir: "{userappdata}\{#AppName}"; Comment: "Check the Telegram bot, keys, preferences and sources"
-Name: "{group}\Send a test message"; Filename: "{cmd}"; Parameters: "/k """"{app}\{#AppExe}"" test-alert"""; WorkingDir: "{userappdata}\{#AppName}"; Comment: "Send the current top deals to your Telegram chat"
+Name: "{group}\CheapTrip"; Filename: "{app}\{#AppExe}"; WorkingDir: "{userappdata}\{#AppName}"; AppUserModelID: "{#AppUserModelId}"; Comment: "Travel deals: searches, alerts and your settings"
+Name: "{group}\Check setup"; Filename: "{cmd}"; Parameters: "/k """"{app}\{#CliExe}"" doctor"""; WorkingDir: "{userappdata}\{#AppName}"; Comment: "Check the Telegram bot, keys, preferences and sources"
+Name: "{group}\Send a test message"; Filename: "{cmd}"; Parameters: "/k """"{app}\{#CliExe}"" test-alert"""; WorkingDir: "{userappdata}\{#AppName}"; Comment: "Send the current top deals to your Telegram chat"
 Name: "{group}\Edit settings"; Filename: "{win}\notepad.exe"; Parameters: """{userappdata}\{#AppName}\.env"""; Comment: "Telegram token, chat ID and API keys"
 Name: "{group}\Edit preferences"; Filename: "{win}\notepad.exe"; Parameters: """{userappdata}\{#AppName}\config\user_preferences.yaml"""; Comment: "Home airports, trip lengths, priority destinations"
 Name: "{group}\Open data folder"; Filename: "{userappdata}\{#AppName}"
 Name: "{group}\Uninstall CheapTrip"; Filename: "{uninstallexe}"
-Name: "{userstartup}\CheapTrip"; Filename: "{app}\{#AppExe}"; Parameters: "run"; WorkingDir: "{userappdata}\{#AppName}"; Tasks: autostart; Flags: runminimized
+Name: "{userstartup}\CheapTrip"; Filename: "{app}\{#AppExe}"; Parameters: "--minimized"; WorkingDir: "{userappdata}\{#AppName}"; AppUserModelID: "{#AppUserModelId}"; Tasks: autostart
 
 [Run]
-Filename: "{cmd}"; Parameters: "/k """"{app}\{#AppExe}"" doctor"""; WorkingDir: "{userappdata}\{#AppName}"; Description: "Check my setup now"; Flags: postinstall nowait skipifsilent
-Filename: "{app}\{#AppExe}"; Parameters: "run"; WorkingDir: "{userappdata}\{#AppName}"; Description: "Start CheapTrip now"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{app}\{#AppExe}"; WorkingDir: "{userappdata}\{#AppName}"; Description: "Open CheapTrip now"; Flags: postinstall nowait skipifsilent
+Filename: "{cmd}"; Parameters: "/k """"{app}\{#CliExe}"" doctor"""; WorkingDir: "{userappdata}\{#AppName}"; Description: "Check my setup in a console window"; Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallRun]
-; Stop a running engine so its files can be removed
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#AppExe}"; Flags: runhidden; RunOnceId: "StopCheapTrip"
+; Stop the app (and a console engine) so their files can be removed
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#AppExe} /IM {#CliExe}"; Flags: runhidden; RunOnceId: "StopCheapTrip"
 
 [Code]
 var

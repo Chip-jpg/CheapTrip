@@ -2,12 +2,15 @@
 .SYNOPSIS
 Builds the CheapTrip Windows installer and smoke-tests it (used by CI and the release workflow).
 
-  1. Installs the app's requirements and PyInstaller.
-  2. Freezes the app into dist\cheaptrip\ (packaging\cheaptrip.spec).
+  1. Builds the app's screens (ui\, npm) and installs the requirements and PyInstaller.
+  2. Freezes the app into dist\cheaptrip\ (packaging\cheaptrip.spec): CheapTrip.exe, the
+     desktop app, and cheaptrip-cli.exe, the console commands.
   3. Builds dist\CheapTrip-Setup-<version>.exe with Inno Setup (packaging\installer.iss).
   4. Installs it silently, as a first-time user gets it, and checks the installed app:
-     the settings the wizard writes, the sign-in shortcut, --version, doctor,
-     one real dry-run cycle, a running engine, and the uninstaller.
+     the settings the wizard writes, the shortcuts and the cheaptrip:// link, --version,
+     doctor, one real dry-run cycle; then the desktop app started minimized (its API,
+     its first search, Search now, a test notification, a second launch handing over,
+     one engine at a time, Quit), and the uninstaller.
 
 Usage (PowerShell 7, from anywhere):  pwsh packaging/build_windows.ps1 [-Version 0.6.0]
 #>
@@ -50,6 +53,14 @@ if (-not $Version) { $Version = $CodeVersion }
 if ($Version -ne $CodeVersion) { throw "Version $Version doesn't match utils/version.py ($CodeVersion)" }
 Write-Host "Building CheapTrip $Version"
 
+# ── The app's screens ─────────────────────────────────────────────────────────
+Push-Location ui
+try {
+    Invoke-Native "npm ci" { npm ci --no-audit --no-fund }
+    Invoke-Native "UI build" { npm run build }
+}
+finally { Pop-Location }
+
 # ── Freeze the app ────────────────────────────────────────────────────────────
 Invoke-Native "pip install" {
     python -m pip install --disable-pip-version-check -r requirements.txt "pyinstaller>=6.10,<7"
@@ -68,7 +79,9 @@ Confirm-Step (Test-Path $Setup) "built $Setup ($([math]::Round((Get-Item $Setup)
 # ── Smoke test: install silently, as a first-time user ────────────────────────
 $DataDir = Join-Path $env:APPDATA "CheapTrip"
 $AppDir = Join-Path $env:LOCALAPPDATA "Programs\CheapTrip"
-$Exe = Join-Path $AppDir "cheaptrip.exe"
+$Exe = Join-Path $AppDir "cheaptrip-cli.exe"
+$App = Join-Path $AppDir "CheapTrip.exe"
+$AppFile = Join-Path $DataDir "app.json"
 $Log = Join-Path $DataDir "logs\engine.log"
 $Startup = Join-Path ([Environment]::GetFolderPath("Startup")) "CheapTrip.lnk"
 $Logs = New-Item -ItemType Directory -Force (Join-Path $Root "dist\smoke-logs")
@@ -80,8 +93,13 @@ try {
         "/TELEGRAMCHATID=4242", "/HOMEAIRPORTS=`"lgw stn`""
     )
     Confirm-Step ($install.ExitCode -eq 0) "silent install (exit code $($install.ExitCode))"
-    Confirm-Step (Wait-Until { Test-Path $Exe } 60) "installed $Exe"
+    Confirm-Step (Wait-Until { (Test-Path $Exe) -and (Test-Path $App) } 60) "installed $App and $Exe"
     Confirm-Step (Test-Path $Startup) "'Start CheapTrip when I sign in' is on by default"
+    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($Startup)
+    Confirm-Step ($shortcut.TargetPath -eq $App -and $shortcut.Arguments -eq "--minimized") `
+        "the sign-in shortcut starts the app in the tray ($($shortcut.TargetPath) $($shortcut.Arguments))"
+    $protocol = (Get-ItemProperty "HKCU:\Software\Classes\cheaptrip\shell\open\command")."(default)"
+    Confirm-Step ($protocol -eq "`"$App`" `"%1`"") "cheaptrip:// links open the app"
 
     $settings = Get-Content (Join-Path $DataDir ".env") -Raw
     Confirm-Step ($settings -match "(?m)^TELEGRAM_CHAT_ID=4242\s*$") "the wizard's answers are in .env"
@@ -104,13 +122,52 @@ try {
     $cycles = @(Select-String -Path $Log -Pattern "pipeline_cycle_complete").Count
     Confirm-Step ($cycles -ge 1) "a real dry-run cycle completes"
 
-    $engine = Start-Process $Exe -ArgumentList "run" -PassThru `
-        -RedirectStandardOutput (Join-Path $Logs "run-out.txt") -RedirectStandardError (Join-Path $Logs "run.txt")
-    $ranCycle = Wait-Until { @(Select-String -Path $Log -Pattern "pipeline_cycle_complete").Count -gt $cycles } 240
-    $stillRunning = -not $engine.HasExited
-    Stop-Process -Id $engine.Id -Force -ErrorAction SilentlyContinue
-    Confirm-Step $ranCycle "the running engine completes a cycle"
-    Confirm-Step $stillRunning "the engine keeps running after its first cycle (scheduler started)"
+    # ── The desktop app ───────────────────────────────────────────────────────
+    $app = Start-Process $App -ArgumentList "--minimized" -PassThru
+    Confirm-Step (Wait-Until { Test-Path $AppFile } 90) "the app starts in the tray and writes app.json"
+    $info = Get-Content $AppFile -Raw | ConvertFrom-Json
+    $Api = "http://127.0.0.1:$($info.port)/api/v1"
+    $Auth = @{ Authorization = "Bearer $($info.token)" }
+    function Invoke-Api([string]$Method, [string]$Path, $Body = $null) {
+        $params = @{ Method = $Method; Uri = "$Api$Path"; Headers = $Auth; NoProxy = $true
+                     SkipHttpErrorCheck = $true; StatusCodeVariable = "code" }
+        if ($null -ne $Body) { $params.Body = ($Body | ConvertTo-Json -Compress); $params.ContentType = "application/json" }
+        $result = Invoke-RestMethod @params
+        return [pscustomobject]@{ Status = [int]$code; Body = $result }
+    }
+
+    $status = (Invoke-Api GET "/status").Body
+    Confirm-Step ($status.version -eq $Version) "the app's API answers (version $($status.version), $($status.state))"
+    $page = Invoke-WebRequest "http://127.0.0.1:$($info.port)/" -NoProxy
+    Confirm-Step ($page.Content -match 'id="root"') "the app serves its screens"
+    Confirm-Step (Wait-Until { (Invoke-Api GET "/status").Body.last_cycle.status -eq "ok" } 300) `
+        "the app's first search completes"
+    $deals = (Invoke-Api GET "/deals").Body
+    $found = @($deals.instant).Count + @($deals.digest).Count
+    Confirm-Step ($found -gt 0) "the Deals screen lists $found deals"
+
+    $searches = (Invoke-Api GET "/status").Body.searches_today
+    $started = (Invoke-Api POST "/engine/search-now").Body.started
+    Confirm-Step $started "Search now starts a search"
+    Confirm-Step (Wait-Until { $s = (Invoke-Api GET "/status").Body; -not $s.searching -and $s.searches_today -gt $searches } 300) `
+        "the search it started completes"
+
+    $test = Invoke-Api POST "/setup/test-notification" @{ channel = "desktop" }
+    Confirm-Step ($test.Status -in 200, 502) "a test notification is sent or refused cleanly (HTTP $($test.Status): $($test.Body | ConvertTo-Json -Compress))"
+
+    $second = Start-Process $App -ArgumentList "cheaptrip://activity" -PassThru -Wait
+    Confirm-Step ($second.ExitCode -eq 0 -and -not $app.HasExited) "a second launch hands over to the running app"
+    Confirm-Step (@(Select-String -Path $Log -Pattern '"app_show"').Count -ge 1) "the running app shows the screen it was asked for"
+
+    $other = Start-Process $Exe -ArgumentList "run" -PassThru `
+        -RedirectStandardOutput (Join-Path $Logs "second-engine-out.txt") -RedirectStandardError (Join-Path $Logs "second-engine.txt")
+    $refused = (Wait-Until { $other.HasExited } 60) -and $other.ExitCode -eq 1
+    if (-not $other.HasExited) { Stop-Process -Id $other.Id -Force -ErrorAction SilentlyContinue }
+    Confirm-Step $refused "the console engine refuses to start while the app runs"
+
+    Confirm-Step ((Invoke-Api POST "/app/quit").Status -eq 200) "Quit is accepted"
+    Confirm-Step (Wait-Until { $app.HasExited } 60) "the app quits"
+    Confirm-Step (-not (Test-Path $AppFile)) "the app removes app.json when it quits"
 
     # ── Uninstall: the program goes, the settings stay ────────────────────────
     $uninstall = Start-Process (Join-Path $AppDir "unins000.exe") -Wait -PassThru `
@@ -118,6 +175,7 @@ try {
     Confirm-Step ($uninstall.ExitCode -eq 0) "silent uninstall (exit code $($uninstall.ExitCode))"
     Confirm-Step (Wait-Until { -not (Test-Path $Exe) } 60) "the program is removed"
     Confirm-Step (-not (Test-Path $Startup)) "the sign-in shortcut is removed"
+    Confirm-Step (-not (Test-Path "HKCU:\Software\Classes\cheaptrip")) "the cheaptrip:// link is removed"
     Confirm-Step (Test-Path (Join-Path $DataDir ".env")) "the settings are kept"
 }
 finally {
