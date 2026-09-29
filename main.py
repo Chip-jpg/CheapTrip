@@ -7,6 +7,8 @@ Usage:
   python main.py digest        # Send today's digest and exit
   python main.py status        # Print DB stats
   python main.py doctor        # Check the configuration (exit 1 on blocking problems)
+  python main.py test-alert    # Send a test message with the current top deals to Telegram
+  python main.py read-feed     # Show what Claude reads from the newest PiratinViaggio posts
   python main.py healthcheck   # Exit 1 when no cycle completed recently (Docker healthcheck)
 """
 from __future__ import annotations
@@ -148,6 +150,45 @@ def doctor() -> None:
     failures = [c for c in checks if c.level == "fail"]
     click.echo(f"\n{len(failures)} blocking problem(s)." if failures else "\nReady to run.")
     sys.exit(1 if failures else 0)
+
+
+@cli.command("test-alert")
+def test_alert() -> None:
+    """Send a test message with the current top deals to your Telegram chat."""
+    from utils.doctor import send_test_message
+
+    sent, detail = asyncio.run(send_test_message())
+    click.echo(detail)
+    sys.exit(0 if sent else 1)
+
+
+@cli.command("read-feed")
+@click.option("--limit", default=5, show_default=True, help="Newest posts to read per reader (flights, hotels)")
+def read_feed(limit: int) -> None:
+    """Show what Claude extracts from the newest PiratinViaggio posts. Saves nothing."""
+    from scrapers.piratinviaggio import PiratinViaggioHotelScraper, PiratinViaggioScraper, describe_offer
+
+    readers = [("Flights and packages", PiratinViaggioScraper()), ("Hotels", PiratinViaggioHotelScraper())]
+    if not readers[0][1].enabled:
+        click.echo(f"The PiratinViaggio reader is off: {readers[0][1].disabled_reason}.")
+        sys.exit(1)
+
+    async def _run() -> bool:
+        for title, reader in readers:
+            results = await reader.preview(limit)
+            if results is None:
+                click.echo("Couldn't fetch the PiratinViaggio feed; try again later.")
+                return False
+            click.echo(f"\n{title} ({len(results)} newest post{'' if len(results) == 1 else 's'})")
+            for item, judgement in results:
+                click.echo(f"• {item.title}\n  {item.url}")
+                if judgement.option:
+                    click.echo(f"  ✅ kept: {describe_offer(judgement.option)}")
+                else:
+                    click.echo(f"  – {judgement.outcome}")
+        return True
+
+    sys.exit(0 if asyncio.run(_run()) else 1)
 
 
 @cli.command("resolve-airports")

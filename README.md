@@ -98,6 +98,13 @@ python main.py cycle                                   # one search cycle
 python main.py run                                     # run 24/7 (Ctrl+C to stop)
 ```
 
+### First run with your keys
+
+1. `python main.py doctor`: every line ✅ or ⚠️. It checks that the bot token works, that the bot can write to your chat (press Start in the bot first), that no webhook blocks commands, and that the Anthropic key and `AI_MODEL` work (a model lookup, no tokens spent).
+2. `python main.py test-alert`: a "🧪 Test message" with the current top deals arrives in your chat.
+3. `python main.py read-feed`: with `ANTHROPIC_API_KEY` set, shows what Claude extracts from the 5 newest PiratinViaggio flight/package posts and the 5 newest hotel posts, and why any were rejected. Nothing is saved, so the engine still reads them later. It costs a few cents of Claude Haiku.
+4. `python main.py run`, then send `/status` in Telegram: the bot answers.
+
 On Linux, `lxml` may need `sudo apt-get install gcc libxml2-dev libxslt-dev python3-dev`.
 
 ### Option B — Docker Compose
@@ -134,6 +141,8 @@ python main.py run            # 24/7: cycle every 90 min, digest at 08:00, Teleg
 python main.py cycle          # one cycle, then exit
 python main.py digest         # send the digest now
 python main.py doctor         # configuration check (exit 1 on blocking problems)
+python main.py test-alert     # send a test message with the current top deals to Telegram
+python main.py read-feed      # show what Claude reads from the newest PiratinViaggio posts (saves nothing)
 python main.py health         # per-source health (OK / DEGRADED / FAILING / DISABLED and why)
 python main.py healthcheck    # exit 1 if no cycle completed recently (Docker healthcheck)
 python main.py status         # database statistics
@@ -169,7 +178,7 @@ Only the chat in `TELEGRAM_CHAT_ID` is answered.
 ## Project structure
 
 ```
-main.py                     CLI (run, cycle, digest, doctor, health, healthcheck, status, search)
+main.py                     CLI (run, cycle, digest, doctor, test-alert, read-feed, health, healthcheck, status, search)
 config.py                   Settings (.env) and constants
 preferences.py              Preferences YAML + Telegram overrides
 config/user_preferences.yaml(.example)

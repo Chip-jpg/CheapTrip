@@ -47,28 +47,81 @@ class Check:
         return f"{mark} {self.name}: {self.detail}"
 
 
+async def _telegram_call(client: httpx.AsyncClient, method: str, **params: str) -> Tuple[int, dict]:
+    url = f"https://api.telegram.org/bot{get_settings().telegram_bot_token}/{method}"
+    resp = await client.get(url, params=params or None)
+    try:
+        return resp.status_code, resp.json()
+    except ValueError:
+        return resp.status_code, {}
+
+
 async def _telegram_checks() -> List[Check]:
     settings = get_settings()
     if not settings.telegram_bot_token or not settings.telegram_chat_id:
         return [Check("fail", "Telegram", "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are needed to send alerts")]
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"https://api.telegram.org/bot{settings.telegram_bot_token}/getMe")
+            status, me = await _telegram_call(client, "getMe")
+            if status != 200 or not me.get("ok"):
+                return [Check("fail", "Telegram", f"the bot token was rejected (HTTP {status})")]
+            _, chat = await _telegram_call(client, "getChat", chat_id=settings.telegram_chat_id)
+            _, hook = await _telegram_call(client, "getWebhookInfo")
     except httpx.HTTPError as exc:
         return [Check("warn", "Telegram", f"could not reach Telegram to check the token: {exc}")]
-    if resp.status_code != 200 or not resp.json().get("ok"):
-        return [Check("fail", "Telegram", f"the bot token was rejected (HTTP {resp.status_code})")]
-    name = resp.json().get("result", {}).get("username", "?")
-    return [Check("ok", "Telegram", f"bot @{name}, chat {settings.telegram_chat_id}")]
+
+    name = me.get("result", {}).get("username", "?")
+    checks = [Check("ok", "Telegram", f"bot @{name}, chat {settings.telegram_chat_id}")]
+    if chat.get("ok"):
+        info = chat.get("result", {})
+        who = info.get("title") or info.get("username") or info.get("first_name") or "the chat"
+        checks.append(Check("ok", "Telegram chat", f"the bot can write to {who}"))
+    else:
+        checks.append(Check(
+            "fail", "Telegram chat",
+            f"{chat.get('description') or 'chat not found'}: open the bot in Telegram and press Start "
+            "(or add it to your group), and check TELEGRAM_CHAT_ID",
+        ))
+    if hook.get("ok") and hook.get("result", {}).get("url"):
+        checks.append(Check(
+            "warn", "Telegram commands",
+            "a webhook is set, so commands like /status never reach the engine; remove it by opening "
+            "https://api.telegram.org/bot<your token>/deleteWebhook in a browser",
+        ))
+    else:
+        checks.append(Check("ok", "Telegram commands", "no webhook: /commands work while the engine runs"))
+    return checks
+
+
+async def _anthropic_check() -> Check:
+    """Looks the configured model up: checks the key and the model name without spending tokens."""
+    import anthropic
+
+    from ai_layer.formatter import _make_client
+
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        return Check("warn", "Anthropic", "no ANTHROPIC_API_KEY: no alert polish, PiratinViaggio posts not read")
+    client = _make_client(settings.anthropic_api_key, 15.0)
+    try:
+        model = await client.models.retrieve(settings.ai_model)
+    except anthropic.AuthenticationError:
+        return Check("fail", "Anthropic", "ANTHROPIC_API_KEY was rejected")
+    except anthropic.NotFoundError:
+        return Check("fail", "Anthropic", f"AI_MODEL {settings.ai_model!r} is not a model this key can use")
+    except anthropic.APIStatusError as exc:
+        return Check("warn", "Anthropic", f"could not check the key (HTTP {exc.status_code})")
+    except anthropic.APIConnectionError as exc:
+        return Check("warn", "Anthropic", f"could not reach the Anthropic API to check the key: {exc}")
+    finally:
+        await client.close()
+    return Check("ok", "Anthropic",
+                 f"key works with {model.display_name}: alert polish and PiratinViaggio reader available")
 
 
 def _key_checks() -> List[Check]:
     settings = get_settings()
     checks = []
-    if settings.anthropic_api_key:
-        checks.append(Check("ok", "Anthropic", "key set: alert polish and PiratinViaggio reader available"))
-    else:
-        checks.append(Check("warn", "Anthropic", "no ANTHROPIC_API_KEY: no alert polish, PiratinViaggio posts not read"))
     if settings.travelpayouts_token:
         checks.append(Check("ok", "Travelpayouts", "token set"))
     else:
@@ -138,8 +191,28 @@ async def _source_checks() -> List[Check]:
 async def run_checks() -> List[Check]:
     return [
         *(await _telegram_checks()),
+        await _anthropic_check(),
         *_key_checks(),
         *_preference_checks(),
         await _database_check(),
         *(await _source_checks()),
     ]
+
+
+async def send_test_message() -> Tuple[bool, str]:
+    """`main.py test-alert`: send the current top deals to the chat, marked as a test."""
+    from notifier.commands import handle_command
+    from notifier.telegram import TelegramNotifier
+    from storage.database import init_db
+
+    settings = get_settings()
+    if not settings.telegram_bot_token or not settings.telegram_chat_id:
+        return False, "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are needed: set them in .env, then run `python main.py doctor`."
+    await init_db()
+    deals = await handle_command("/deals")
+    text = f"🧪 <b>Test message from CheapTrip</b>: deal alerts will arrive in this chat.\n\n{deals}"
+    notifier = await TelegramNotifier.create()
+    if await notifier.send_system_message(text):
+        return True, "Test message sent: check your Telegram chat."
+    return False, ("Telegram didn't accept the message (its answer is in the telegram_send_failed line above); "
+                   "run `python main.py doctor` to check the token and chat.")

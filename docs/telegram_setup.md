@@ -19,9 +19,12 @@ Do this **before** starting the engine: while `main.py run` is running, the bot 
 ## 3. Check
 
 ```bash
-python main.py doctor   # "✅ Telegram: bot @YourBot, chat ..."
-python main.py cycle    # alerts or a cycle summary arrive in the chat
+python main.py doctor       # "✅ Telegram: bot @YourBot, chat ..." and "✅ Telegram chat: the bot can write to ..."
+python main.py test-alert   # a "🧪 Test message" with the current top deals arrives in the chat
+python main.py cycle        # alerts or a cycle summary arrive in the chat
 ```
+
+If `doctor` says **chat not found**, open the bot in Telegram and press Start (or add it to your group), and check `TELEGRAM_CHAT_ID`. If it says **a webhook is set**, commands can't reach the engine: open `https://api.telegram.org/bot<YOUR_TOKEN>/deleteWebhook` in a browser once.
 
 ## Commands
 
