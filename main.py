@@ -87,8 +87,8 @@ def status() -> None:
                 cur = await db.execute("SELECT COUNT(*) FROM alerts_sent")
                 alerts_sent = (await cur.fetchone())[0]
                 cur = await db.execute(
-                    "SELECT COUNT(DISTINCT origin_city || dest_city || trip_type || nights_bucket || depart_month)"
-                    " FROM price_history WHERE depart_month IS NOT NULL"
+                    "SELECT COUNT(DISTINCT origin_city || dest_city || trip_type || nights_bucket)"
+                    " FROM price_history WHERE origin_city IS NOT NULL"
                 )
                 price_keys = (await cur.fetchone())[0]
 

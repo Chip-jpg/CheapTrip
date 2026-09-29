@@ -11,6 +11,7 @@ import pytest
 from storage.database import get_db_path, get_pending_instant_alerts, init_db, purge_old_rows, save_deal
 from storage.models import AlertTier, DealType, FlightLeg, Trip
 from storage.price_analytics import (
+    BASELINE_WINDOW_DAYS,
     ERROR_FARE_MIN_DAYS,
     MIN_SAMPLES,
     Observation,
@@ -33,11 +34,12 @@ def _leg(price: float = 60.0, origin: str = "MXP", dest: str = "KRK", nights: Op
     )
 
 
-def _history(key: PriceKey, prices_per_cycle, days_apart: int = 0):
-    """One cycle per list, every price a different fare; cycle i is recorded `i * days_apart` days after the first."""
+def _history(key: PriceKey, prices_per_cycle, days_apart: int = 0, depart: date = DEP):
+    """One cycle per list, every price a different fare departing on `depart`;
+    cycle i is recorded `i * days_apart` days after the first."""
     return [
-        Observation(key, f"fare {i}-{j}", price, f"cycle{i}",
-                    (date(2026, 9, 1) + timedelta(days=i * days_apart)).isoformat())
+        Observation(key, f"fare {i}-{j} {depart}", price, f"cycle{i}",
+                    (date(2026, 9, 1) + timedelta(days=i * days_apart)).isoformat(), depart)
         for i, prices in enumerate(prices_per_cycle) for j, price in enumerate(prices)
     ]
 
@@ -45,7 +47,7 @@ def _history(key: PriceKey, prices_per_cycle, days_apart: int = 0):
 def _seen(key: PriceKey, fares_per_cycle):
     """One cycle per dict of {fare: price}: the same fare can be seen in several cycles."""
     return [
-        Observation(key, fare, price, f"cycle{i}", "2026-09-01")
+        Observation(key, fare, price, f"cycle{i}", "2026-09-01", DEP)
         for i, fares in enumerate(fares_per_cycle) for fare, price in fares.items()
     ]
 
@@ -55,12 +57,13 @@ KEY = price_key(_leg())
 
 # ── Keys ──────────────────────────────────────────────────────────────────────
 
-def test_key_groups_city_trip_type_length_and_month():
-    assert KEY == PriceKey("MIL", "KRK", "rt", "weekend", "2026-11")
-    # Milan's airports share one history
+def test_key_groups_city_trip_type_and_length():
+    assert KEY == PriceKey("MIL", "KRK", "rt", "weekend")
+    # Milan's airports share one history, and so do departure months (see the ±30-day window)
     assert price_key(_leg(origin="BGY")) == KEY
+    assert price_key(_leg(dep=date(2027, 2, 5))) == KEY
     assert price_key(_leg(nights=6)).nights_bucket == "short"
-    assert price_key(_leg(nights=None)) == PriceKey("MIL", "KRK", "ow", "ow", "2026-11")
+    assert price_key(_leg(nights=None)) == PriceKey("MIL", "KRK", "ow", "ow")
 
 
 def test_feed_posts_and_undated_fares_have_no_key():
@@ -85,7 +88,7 @@ def test_fare_far_below_the_usual_price_is_an_anomaly():
     assert result.is_anomaly
     assert result.normal_price == 60.0
     assert result.deviation_pct == pytest.approx(-41.7, abs=0.1)
-    assert "42% below the usual €60 (weekend trips, November)" in result.description
+    assert "42% below the usual €60 (weekend trips around 13 Nov)" in result.description
 
 
 def test_ordinary_fare_is_not_an_anomaly_but_gets_a_normal_price():
@@ -129,11 +132,54 @@ def test_each_fare_counts_at_its_latest_price():
     assert base.median == 59.5  # 40, 58, 59, 60, 61, 62
 
 
-def test_other_lengths_and_months_have_their_own_baseline():
+def test_other_lengths_have_their_own_baseline():
     index = PriceIndex(_history(KEY, [[60.0, 62.0, 58.0], [60.0, 61.0, 59.0]]))
 
     assert index.baseline(_leg(nights=6)) is None
-    assert index.baseline(_leg(dep=date(2026, 12, 11))) is None
+
+
+# ── The ±30-day window (B34) ──────────────────────────────────────────────────
+
+def _around(*departures_and_prices):
+    """Two cycles; each (departure, price) is a different fare seen in both."""
+    return [
+        Observation(KEY, f"MXP-KRK {dep}", price, f"cycle{c}", "2026-09-01", dep)
+        for c in range(2) for dep, price in departures_and_prices
+    ]
+
+
+def test_fares_from_neighbouring_months_share_a_baseline():
+    # Round 5 dry run: month keys left most fares with 2 comparable fares
+    history = _around(
+        (date(2026, 10, 20), 60.0), (date(2026, 10, 30), 62.0), (date(2026, 11, 6), 58.0),
+        (date(2026, 11, 20), 61.0), (date(2026, 12, 4), 59.0), (date(2026, 12, 12), 60.0),
+    )
+
+    base = PriceIndex(history).baseline(_leg())  # 13 Nov
+
+    assert base.samples == 6 and base.median == 60.0
+
+
+def test_fares_more_than_30_days_away_are_not_compared():
+    window = timedelta(days=BASELINE_WINDOW_DAYS)
+    history = _around(
+        *[(DEP + timedelta(days=d), 60.0) for d in (-10, -5, 5, 10, 20)],  # 5 fares near 13 Nov
+        (DEP + window, 61.0),                                              # exactly 30 days: counts
+        (DEP + window + timedelta(days=1), 30.0),                          # 31 days: ignored
+        (date(2027, 1, 20), 25.0), (date(2027, 1, 22), 25.0),              # January: ignored
+    )
+
+    base = PriceIndex(history).baseline(_leg())
+
+    assert base.samples == 6 and base.low == 60.0
+
+
+def test_a_busy_key_still_needs_six_fares_near_this_departure():
+    far = [(date(2027, 2, 1) + timedelta(days=i), 60.0) for i in range(10)]
+    history = _around(*far, (DEP, 58.0), (DEP + timedelta(days=3), 62.0))
+
+    assert PriceIndex(history).baseline(_leg()) is None  # 12 fares for the key, 2 near 13 Nov
+    assert PriceIndex(history).baseline(_leg(dep=date(2027, 2, 5))).samples == 10
 
 
 # ── Possible error fares (B28) ────────────────────────────────────────────────
@@ -291,7 +337,7 @@ async def test_rows_from_before_fares_were_dated_are_ignored(engine):
             await db.execute(
                 "INSERT INTO price_history (route, price_eur, source, recorded_at, origin_city, dest_city, "
                 "trip_type, nights_bucket, depart_month, cycle_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                ("MXP-KRK", 60.0 + i, "old", datetime.utcnow().isoformat(), *astuple(KEY), f"c{i % 2}"),
+                ("MXP-KRK", 60.0 + i, "old", datetime.utcnow().isoformat(), *astuple(KEY), "2026-11", f"c{i % 2}"),
             )
         await db.commit()
 

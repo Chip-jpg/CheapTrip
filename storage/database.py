@@ -381,7 +381,8 @@ async def get_digest_deals(limit: int = 20) -> List[Trip]:
     return trips
 
 
-# route, price, source, the five PriceKey fields, departure date, return date ("" for one-way)
+# route, price, source, the four PriceKey fields, departure month, departure date,
+# return date ("" for one-way)
 PriceRow = Tuple[str, float, str, str, str, str, str, str, str, str]
 """(route, price_eur, source, origin_city, dest_city, trip_type, nights_bucket, depart_month)"""
 
@@ -407,10 +408,10 @@ async def record_prices(rows: Sequence[PriceRow], cycle_id: str) -> None:
 
 async def load_price_history(
     since: datetime, exclude_cycle: str,
-) -> List[Tuple[str, str, str, str, str, str, float, str, str]]:
+) -> List[Tuple[str, str, str, str, str, float, str, str, str]]:
     """
     Keyed observations recorded since `since`, excluding one cycle, oldest first:
-    (origin_city, dest_city, trip_type, nights_bucket, depart_month, itinerary, price_eur, cycle_id, day).
+    (origin_city, dest_city, trip_type, nights_bucket, itinerary, price_eur, cycle_id, day, depart_date).
     The itinerary ("MXP-KRK 2026-11-13 2026-11-16") identifies one fare however often it is
     seen; day is the YYYY-MM-DD it was recorded on. Rows from before fares were keyed or
     dated are ignored.
@@ -419,12 +420,12 @@ async def load_price_history(
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
             """
-            SELECT origin_city, dest_city, trip_type, nights_bucket, depart_month,
+            SELECT origin_city, dest_city, trip_type, nights_bucket,
                    route || ' ' || depart_date || ' ' || COALESCE(return_date, ''),
-                   price_eur, cycle_id, substr(recorded_at, 1, 10)
+                   price_eur, cycle_id, substr(recorded_at, 1, 10), depart_date
             FROM price_history
             WHERE recorded_at >= ? AND cycle_id IS NOT NULL AND cycle_id != ?
-              AND origin_city IS NOT NULL AND depart_month IS NOT NULL AND depart_date IS NOT NULL
+              AND origin_city IS NOT NULL AND depart_date IS NOT NULL
             ORDER BY recorded_at, id
             """,
             (since.isoformat(), exclude_cycle),

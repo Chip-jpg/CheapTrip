@@ -275,6 +275,18 @@ Decision: we are not investing further in Skyscanner. This branch only stops it 
 **B33 `fix/holiday-pirates-hotel-id`** (S)
 - The HolidayPirates hotel scraper shared the flight scraper's source id, merging their health records.
 
+### Added in Round 6
+
+**B34 `feat/baseline-30-day-window`** (M)
+- Found in the Round 5 dry run: with each fare counted once, month keys were too thin (6 of 494 route/length/month keys reached 6 fares).
+- A fare is now compared with fares on the same route and trip length departing within 30 days either side. In a 10-cycle dry run, 35–47% of trips had a usual price from cycle 3 on (about 3% before), and 7 fares alerted as unusually cheap.
+
+**B35 `feat/windows-support`** (M)
+- Runs as an installed Windows app: version 0.6.0 and `--version`, a per-user app home (`%APPDATA%\CheapTrip`), UTF-8 file handling, a Windows CI job.
+
+**B36 `feat/windows-installer`** (M–L)
+- One setup `.exe` (PyInstaller + Inno Setup) built and smoke-tested on Windows in CI, published with each `v*` release.
+
 ---
 
 ## 4. Suggested order
@@ -324,3 +336,6 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B31 | `fix/baseline-distinct-fares` | done |
 | B32 | `fix/promoted-deal-order` | done |
 | B33 | `fix/holiday-pirates-hotel-id` | done |
+| B34 | `feat/baseline-30-day-window` | done |
+| B35 | `feat/windows-support` | planned |
+| B36 | `feat/windows-installer` | planned |
