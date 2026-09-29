@@ -123,7 +123,7 @@ try {
     Confirm-Step ($cycles -ge 1) "a real dry-run cycle completes"
 
     # ── The desktop app ───────────────────────────────────────────────────────
-    $app = Start-Process $App -ArgumentList "--minimized" -PassThru
+    $appProcess = Start-Process $App -ArgumentList "--minimized" -PassThru
     Confirm-Step (Wait-Until { Test-Path $AppFile } 90) "the app starts in the tray and writes app.json"
     $info = Get-Content $AppFile -Raw | ConvertFrom-Json
     $Api = "http://127.0.0.1:$($info.port)/api/v1"
@@ -158,7 +158,7 @@ try {
     Confirm-Step ($test.Status -in 200, 502) "a test notification is sent or refused cleanly (HTTP $($test.Status): $($test.Body | ConvertTo-Json -Compress))"
 
     $second = Start-Process $App -ArgumentList "cheaptrip://activity" -PassThru -Wait
-    Confirm-Step ($second.ExitCode -eq 0 -and -not $app.HasExited) "a second launch hands over to the running app"
+    Confirm-Step ($second.ExitCode -eq 0 -and -not $appProcess.HasExited) "a second launch hands over to the running app"
     Confirm-Step (@(Select-String -Path $Log -Pattern '"app_show"').Count -ge 1) "the running app shows the screen it was asked for"
 
     $other = Start-Process $Exe -ArgumentList "run" -PassThru `
@@ -168,7 +168,7 @@ try {
     Confirm-Step $refused "the console engine refuses to start while the app runs"
 
     Confirm-Step ((Invoke-Api POST "/app/quit").Status -eq 200) "Quit is accepted"
-    Confirm-Step (Wait-Until { $app.HasExited } 60) "the app quits"
+    Confirm-Step (Wait-Until { $appProcess.HasExited } 60) "the app quits"
     Confirm-Step (-not (Test-Path $AppFile)) "the app removes app.json when it quits"
 
     # ── Uninstall: the program goes, the settings stay ────────────────────────
