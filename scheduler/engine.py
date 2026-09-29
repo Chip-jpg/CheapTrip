@@ -94,7 +94,7 @@ class Engine:
         )
         if self._telegram_commands:
             # Telegram commands (/deals, /mute, /pause, ...) are polled alongside the scheduler
-            self._spawn(CommandBot(self._notifier).run(self._stop))
+            self._start_command_bot()
         self._bus.publish("engine_started")
         if first_search:
             await self.search_now(trigger="startup")
@@ -172,6 +172,41 @@ class Engine:
 
     async def resume(self) -> None:
         await control.resume()
+
+    # ── Settings changes (B38: the app's Settings screen) ─────────────────────
+
+    @property
+    def sources(self) -> list:
+        """The scrapers the next search uses (their enabled state and reason)."""
+        return (self._aggregator or runner.get_aggregator()).sources
+
+    async def apply_settings_change(
+        self, *, reschedule: bool = False, reload_notifier: bool = False, reload_sources: bool = False,
+    ) -> None:
+        """Pick up saved settings without a restart."""
+        settings = get_settings()
+        if reschedule and self._scheduler is not None and self._running:
+            from apscheduler.triggers.cron import CronTrigger
+            from apscheduler.triggers.interval import IntervalTrigger
+
+            self._scheduler.reschedule_job(
+                "pipeline_cycle", trigger=IntervalTrigger(minutes=settings.scrape_interval_minutes))
+            self._scheduler.reschedule_job("daily_digest", trigger=CronTrigger(
+                hour=settings.digest_hour, minute=settings.digest_minute, timezone=settings.timezone))
+        if reload_notifier and isinstance(self._notifier, TelegramNotifier):
+            self._notifier = await TelegramNotifier.create()
+            if self._telegram_commands and self._running:
+                for task in [t for t in self._tasks if getattr(t, "is_command_bot", False)]:
+                    task.cancel()
+                self._start_command_bot()
+        if reload_sources and self._aggregator is None:
+            runner.reset_aggregator()
+        log.info("settings_applied", reschedule=reschedule, reload_notifier=reload_notifier,
+                 reload_sources=reload_sources)
+
+    def _start_command_bot(self) -> None:
+        task = self._spawn(CommandBot(self._notifier).run(self._stop))
+        task.is_command_bot = True  # type: ignore[attr-defined]
 
     # ── Status ────────────────────────────────────────────────────────────────
 

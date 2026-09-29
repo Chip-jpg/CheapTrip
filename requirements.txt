@@ -17,6 +17,10 @@ APScheduler==3.10.4
 # AI layer (alert formatting only)
 anthropic==1.8.0
 
+# Desktop app: local API and settings files
+aiohttp==3.14.3
+ruamel.yaml==0.19.1
+
 # Utilities
 tenacity==8.3.0
 structlog==24.1.0

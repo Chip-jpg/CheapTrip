@@ -29,10 +29,10 @@ from __future__ import annotations
 import statistics
 from dataclasses import astuple, dataclass, field
 from datetime import date, timedelta
-from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 from config import get_settings
-from storage.database import load_price_history, record_prices
+from storage.database import fares_for_key, load_price_history, record_prices
 from storage.models import FlightLeg
 from trip_builder.feasibility import get_trip_profile
 from utils.airport_clusters import cluster_city_code
@@ -204,3 +204,37 @@ async def record_fares(legs: Iterable[FlightLeg], cycle_id: str) -> int:
             ))
     await record_prices(rows, cycle_id)
     return len(rows)
+
+
+async def fare_comparison(leg: FlightLeg) -> Dict[str, Any]:
+    """
+    Data for the app's "How this fare compares" chart (B38): the fares with the
+    same key departing within BASELINE_WINDOW_DAYS of this one, each at its
+    latest price (this fare flagged), their median, and this exact fare's
+    price at every search that saw it.
+    """
+    empty: Dict[str, Any] = {"window_days": BASELINE_WINDOW_DAYS, "points": [], "median": None, "history": []}
+    key = price_key(leg)
+    if key is None:
+        return empty
+    since = utcnow() - timedelta(days=LOOKBACK_DAYS)
+    rows = await fares_for_key(key.origin_city, key.dest_city, key.trip_type, key.nights_bucket, since)
+    this = f"{leg.origin}-{leg.destination} {leg.departure_date.isoformat()} " \
+           f"{leg.return_date.isoformat() if leg.return_date else ''}"
+    window = timedelta(days=BASELINE_WINDOW_DAYS)
+    latest: Dict[str, Tuple[date, float, str]] = {}
+    history = []
+    for route, depart, ret, price, recorded_at in rows:
+        itinerary = f"{route} {depart} {ret}"
+        if itinerary == this:
+            history.append({"at": recorded_at, "price": price})
+        departs = date.fromisoformat(depart)
+        if abs(departs - leg.departure_date) <= window:
+            latest[itinerary] = (departs, price, route)
+    points = sorted(
+        ({"depart": d.isoformat(), "price": price, "route": route, "is_this": itinerary == this}
+         for itinerary, (d, price, route) in latest.items()),
+        key=lambda p: (p["depart"], p["price"]),
+    )
+    median = statistics.median(p["price"] for p in points) if points else None
+    return {**empty, "points": points, "median": median, "history": history}

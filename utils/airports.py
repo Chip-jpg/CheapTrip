@@ -390,3 +390,39 @@ def airports_in_city(city: str) -> List[str]:
 def iata_for_city(city: str) -> Optional[str]:
     codes = airports_in_city(city)
     return codes[0] if codes else None
+
+
+def display_name(code: str) -> str:
+    """City name for an airport code or a metropolitan-area code (MXP or MIL → "Milan")."""
+    code = _norm(code)
+    for cluster in CLUSTERS.values():
+        if cluster.city_code == code:
+            return cluster.name
+    return city_of(code)
+
+
+def search(query: str, limit: int = 8) -> List[Airport]:
+    """
+    Airports for an autocomplete box: an exact code first, then codes starting
+    with the query, then cities and airport names starting with it (accents and
+    case ignored), larger airports first.
+    """
+    q = _fold(query)
+    if not q:
+        return []
+    size_rank = {"L": 0, "M": 1, "?": 2}
+    scored = []
+    for airport in _load().values():
+        code = airport.iata.casefold()
+        if code == q:
+            rank = 0
+        elif code.startswith(q):
+            rank = 1
+        elif _fold(airport.city).startswith(q):
+            rank = 2
+        elif _fold(airport.name).startswith(q) or f" {q}" in f" {_fold(airport.name)}":
+            rank = 3
+        else:
+            continue
+        scored.append((rank, size_rank.get(airport.size, 3), airport.city, airport.iata, airport))
+    return [entry[-1] for entry in sorted(scored)[:limit]]

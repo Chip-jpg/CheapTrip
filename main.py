@@ -9,6 +9,7 @@ Usage:
   python main.py doctor        # Check the configuration (exit 1 on blocking problems)
   python main.py test-alert    # Send a test message with the current top deals to Telegram
   python main.py read-feed     # Show what Claude reads from the newest PiratinViaggio posts
+  python main.py ui            # Run the engine with the app's screens in your browser
   python main.py healthcheck   # Exit 1 when no cycle completed recently (Docker healthcheck)
 """
 from __future__ import annotations
@@ -202,6 +203,16 @@ def read_feed(limit: int) -> None:
         return True
 
     sys.exit(0 if asyncio.run(_run()) else 1)
+
+
+@cli.command()
+@click.option("--port", default=0, show_default=True, help="Port on 127.0.0.1 (0: a free one)")
+@click.option("--no-browser", is_flag=True, help="Don't open the browser")
+def ui(port: int, no_browser: bool) -> None:
+    """Run the engine with the app's screens in your browser (until Ctrl+C)."""
+    from api.server import run_ui
+
+    asyncio.run(run_ui(port=port, open_browser=not no_browser))
 
 
 @cli.command("resolve-airports")

@@ -374,6 +374,6 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B35 | `feat/windows-support` | done |
 | B36 | `feat/windows-installer` | done (released as v0.6.0) |
 | B37 | `feat/engine-service` | done |
-| B38 | `feat/local-api` | planned |
+| B38 | `feat/local-api` | done |
 | B39 | `feat/desktop-notifications` | planned |
 | B40 | `feat/desktop-shell` | planned |
