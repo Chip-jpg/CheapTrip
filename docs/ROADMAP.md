@@ -1,14 +1,26 @@
 # CheapTrip — Status Report & Branch Roadmap
 
-## Where things stand (end of Round 5)
+## Where things stand (end of Round 6, release v0.6.0)
 
-Every card below (B01–B33) is merged into `main`; the progress tracker at the end has the details. In short:
+Every card below (B01–B36) is merged into `main`, and v0.6.0 is published on GitHub Releases with a Windows installer. The progress tracker at the end has the details. In short:
 
-- **Data:** Ryanair's fare API is the backbone (about 700 fares per cycle), Google Flights adds exact-route searches with a cooldown when Google throttles (kept in the database, so it holds across separate runs), and Travelpayouts is ready once a token is set. PiratinViaggio posts (flights, packages, hotels) are read by Claude when an Anthropic key is set.
-- **Alerts:** a fare is instant when it is well below the usual price for its route, length and month (each fare counts once, at its latest price), or for a priority destination, a possible error fare, or a fare under the €25/€250 backstop. Near-duplicates merge, and a known deal alerts again only after a real price drop.
-- **Control:** Telegram commands (`/deals`, `/mute`, `/priority`, `/budget`, `/pause`), any home airport, `main.py doctor` and a Docker healthcheck. `doctor`, `test-alert` and `read-feed` check a first run with real keys.
-- **Found in the Round 5 dry run (10 cycles):** with honest counting, baselines are sparse. Ryanair returns the cheapest fare per destination for the same date windows every cycle, so after cycle 2 no new fares arrive until the windows slide the next day. Only 6 of 494 route/length/month keys reached 6 different fares; most hold 2. Comparing a fare with the same route and length departing within ±30 days would give 37% of fares a baseline (±21 days: 21%). This is the next decision.
-- **Still open:** sparse baselines (above), real hotel prices (flight alerts link a Booking.com search instead; the Hotellook hotel API that Travelpayouts offered no longer answers), and the first live run with the owner's keys.
+- **Install:**
+  - **Windows:** one setup `.exe` from the [releases](https://github.com/Chip-jpg/CheapTrip/releases), with no admin rights needed. Its wizard asks for the Telegram bot, the optional keys and the home airports, and it adds Start menu shortcuts and starts at sign-in.
+  - **Elsewhere:** Python or Docker, as before.
+  - CI builds the installer, installs it and runs the installed app on Windows for every change.
+- **Data:** Ryanair's fare API is the backbone (about 700 fares per cycle). Google Flights adds exact-route searches and pauses after a block, even across separate runs. Travelpayouts is ready once a token is set. PiratinViaggio posts (flights, packages, hotels) are read by Claude when an Anthropic key is set.
+- **Alerts:** a fare is instant in any of these cases:
+  - it is well below the usual price for its route and trip length, among fares departing within 30 days either side (each fare counts once, at its latest price). In a 10-cycle dry run, a third to a half of trips had a usual price from the third cycle on;
+  - it's for a priority destination;
+  - it's a possible error fare;
+  - it's under the €25/€250 backstop.
+
+  Near-duplicates merge, and a known deal alerts again only after a real price drop.
+- **Control:** Telegram commands (`/deals`, `/mute`, `/priority`, `/budget`, `/pause`), any home airport, `doctor`, `test-alert`, `read-feed`, and a Docker healthcheck.
+- **Still open:**
+  - real hotel prices: flight alerts link a Booking.com search instead;
+  - the first live run with the owner's keys;
+  - a code-signing certificate, so Windows SmartScreen stops warning about the installer.
 
 The rest of this document is the original review and plan; its "Status at a glance" section describes the code before Round 1.
 
@@ -338,4 +350,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B33 | `fix/holiday-pirates-hotel-id` | done |
 | B34 | `feat/baseline-30-day-window` | done |
 | B35 | `feat/windows-support` | done |
-| B36 | `feat/windows-installer` | planned |
+| B36 | `feat/windows-installer` | done (released as v0.6.0) |
