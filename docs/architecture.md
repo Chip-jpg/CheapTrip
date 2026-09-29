@@ -65,6 +65,28 @@ The pause state and the mute, priority and budget overrides live in `control.py`
 
 `main.py run` (and Docker) is `Engine().run()`, which stops cleanly on SIGTERM or SIGINT; stopping cancels a running search. The last completed cycle time is still recorded for `main.py healthcheck`.
 
+## The local API (`api/`)
+
+The desktop app's screens read JSON from a small aiohttp server (`api/server.py`) running on the engine's event loop. `main.py ui` starts it with the engine and opens the browser.
+
+**Protection:**
+- it listens on `127.0.0.1` only;
+- every `/api` request needs the launch's random token, as a cookie set when the app opens `/?token=…`, or a Bearer header;
+- requests for any other Host are refused, which blocks DNS rebinding;
+- there are no CORS headers.
+
+| Route (`/api/v1`) | For |
+|---|---|
+| `GET /status` | Top bar: state, next and last search, learning progress, attention |
+| `GET /deals` | Deals: unusually cheap and best of the rest, with filters and sorting |
+| `GET /deals/{id}`, `POST /deals/{id}/hide` | Deal detail, with both charts' data (`storage/price_analytics.fare_comparison`) |
+| `GET /destinations?tab=`, `POST`/`DELETE /destinations/{code}/priority\|mute`, `GET /airports?q=` | Destinations; the same overrides as Telegram's `/priority` and `/mute` |
+| `GET /activity` | Sources, alerts log, search history |
+| `GET`/`PUT /settings` | Settings: `.env` (keys masked) and the preferences YAML (comments kept), applied live (`api/settings_io.py`) |
+| `GET /setup/checks`, `POST /setup/test-telegram` | First-run checks (`utils/doctor.py`) |
+| `POST /engine/search-now`, `/pause`, `/resume` | Controls |
+| `GET /events` | Server-sent events from the event bus |
+
 ## Key design decisions
 
 ### No AI for prices

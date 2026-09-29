@@ -51,11 +51,21 @@ _aggregator: Optional[ScraperAggregator] = None
 _planner = SearchPlanner()
 
 
-def _get_aggregator() -> ScraperAggregator:
+def get_aggregator() -> ScraperAggregator:
+    """The scrapers the scheduled searches use, built on first use."""
     global _aggregator
     if _aggregator is None:
         _aggregator = ScraperAggregator()
     return _aggregator
+
+
+_get_aggregator = get_aggregator
+
+
+def reset_aggregator() -> None:
+    """Rebuild the scrapers on the next search (their settings or keys changed)."""
+    global _aggregator
+    _aggregator = None
 
 
 async def init_notifier() -> None:
@@ -161,6 +171,7 @@ async def run_pipeline_cycle(
         # ── Build trips ───────────────────────────────────────────────────────
         trips = collapse_similar(await build_trips(flight_legs, hotel_deals))
         stats["trips"] = len(trips)
+        stats["with_usual_price"] = sum(1 for t in trips if t.normal_price_eur is not None)
         new_instant: List[Trip] = []
         new_digest: List[Trip] = []
         if trips:

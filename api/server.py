@@ -1,0 +1,508 @@
+"""
+The desktop app's local API (B38).
+
+Serves JSON for every screen, live events, and the app's UI files, on
+127.0.0.1 only. Protection against other programs and web pages:
+
+- a random token per launch, required on every /api request (a cookie set
+  when the app opens `/?token=...`, or an `Authorization: Bearer` header);
+- requests whose Host isn't this server's own address are refused, so a web
+  page can't reach it through DNS rebinding;
+- no CORS headers, so other origins can't read responses.
+
+Routes (all under /api/v1):
+
+  GET  /status                         top bar: state, next/last search, learning progress, attention
+  GET  /deals                          Deals: unusually cheap + best of the rest, with filters
+  GET  /deals/{id}                     Deal detail, with both charts' data
+  POST /deals/{id}/hide
+  GET  /destinations?tab=priority|muted|seen
+  POST|DELETE /destinations/{code}/priority|mute
+  GET  /airports?q=                    autocomplete
+  GET  /activity                       sources, alerts log, search history
+  GET  /settings   PUT /settings
+  GET  /setup/checks                   the doctor checks
+  POST /setup/test-telegram
+  POST /engine/search-now   /engine/pause   /engine/resume
+  GET  /events                         server-sent events from the engine
+"""
+from __future__ import annotations
+
+import asyncio
+import dataclasses
+import json
+import secrets
+import signal
+import webbrowser
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
+
+from aiohttp import web
+
+import control
+from api.records import deal_record, destination_rows, matches, place
+from api.settings_io import SOURCE_SWITCHES, apply_settings, read_settings
+from config import get_settings
+from preferences import get_preferences
+from scrapers.health_monitor import get_health_monitor
+from storage.database import (
+    alert_log,
+    count_alerts_sent_last_hour,
+    count_pending_instants,
+    get_deal,
+    get_recent_deals,
+    hide_deal,
+    latest_alerts_for,
+    recent_cycles,
+    seen_fares,
+)
+from storage.models import AlertTier
+from storage.price_analytics import fare_comparison
+from utils import airports
+from utils.events import get_event_bus
+from utils.logging_config import get_logger
+from utils.paths import bundle_dir
+from utils.timeutil import utcnow
+from utils.version import __version__
+
+log = get_logger(__name__)
+
+API = "/api/v1"
+TOKEN_COOKIE = "cheaptrip_token"
+
+ENGINE = web.AppKey("engine", object)
+TOKEN = web.AppKey("token", str)
+STATIC_DIR = web.AppKey("static_dir", object)
+CLOSING = web.AppKey("closing", asyncio.Event)
+SSE_PING_S = 15
+PAUSE_INDEFINITELY_DAYS = 3650
+PROBLEM_STATUSES = ("FAILING", "STALE", "DEGRADED")
+
+# Which Settings switch turns each source on or off (None: always on, or on when its key is set)
+SWITCH_OF = {
+    "ryanair": "enable_ryanair", "piratinviaggio": "enable_piratinviaggio",
+    "piratinviaggio_hotels": "enable_piratinviaggio", "skyscanner_api": "enable_skyscanner",
+    "google_hotels": "enable_google_hotels", "booking_com_api": "enable_booking_html",
+    "secret_flying": "enable_secret_flying", "going": "enable_going",
+    "holiday_pirates": "enable_holiday_pirates", "holiday_pirates_hotels": "enable_holiday_pirates",
+}
+assert set(SWITCH_OF.values()) <= set(SOURCE_SWITCHES)
+
+_FALLBACK_PAGE = """<!doctype html><meta charset="utf-8"><title>CheapTrip</title>
+<body style="font-family: system-ui; max-width: 40rem; margin: 3rem auto">
+<h1>CheapTrip is running</h1>
+<p>The app's screens haven't been built in this copy (run <code>npm ci &amp;&amp; npm run build</code> in
+<code>ui/</code>). The API is at <a href="/api/v1/status">/api/v1/status</a>.</p></body>"""
+
+
+def _json(data: Any, status: int = 200) -> web.Response:
+    return web.json_response(data, status=status, dumps=lambda d: json.dumps(d, default=str))
+
+
+def _error(message: str, status: int) -> web.Response:
+    return _json({"error": message}, status=status)
+
+
+def ui_dir() -> Optional[Path]:
+    """The built UI (ui/dist, bundled into the Windows app), when there is one."""
+    path = bundle_dir() / "ui" / "dist"
+    return path if (path / "index.html").exists() else None
+
+
+# ── Guard ─────────────────────────────────────────────────────────────────────
+
+def _own_hosts(request: web.Request) -> set:
+    sockname = request.transport.get_extra_info("sockname") if request.transport else None
+    port = sockname[1] if sockname else None
+    return {f"127.0.0.1:{port}", f"localhost:{port}"}
+
+
+@web.middleware
+async def guard(request: web.Request, handler) -> web.StreamResponse:
+    if request.headers.get("Host", "") not in _own_hosts(request):
+        return _error("forbidden host", 403)
+    if request.path.startswith("/api/"):
+        supplied = request.cookies.get(TOKEN_COOKIE) or request.headers.get("Authorization", "")
+        supplied = supplied.removeprefix("Bearer ").strip()
+        if not supplied or not secrets.compare_digest(supplied, request.app[TOKEN]):
+            return _error("open CheapTrip from the app (missing or wrong token)", 401)
+    try:
+        return await handler(request)
+    except web.HTTPException:
+        raise
+    except ValueError as exc:  # bad input (pydantic's ValidationError is a ValueError too)
+        return _error(str(exc), 400)
+    except Exception as exc:
+        log.error("api_error", path=request.path, error=str(exc), exc_info=True)
+        return _error("something went wrong; see the log", 500)
+
+
+# ── UI files ──────────────────────────────────────────────────────────────────
+
+async def index(request: web.Request) -> web.StreamResponse:
+    token = request.query.get("token")
+    if token is not None:
+        if not secrets.compare_digest(token, request.app[TOKEN]):
+            return _error("wrong token", 401)
+        response = web.HTTPFound("/")  # drop the token from the address bar
+        response.set_cookie(TOKEN_COOKIE, token, httponly=True, samesite="Strict", path="/")
+        raise response
+    static = request.app[STATIC_DIR]
+    if static is None:
+        return web.Response(text=_FALLBACK_PAGE, content_type="text/html")
+    return web.FileResponse(static / "index.html")
+
+
+async def static_file(request: web.Request) -> web.StreamResponse:
+    static = request.app[STATIC_DIR]
+    if static is None:
+        raise web.HTTPNotFound()
+    target = (static / request.match_info["path"]).resolve()
+    if not target.is_relative_to(static.resolve()) or not target.is_file():
+        return web.FileResponse(static / "index.html")  # client-side routes
+    return web.FileResponse(target)
+
+
+# ── Status and deals ──────────────────────────────────────────────────────────
+
+async def status(request: web.Request) -> web.Response:
+    engine = request.app[ENGINE]
+    snapshot = await engine.status()
+    settings = get_settings()
+    last = snapshot["last_cycle"]
+    attention: List[str] = []
+    if last and last["status"] == "failed":
+        attention.append(f"The last search failed: {last['error']}")
+    for health in await get_health_monitor().get_health_report():
+        if health.status in PROBLEM_STATUSES:
+            attention.append(f"{health.source_id}: {health.status.lower()}")
+    if snapshot["state"] == "running" and attention:
+        snapshot["state"] = "attention"
+    return _json({
+        **snapshot,
+        "attention": attention,
+        "learning": {"trips": last["trips"], "with_usual_price": last["with_usual_price"]} if last else None,
+        "telegram_configured": bool(settings.telegram_bot_token and settings.telegram_chat_id),
+        "timezone": settings.timezone,
+        "version": __version__,
+    })
+
+
+def _filters(request: web.Request) -> Dict[str, Any]:
+    query = request.query
+
+    def listed(name: str) -> List[str]:
+        return [v for v in query.get(name, "").split(",") if v]
+
+    return {
+        "types": listed("types"), "lengths": listed("lengths"),
+        "max_price": float(query["max_price"]) if query.get("max_price") else None,
+        "date_from": query.get("from"), "date_to": query.get("to"), "q": query.get("q"),
+        "priority_only": query.get("priority_only") in ("1", "true"),
+    }
+
+
+_SORTS = {
+    "price": lambda r: (r["price"], r["depart_date"] or ""),
+    "discount": lambda r: (-(r["discount_pct"] or 0), r["price"]),
+    "date": lambda r: (r["depart_date"] or "9999", r["price"]),
+}
+
+
+async def deals(request: web.Request) -> web.Response:
+    rows = await get_recent_deals(hours=24)
+    prefs = get_preferences()
+    notified = await latest_alerts_for([row.trip.hash for row in rows])
+    records = [deal_record(row, prefs, notified.get(row.trip.hash)) for row in rows]
+    filters = _filters(request)
+
+    instant_all = [r for r in records if r["tier"] == "instant"]
+    instant = sorted((r for r in instant_all if matches(r, filters)), key=_SORTS["discount"])
+    best_per_route: Dict[str, Dict[str, Any]] = {}
+    for record in records:
+        if record["tier"] == "digest":
+            current = best_per_route.get(record["route"])
+            if current is None or record["price"] < current["price"]:
+                best_per_route[record["route"]] = record
+    sort = _SORTS.get(request.query.get("sort", "price"), _SORTS["price"])
+    digest = sorted((r for r in best_per_route.values() if matches(r, filters)), key=sort)
+
+    finished = [c for c in await recent_cycles(limit=5) if c["status"] != "running"]
+    best = min(records, key=lambda r: r["price"]) if records else None
+    return _json({
+        "summary": {
+            "unusually_cheap": len(instant_all),
+            "best": {"id": best["id"], "route": best["route"], "price": best["price"]} if best else None,
+            "last_search": {"at": finished[0]["finished_at"], "fares": finished[0]["fares"]} if finished else None,
+        },
+        "instant": instant,
+        "digest": digest,
+    })
+
+
+async def deal_detail(request: web.Request) -> web.Response:
+    row = await get_deal(request.match_info["id"])
+    if row is None:
+        return _error("no such deal", 404)
+    notified = await latest_alerts_for([row.trip.hash])
+    record = deal_record(row, get_preferences(), notified.get(row.trip.hash))
+    leg = row.trip.outbound_flight
+    record["comparison"] = await fare_comparison(leg) if leg and leg.departure_date and not leg.is_feed_deal else None
+    record["verdict"] = row.trip.verdict
+    record["feasibility_notes"] = list(row.trip.feasibility_notes)
+    return _json(record)
+
+
+async def deal_hide(request: web.Request) -> web.Response:
+    deal_id = request.match_info["id"]
+    if not await hide_deal(deal_id):
+        return _error("no such deal", 404)
+    get_event_bus().publish("deal_hidden", id=deal_id)
+    return _json({"id": deal_id, "hidden": True})
+
+
+# ── Destinations ──────────────────────────────────────────────────────────────
+
+_BLANK_STATS = {"best_price": None, "best_depart": None, "usual_price": None, "fares": 0, "last_seen": None}
+
+
+async def destinations(request: web.Request) -> web.Response:
+    tab = request.query.get("tab", "seen")
+    prefs = get_preferences()
+    stats = destination_rows(await seen_fares(utcnow() - timedelta(days=30)))
+
+    def row(code: str) -> Dict[str, Any]:
+        return {**_BLANK_STATS, **place(code), **stats.get(code, {}), "code": code,
+                "is_priority": code in prefs.priority_destinations, "is_muted": code in prefs.excluded_destinations}
+
+    if tab == "priority":
+        codes = prefs.priority_destinations
+    elif tab == "muted":
+        codes = prefs.excluded_destinations
+    elif tab == "seen":
+        codes = sorted(stats, key=lambda c: stats[c]["best_price"])
+    else:
+        return _error("tab must be priority, muted or seen", 400)
+    return _json({"tab": tab, "destinations": [row(code) for code in codes]})
+
+
+async def destination_toggle(request: web.Request) -> web.Response:
+    code = control.airport_code(request.match_info["code"])
+    if code is None:
+        return _error("unknown airport code", 400)
+    on = request.method == "POST"
+    if request.match_info["what"] == "priority":
+        await control.set_priority(code, on)
+    else:
+        await control.set_muted(code, on)
+    prefs = get_preferences()
+    return _json({**place(code), "is_priority": code in prefs.priority_destinations,
+                  "is_muted": code in prefs.excluded_destinations})
+
+
+async def airport_search(request: web.Request) -> web.Response:
+    found = airports.search(request.query.get("q", ""), limit=int(request.query.get("limit", 8)))
+    return _json([{"code": a.iata, "name": a.name, "city": a.city, "country": a.country} for a in found])
+
+
+# ── Activity ──────────────────────────────────────────────────────────────────
+
+async def activity(request: web.Request) -> web.Response:
+    engine = request.app[ENGINE]
+    health = {h.source_id: h for h in await get_health_monitor().get_health_report()}
+    sources = []
+    for scraper in engine.sources:
+        h = health.get(scraper.source_id)
+        sources.append({
+            "id": scraper.source_id,
+            "enabled": bool(scraper.enabled),
+            "reason": getattr(scraper, "disabled_reason", None),
+            "status": h.status if h else ("DISABLED" if not scraper.enabled else "UNKNOWN"),
+            "last_count": h.last_count if h else None,
+            "last_run_at": h.last_run_at if h else None,
+            "last_success_at": h.last_success_at if h else None,
+            "last_error": h.last_error if h else None,
+            "consecutive_failures": h.consecutive_failures if h else 0,
+            "switch": SWITCH_OF.get(scraper.source_id),
+        })
+    return _json({
+        "sources": sources,
+        "alerts": {
+            "log": await alert_log(limit=50),
+            "per_hour_limit": get_settings().instant_alerts_per_hour,
+            "sent_last_hour": await count_alerts_sent_last_hour(AlertTier.INSTANT),
+            "waiting": await count_pending_instants(),
+        },
+        "searches": await recent_cycles(limit=30),
+    })
+
+
+# ── Settings and setup ────────────────────────────────────────────────────────
+
+async def settings_get(request: web.Request) -> web.Response:
+    return _json(read_settings())
+
+
+async def settings_put(request: web.Request) -> web.Response:
+    result = await apply_settings(await request.json(), request.app[ENGINE])
+    return _json({**result, "settings": read_settings()})
+
+
+async def setup_checks(request: web.Request) -> web.Response:
+    from utils.doctor import run_checks
+
+    return _json({"checks": [dataclasses.asdict(check) for check in await run_checks()]})
+
+
+async def setup_test_telegram(request: web.Request) -> web.Response:
+    from utils.doctor import send_test_message
+
+    sent, detail = await send_test_message()
+    return _json({"sent": sent, "detail": detail}, status=200 if sent else 502)
+
+
+# ── Engine controls ───────────────────────────────────────────────────────────
+
+async def search_now(request: web.Request) -> web.Response:
+    return _json({"started": await request.app[ENGINE].search_now()})
+
+
+def _pause_end(body: Dict[str, Any]) -> Dict[str, Any]:
+    if "hours" in body:
+        return {"hours": float(body["hours"])}
+    if body.get("until") == "tomorrow":  # tomorrow morning, local time
+        tz = ZoneInfo(get_settings().timezone)
+        morning = (datetime.now(tz) + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+        return {"until": morning.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)}
+    if body.get("until") == "resume":  # until the user resumes
+        return {"hours": PAUSE_INDEFINITELY_DAYS * 24}
+    raise ValueError('pause needs {"hours": n}, {"until": "tomorrow"} or {"until": "resume"}')
+
+
+async def pause(request: web.Request) -> web.Response:
+    until = await request.app[ENGINE].pause(**_pause_end(await request.json()))
+    return _json({"paused_until": until.isoformat()})
+
+
+async def resume(request: web.Request) -> web.Response:
+    await request.app[ENGINE].resume()
+    return _json({"paused_until": None})
+
+
+# ── Live events ───────────────────────────────────────────────────────────────
+
+async def events(request: web.Request) -> web.StreamResponse:
+    response = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache"})
+    await response.prepare(request)
+    closing = request.app[CLOSING]
+    loop = asyncio.get_running_loop()
+    with get_event_bus().subscribe() as queue:
+        try:
+            await response.write(b": connected\n\n")
+            last_write = loop.time()
+            while not closing.is_set():  # wakes every second to notice the app closing
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    if loop.time() - last_write >= SSE_PING_S:
+                        await response.write(b": ping\n\n")
+                        last_write = loop.time()
+                    continue
+                payload = json.dumps(event, default=str)
+                await response.write(f"event: {event['type']}\ndata: {payload}\n\n".encode())
+                last_write = loop.time()
+        except (ConnectionResetError, RuntimeError):  # the screen closed
+            pass
+    return response
+
+
+# ── App ───────────────────────────────────────────────────────────────────────
+
+async def _on_shutdown(app: web.Application) -> None:
+    app[CLOSING].set()  # ends open event streams
+
+
+def create_app(engine: Any, token: str, static_dir: Optional[Path] = None) -> web.Application:
+    app = web.Application(middlewares=[guard])
+    app[ENGINE] = engine
+    app[TOKEN] = token
+    app[STATIC_DIR] = static_dir
+    app[CLOSING] = asyncio.Event()
+    app.on_shutdown.append(_on_shutdown)
+    app.router.add_get(f"{API}/status", status)
+    app.router.add_get(f"{API}/deals", deals)
+    app.router.add_get(f"{API}/deals/{{id}}", deal_detail)
+    app.router.add_post(f"{API}/deals/{{id}}/hide", deal_hide)
+    app.router.add_get(f"{API}/destinations", destinations)
+    app.router.add_route("POST", f"{API}/destinations/{{code}}/{{what:priority|mute}}", destination_toggle)
+    app.router.add_route("DELETE", f"{API}/destinations/{{code}}/{{what:priority|mute}}", destination_toggle)
+    app.router.add_get(f"{API}/airports", airport_search)
+    app.router.add_get(f"{API}/activity", activity)
+    app.router.add_get(f"{API}/settings", settings_get)
+    app.router.add_put(f"{API}/settings", settings_put)
+    app.router.add_get(f"{API}/setup/checks", setup_checks)
+    app.router.add_post(f"{API}/setup/test-telegram", setup_test_telegram)
+    app.router.add_post(f"{API}/engine/search-now", search_now)
+    app.router.add_post(f"{API}/engine/pause", pause)
+    app.router.add_post(f"{API}/engine/resume", resume)
+    app.router.add_get(f"{API}/events", events)
+    app.router.add_get("/", index)
+    app.router.add_get("/{path:.+}", static_file)
+    return app
+
+
+class ApiServer:
+    """The API and UI on 127.0.0.1, on a free port unless one is given."""
+
+    def __init__(self, engine: Any, token: Optional[str] = None, static_dir: Optional[Path] = None) -> None:
+        self.token = token or secrets.token_urlsafe(24)
+        self.app = create_app(engine, self.token, static_dir)
+        self.port: Optional[int] = None
+        self._runner: Optional[web.AppRunner] = None
+
+    async def start(self, port: int = 0) -> int:
+        self._runner = web.AppRunner(self.app, access_log=None)
+        await self._runner.setup()
+        await web.TCPSite(self._runner, "127.0.0.1", port).start()
+        self.port = self._runner.addresses[0][1]
+        log.info("api_started", port=self.port)
+        return self.port
+
+    @property
+    def url(self) -> str:
+        """The address that opens the app, token included."""
+        return f"http://127.0.0.1:{self.port}/?token={self.token}"
+
+    async def stop(self) -> None:
+        if self._runner is not None:
+            await self._runner.cleanup()
+            self._runner = None
+
+
+async def run_ui(port: int = 0, open_browser: bool = True) -> None:
+    """`main.py ui`: the engine plus the API and UI in your browser, until Ctrl-C."""
+    from scheduler.engine import Engine
+
+    engine = Engine()
+    server = ApiServer(engine, static_dir=ui_dir())
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except (NotImplementedError, RuntimeError):
+            pass
+    try:
+        await engine.start()
+        await server.start(port)
+        print(f"CheapTrip is running at {server.url}\nPress Ctrl+C to stop.", flush=True)
+        if open_browser:
+            webbrowser.open(server.url)
+        await stop.wait()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await server.stop()
+        await engine.stop()

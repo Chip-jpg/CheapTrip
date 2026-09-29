@@ -151,6 +151,7 @@ python main.py digest         # send the digest now
 python main.py doctor         # configuration check (exit 1 on blocking problems)
 python main.py test-alert     # send a test message with the current top deals to Telegram
 python main.py read-feed      # show what Claude reads from the newest PiratinViaggio posts (saves nothing)
+python main.py ui             # the engine plus the app's screens in your browser (local, token-protected)
 python main.py health         # per-source health (OK / DEGRADED / FAILING / DISABLED and why)
 python main.py healthcheck    # exit 1 if no cycle completed recently (Docker healthcheck)
 python main.py status         # database statistics

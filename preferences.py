@@ -115,3 +115,33 @@ def merge_overrides(prefs: UserPreferences, overrides: Dict[str, Any]) -> UserPr
 @lru_cache(maxsize=1)
 def get_preferences() -> UserPreferences:
     return merge_overrides(load_preferences(preferences_path()), _overrides)
+
+
+def save_preferences(updates: Dict[str, Any], path: Optional[Path] = None) -> Path:
+    """
+    Write preference values to the YAML file (B38: the app's Settings screen),
+    keeping its comments and the order of its keys. Unknown keys are refused;
+    values are validated as UserPreferences first. Clears the cached preferences.
+    """
+    from ruamel.yaml import YAML
+
+    unknown = set(updates) - set(UserPreferences.model_fields)
+    if unknown:
+        raise ValueError(f"unknown preferences: {', '.join(sorted(unknown))}")
+    path = path or preferences_path()
+    yaml = YAML()  # round-trip: comments and layout survive
+    yaml.preserve_quotes = True
+    data = yaml.load(path.read_text(encoding="utf-8-sig")) if path.exists() else None
+    if data is None:
+        from ruamel.yaml.comments import CommentedMap
+
+        data = CommentedMap()
+    UserPreferences(**{**{k: v for k, v in data.items() if k in UserPreferences.model_fields and v is not None},
+                       **{k: v for k, v in updates.items() if v is not None}})  # raises on bad values
+    for key, value in updates.items():
+        data[key] = value
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        yaml.dump(data, f)
+    get_preferences.cache_clear()
+    return path
