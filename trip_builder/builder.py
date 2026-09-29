@@ -206,9 +206,8 @@ def _build_flight_only_trip(leg: FlightLeg, price_index: PriceIndex) -> Optional
     )
     trip.compute_totals()
 
-    # Possible error fare: flagged by the source, or under 40% of the route's usual price
-    far_below_usual = bool(normal and leg.price_eur < normal * 0.40)
-    if leg.is_error_fare_hint or far_below_usual:
+    # Possible error fare: flagged by the source, or far under a well-established usual price
+    if leg.is_error_fare_hint or anomaly.is_possible_error_fare:
         trip.is_error_fare = True
         trip.deal_type = DealType.ERROR_FARE
 

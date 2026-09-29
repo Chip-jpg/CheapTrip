@@ -12,6 +12,12 @@ at least MIN_CYCLES earlier cycles within LOOKBACK_DAYS. A fare is an
 anomaly when it is PRICE_ANOMALY_MIN_DROP_PCT below the baseline median,
 or a new low (NEW_LOW_MARGIN under the cheapest earlier observation).
 Deal-feed posts and undated fares are never recorded or judged.
+
+"Possible error fare" asks for more: a baseline of at least
+ERROR_FARE_MIN_SAMPLES fares recorded on ERROR_FARE_MIN_DAYS different days,
+and a fare at most ERROR_FARE_MAX_RATIO of its median and at least
+ERROR_FARE_MIN_SAVING_EUR under it. A few hours of history, or a short-haul
+fare that is merely cheap (€30 against a usual €79), doesn't qualify.
 """
 from __future__ import annotations
 
@@ -34,6 +40,11 @@ LOOKBACK_DAYS = 30
 MIN_SAMPLES = 6
 MIN_CYCLES = 2
 NEW_LOW_MARGIN = 0.05
+
+ERROR_FARE_MAX_RATIO = 0.35
+ERROR_FARE_MIN_SAVING_EUR = 100.0
+ERROR_FARE_MIN_SAMPLES = 20
+ERROR_FARE_MIN_DAYS = 3
 
 
 @dataclass(frozen=True)
@@ -75,12 +86,19 @@ class Baseline:
     low: float
     samples: int
     cycles: int
+    days: int  # distinct days the fares were recorded on
+
+    @property
+    def is_established(self) -> bool:
+        """Enough history, spread over enough days, to call a fare a likely pricing mistake."""
+        return self.samples >= ERROR_FARE_MIN_SAMPLES and self.days >= ERROR_FARE_MIN_DAYS
 
 
 @dataclass
 class AnomalyResult:
     is_anomaly: bool = False
     is_all_time_low: bool = False
+    is_possible_error_fare: bool = False
     deviation_pct: Optional[float] = None  # vs the baseline median; negative = cheaper
     normal_price: Optional[float] = None   # the baseline median, when there is one
     description: Optional[str] = None
@@ -89,14 +107,17 @@ class AnomalyResult:
 class PriceIndex:
     """Baselines per key, built from earlier cycles' observations."""
 
-    def __init__(self, observations: Iterable[Tuple[PriceKey, float, str]]) -> None:
+    def __init__(self, observations: Iterable[Tuple[PriceKey, float, str, str]]) -> None:
+        """Observations are (key, price, cycle id, day recorded as YYYY-MM-DD)."""
         prices: Dict[PriceKey, List[float]] = {}
         cycles: Dict[PriceKey, Set[str]] = {}
-        for key, price, cycle_id in observations:
+        days: Dict[PriceKey, Set[str]] = {}
+        for key, price, cycle_id, day in observations:
             prices.setdefault(key, []).append(price)
             cycles.setdefault(key, set()).add(cycle_id)
+            days.setdefault(key, set()).add(day)
         self._baselines: Dict[PriceKey, Baseline] = {
-            key: Baseline(statistics.median(values), min(values), len(values), len(cycles[key]))
+            key: Baseline(statistics.median(values), min(values), len(values), len(cycles[key]), len(days[key]))
             for key, values in prices.items()
             if len(values) >= MIN_SAMPLES and len(cycles[key]) >= MIN_CYCLES
         }
@@ -105,7 +126,7 @@ class PriceIndex:
     async def load(cls, exclude_cycle: str) -> "PriceIndex":
         since = utcnow() - timedelta(days=LOOKBACK_DAYS)
         rows = await load_price_history(since, exclude_cycle)
-        index = cls((PriceKey(*row[:5]), row[5], row[6]) for row in rows)
+        index = cls((PriceKey(*row[:5]), row[5], row[6], row[7]) for row in rows)
         log.info("price_index_loaded", observations=len(rows), baselines=len(index._baselines))
         return index
 
@@ -130,6 +151,11 @@ class PriceIndex:
         if reasons:
             result.is_anomaly = True
             result.description = "; ".join(reasons)
+        result.is_possible_error_fare = (
+            base.is_established
+            and leg.price_eur <= base.median * ERROR_FARE_MAX_RATIO
+            and base.median - leg.price_eur >= ERROR_FARE_MIN_SAVING_EUR
+        )
         return result
 
 

@@ -397,17 +397,21 @@ async def record_prices(rows: Sequence[PriceRow], cycle_id: str) -> None:
         await db.commit()
 
 
-async def load_price_history(since: datetime, exclude_cycle: str) -> List[Tuple[str, str, str, str, str, float, str]]:
+async def load_price_history(
+    since: datetime, exclude_cycle: str,
+) -> List[Tuple[str, str, str, str, str, float, str, str]]:
     """
     Keyed observations recorded since `since`, excluding one cycle:
-    (origin_city, dest_city, trip_type, nights_bucket, depart_month, price_eur, cycle_id).
+    (origin_city, dest_city, trip_type, nights_bucket, depart_month, price_eur, cycle_id, day),
+    where day is the YYYY-MM-DD the fare was recorded on.
     Rows from before the keyed schema (NULL keys) are ignored.
     """
     path = await get_db_path()
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
             """
-            SELECT origin_city, dest_city, trip_type, nights_bucket, depart_month, price_eur, cycle_id
+            SELECT origin_city, dest_city, trip_type, nights_bucket, depart_month, price_eur, cycle_id,
+                   substr(recorded_at, 1, 10)
             FROM price_history
             WHERE recorded_at >= ? AND cycle_id IS NOT NULL AND cycle_id != ?
               AND origin_city IS NOT NULL AND depart_month IS NOT NULL
