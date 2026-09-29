@@ -156,7 +156,10 @@ export interface DealFilters {
 export interface Destination extends Place {
   best_price: number | null;
   best_depart: string | null;
+  best_return: string | null;
+  best_route: string | null; // "BGY-KRK"
   usual_price: number | null;
+  trend: { day: string; price: number }[]; // the cheapest fare seen each day
   fares: number;
   last_seen: string | null;
   is_priority: boolean;
@@ -279,6 +282,23 @@ export interface Check {
   detail: string;
 }
 
+export type PreviewKind = "deal" | "error_fare" | "digest" | "notice" | "test";
+
+export interface NotificationPreview {
+  kind: PreviewKind;
+  example: boolean; // made up, to show what it would look like (e.g. no source is failing)
+  title: string;
+  message: string;
+  buttons: string[];
+  image: string | null;
+}
+
+export interface NotificationPreviews {
+  previews: NotificationPreview[];
+  desktop: { available: boolean; on: boolean; sound: boolean };
+  app_id: string;
+}
+
 export type PauseChoice = { hours: number } | { until: "tomorrow" | "resume" };
 
 /** What the engine announces on /events (utils/events.py): every event has a type. */
@@ -351,8 +371,10 @@ export const api = {
 
   checks: () => request<{ checks: Check[] }>("GET", "/setup/checks"),
   testTelegram: () => request<{ sent: boolean; detail: string }>("POST", "/setup/test-telegram"),
-  testNotification: (channel?: "desktop" | "telegram") =>
-    request<{ sent: Record<string, boolean> }>("POST", "/setup/test-notification", channel ? { channel } : {}),
+  testNotification: (channel?: "desktop" | "telegram", kind?: PreviewKind) =>
+    request<{ sent: Record<string, boolean> }>("POST", "/setup/test-notification",
+      { ...(channel ? { channel } : {}), ...(kind ? { kind } : {}) }),
+  notificationPreviews: () => request<NotificationPreviews>("GET", "/notifications/previews"),
 
   searchNow: () => request<{ started: boolean }>("POST", "/engine/search-now"),
   pause: (choice: PauseChoice) => request<{ paused_until: string }>("POST", "/engine/pause", choice),
@@ -360,6 +382,7 @@ export const api = {
 
   quitApp: () => request<{ quitting: boolean }>("POST", "/app/quit"),
   hideWindow: () => request<{ hidden: boolean }>("POST", "/app/hide"),
+  open: (what: "logs" | "data" | "notification-settings") => request<{ opened: string }>("POST", "/app/open", { what }),
 };
 
 const EVENT_TYPES = [

@@ -8,6 +8,7 @@ import { Activity } from "./screens/Activity";
 import { DealDetail } from "./screens/DealDetail";
 import { Deals } from "./screens/Deals";
 import { Destinations } from "./screens/Destinations";
+import { Notifications } from "./screens/Notifications";
 import { Settings } from "./screens/Settings";
 import { Setup } from "./screens/Setup";
 import { ThemeProvider } from "./theme";
@@ -33,13 +34,14 @@ function store(key: string, value: string): void {
 function screenFor(route: Route): ReactNode {
   switch (route.screen) {
     case "destinations":
-      return <div className="legacy"><Destinations /></div>;
+      return <Destinations focus={route.param?.toUpperCase()} />;
     case "activity":
-      return <div className="legacy"><Activity /></div>;
+      return <Activity />;
+    case "notifications":
+      return <Notifications />;
     case "settings":
       return <div className="legacy"><Settings /></div>;
     case "setup":
-    case "notifications":
       return <div className="legacy"><Setup /></div>;
     default:  // a deal's details slide over the list, which stays as it was
       return <><Deals />{route.dealId && <DealDetail id={route.dealId} />}</>;

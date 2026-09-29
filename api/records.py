@@ -165,23 +165,31 @@ def matches(record: Dict[str, Any], filters: Dict[str, Any]) -> bool:
 def destination_rows(fares: Sequence[Tuple[str, str, str, float, str]]) -> Dict[str, Dict[str, Any]]:
     """
     The Destinations screen's "All seen": per destination airport, the best
-    fare and its departure, the usual price (median of each fare's latest
-    price), how many different fares, and when it was last seen.
+    fare (its route and dates), the usual price (median of each fare's latest
+    price), how many different fares, when it was last seen, and the trend:
+    the cheapest fare seen each day.
     """
-    latest: Dict[str, Dict[str, Tuple[float, str, str]]] = {}
+    latest: Dict[str, Dict[str, Tuple[float, str, str, str, str]]] = {}
+    daily: Dict[str, Dict[str, float]] = {}
     for route, depart, ret, price, recorded_at in fares:
         dest = route.split("-", 1)[1] if "-" in route else route
-        latest.setdefault(dest, {})[f"{route} {depart} {ret}"] = (price, depart, recorded_at)
+        latest.setdefault(dest, {})[f"{route} {depart} {ret}"] = (price, depart, recorded_at, route, ret)
+        day = str(recorded_at)[:10]
+        days = daily.setdefault(dest, {})
+        days[day] = min(price, days.get(day, price))
     rows = {}
     for dest, by_fare in latest.items():
-        prices = [price for price, _, _ in by_fare.values()]
-        best_price, best_depart, _ = min(by_fare.values())
+        prices = [fare[0] for fare in by_fare.values()]
+        best_price, best_depart, _, best_route, best_return = min(by_fare.values())
         rows[dest] = {
             **place(dest),
             "best_price": best_price,
             "best_depart": best_depart,
+            "best_return": best_return or None,
+            "best_route": best_route,
             "usual_price": round(statistics.median(prices), 2),
             "fares": len(by_fare),
-            "last_seen": max(at for _, _, at in by_fare.values()),
+            "last_seen": max(fare[2] for fare in by_fare.values()),
+            "trend": [{"day": day, "price": price} for day, price in sorted(daily[dest].items())],
         }
     return rows

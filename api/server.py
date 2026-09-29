@@ -23,11 +23,15 @@ Routes (all under /api/v1):
   GET  /settings   PUT /settings
   GET  /setup/checks                   the doctor checks
   POST /setup/test-telegram
-  POST /setup/test-notification       {"channel": "desktop"|"telegram"} optional: all that are on
+  POST /setup/test-notification       {"channel": "desktop"|"telegram"} optional: all that are on;
+                                       {"kind": "deal"|"error_fare"|"digest"|"notice"}: that preview, on the desktop
+  GET  /notifications/previews         the notifications CheapTrip would show now, as Windows will show them
+  GET  /notifications/image/{name}     a preview's picture
   POST /engine/search-now   /engine/pause   /engine/resume
   GET  /events                         server-sent events from the engine
   POST /app/show   {"route": ...}      show the app's window (a second launch, a cheaptrip:// link)
   POST /app/hide                       hide the window to the tray (the desktop app)
+  POST /app/open   {"what": "logs"|"data"|"notification-settings"}  open a folder or Windows' settings
   POST /app/quit                       quit the app
 """
 from __future__ import annotations
@@ -37,6 +41,7 @@ import dataclasses
 import json
 import secrets
 import signal
+import sys
 import webbrowser
 from datetime import timedelta
 from pathlib import Path
@@ -49,6 +54,7 @@ from api.records import deal_record, destination_rows, matches, place
 from api.settings_io import SOURCE_SWITCHES, apply_settings, read_settings
 from config import get_settings
 from desktop.links import clean_route
+from desktop.windows import open_path
 from preferences import get_preferences
 from scrapers.health_monitor import get_health_monitor
 from storage.database import (
@@ -284,7 +290,8 @@ async def deal_hide(request: web.Request) -> web.Response:
 
 # ── Destinations ──────────────────────────────────────────────────────────────
 
-_BLANK_STATS = {"best_price": None, "best_depart": None, "usual_price": None, "fares": 0, "last_seen": None}
+_BLANK_STATS = {"best_price": None, "best_depart": None, "best_return": None, "best_route": None,
+                "usual_price": None, "fares": 0, "last_seen": None, "trend": []}
 
 
 async def destinations(request: web.Request) -> web.Response:
@@ -384,14 +391,82 @@ async def setup_test_telegram(request: web.Request) -> web.Response:
 
 async def setup_test_notification(request: web.Request) -> web.Response:
     body = await request.json() if request.can_read_body else {}
-    channel = body.get("channel")
+    channel, kind = body.get("channel"), body.get("kind")
     if channel not in (None, "desktop", "telegram"):
         raise ValueError('channel must be "desktop" or "telegram"')
     notifier = request.app[ENGINE].notifier
+    if kind not in (None, "test"):  # one of the Notifications screen's previews, on the desktop
+        desktop = getattr(notifier, "desktop", None)
+        if desktop is None or not get_settings().notify_desktop:
+            return _error("desktop notifications are off", 409)
+        toasts = await _preview_toasts(desktop)
+        if kind not in toasts:
+            raise ValueError(f"no {kind} notification to show right now")
+        toast, _ = toasts[kind]
+        return _json({"sent": {"desktop": await desktop.show(toast)}})
     results = await notifier.send_test(only=channel) if hasattr(notifier, "send_test") else {}
     if not results:
         return _error("no notification channel is on" + (f" for {channel}" if channel else ""), 409)
     return _json({"sent": results}, status=200 if any(results.values()) else 502)
+
+
+# ── Notifications (the Notifications screen) ──────────────────────────────────
+
+async def _preview_toasts(desktop: Any = None) -> Dict[str, Any]:
+    """{kind: (toast, is_example)}: what CheapTrip would show now, from today's deals and sources."""
+    from notifier.desktop import deal_toast, digest_toast, notice_toast, test_toast
+    from scheduler.runner import select_digest_trips
+    from utils.sources import source_name
+
+    rows = await get_recent_deals(hours=24)
+    trips = [row.trip for row in rows]
+    instant = sorted((row.trip for row in rows if row.alert_tier == "instant"),
+                     key=lambda t: (-(t.discount_pct or 0), t.total_cost_eur))
+    toasts: Dict[str, Any] = {}
+    best = next((t for t in instant if not t.is_error_fare), None) or min(trips, key=lambda t: t.total_cost_eur, default=None)
+    if best is not None:
+        toast = deal_toast(best)
+        if desktop is not None:
+            toast.image = await desktop.deal_image(best)
+        toasts["deal"] = (toast, False)
+    error = next((t for t in instant if t.is_error_fare), None)
+    if error is not None:
+        toasts["error_fare"] = (deal_toast(error), False)
+    digest = select_digest_trips([row.trip for row in rows if row.alert_tier == "digest"])
+    if digest:
+        toasts["digest"] = (digest_toast(digest), False)
+    problem = next((h for h in await get_health_monitor().get_health_report() if h.status in PROBLEM_STATUSES), None)
+    if problem is not None:
+        toasts["notice"] = (notice_toast(f"{source_name(problem.source_id)} isn't working",
+                                         f"{problem.consecutive_failures} searches failed in a row. "
+                                         "Deals from it may be missing."), False)
+    else:
+        toasts["notice"] = (notice_toast("Google Flights isn't working",
+                                         "3 searches failed in a row. Deals from it may be missing."), True)
+    toasts["test"] = (test_toast(), False)
+    return toasts
+
+
+async def notification_previews(request: web.Request) -> web.Response:
+    desktop = getattr(request.app[ENGINE].notifier, "desktop", None)
+    previews = []
+    for kind, (toast, example) in (await _preview_toasts(desktop)).items():
+        image = f"{API}/notifications/image/{toast.image.name}" if toast.image else None
+        previews.append({"kind": kind, "example": example, "image": image, **toast.preview()})
+    settings = get_settings()
+    return _json({
+        "previews": previews,
+        "desktop": {"available": desktop is not None, "on": settings.notify_desktop, "sound": settings.notify_sound},
+        "app_id": "CheapTrip",
+    })
+
+
+async def notification_image(request: web.Request) -> web.Response:
+    folder = (Path.cwd() / "data" / "toasts").resolve()
+    target = (folder / request.match_info["name"]).resolve()
+    if target.suffix != ".png" or not target.is_relative_to(folder) or not target.is_file():
+        raise web.HTTPNotFound()
+    return web.FileResponse(target)
 
 
 # ── Engine controls ───────────────────────────────────────────────────────────
@@ -431,6 +506,26 @@ async def app_hide(request: web.Request) -> web.Response:
         return _error("only the desktop app has a window to hide", 409)
     hide()
     return _json({"hidden": True})
+
+
+def openable(what: str) -> Optional[str]:
+    """The folders and settings page the screens may open: logs, the data folder, Windows' notification settings."""
+    if what == "logs":
+        return str(Path(get_settings().log_file).resolve().parent)
+    if what == "data":
+        return str(Path.cwd())  # .env, config/, data/ and logs/ (the app home in the Windows app)
+    if what == "notification-settings" and sys.platform == "win32":
+        return "ms-settings:notifications"
+    return None
+
+
+async def app_open(request: web.Request) -> web.Response:
+    body = await request.json() if request.can_read_body else {}
+    target = openable(str(body.get("what", "")))
+    if target is None:
+        raise ValueError('what must be "logs", "data" or (on Windows) "notification-settings"')
+    await asyncio.to_thread(open_path, target)
+    return _json({"opened": target})
 
 
 async def app_quit(request: web.Request) -> web.Response:
@@ -517,10 +612,13 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None, shell
     app.router.add_get(f"{API}/setup/checks", setup_checks)
     app.router.add_post(f"{API}/setup/test-telegram", setup_test_telegram)
     app.router.add_post(f"{API}/setup/test-notification", setup_test_notification)
+    app.router.add_get(f"{API}/notifications/previews", notification_previews)
+    app.router.add_get(f"{API}/notifications/image/{{name}}", notification_image)
     app.router.add_post(f"{API}/engine/search-now", search_now)
     app.router.add_post(f"{API}/engine/pause", pause)
     app.router.add_post(f"{API}/engine/resume", resume)
     app.router.add_get(f"{API}/events", events)
+    app.router.add_post(f"{API}/app/open", app_open)
     if shell is not None:
         app.router.add_post(f"{API}/app/show", app_show)
         app.router.add_post(f"{API}/app/hide", app_hide)
@@ -571,7 +669,8 @@ async def run_ui(port: int = 0, open_browser: bool = True) -> None:
 
     stop = asyncio.Event()
     shell = BrowserShell(stop)
-    engine = Engine(desktop=DesktopNotifier(on_action=shell.notification_action))
+    engine = Engine(desktop=DesktopNotifier(on_action=shell.notification_action,
+                                            image_folder=Path.cwd() / "data" / "toasts"))
     server = shell.server = ApiServer(engine, static_dir=ui_dir(), shell=shell)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):

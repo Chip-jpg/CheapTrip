@@ -1,6 +1,7 @@
 """Windows specifics of the desktop app (B40); elsewhere these do nothing or fall back."""
 from __future__ import annotations
 
+import os
 import sys
 
 from utils.logging_config import get_logger
@@ -45,6 +46,18 @@ def message_box(title: str, text: str) -> None:
 
     MB_OK_ICONINFORMATION = 0x40
     ctypes.windll.user32.MessageBoxW(None, text, title, MB_OK_ICONINFORMATION)
+
+
+def open_path(target: str) -> None:
+    """Open a folder in Explorer (or a settings page, e.g. "ms-settings:notifications"); elsewhere the file manager."""
+    import subprocess
+
+    if sys.platform == "win32":
+        os.startfile(target)  # noqa: S606 (a folder or ms-settings: page the app chose, never user input)
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", target])
+    else:
+        subprocess.Popen(["xdg-open", target])
 
 
 def system_prefers_dark() -> bool:

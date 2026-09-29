@@ -5,6 +5,7 @@
  *   desktop/assets/cheaptrip.png      notifications (256 px)
  *   desktop/assets/tray-<state>.png   the tray icon for each engine state (64 px)
  *   ui/public/favicon.svg             the app's screens
+ *   ui/public/tray/tray-<state>.png   the tray icons, for the Notifications screen
  *
  * Small sizes use a simplified mark (no dashed outer ring, bolder lines) so they stay
  * legible at 16 px; the tray icons show the engine's state in the mark's dot.
@@ -93,7 +94,9 @@ writeFileSync(join(ROOT, "packaging", "icons", "cheaptrip.ico"), ico(images));
 writeFileSync(join(ROOT, "desktop", "assets", "cheaptrip.png"), images.at(-1).png);
 for (const [state, color] of Object.entries(STATE_DOTS)) {
   const svg = mark({ small: true, dot: color, dotAt: [37, 37], dotR: 8 });
-  writeFileSync(join(ROOT, "desktop", "assets", `tray-${state}.png`), await render(page, svg, 64));
+  const png = await render(page, svg, 64);
+  writeFileSync(join(ROOT, "desktop", "assets", `tray-${state}.png`), png);
+  writeFileSync(join(ROOT, "ui", "public", "tray", `tray-${state}.png`), png);
 }
 writeFileSync(join(ROOT, "ui", "public", "favicon.svg"), mark());
 writeFileSync(join(ROOT, "packaging", "icons", "cheaptrip.svg"), mark());

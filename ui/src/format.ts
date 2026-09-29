@@ -140,3 +140,17 @@ export function tripDates(deal: Pick<Deal, "depart_date" | "return_date" | "trav
 export function pct(discount: number | null | undefined): string {
   return discount ? `${Math.round(discount)}%` : "";
 }
+
+let regions: Intl.DisplayNames | undefined;
+
+/** "Poland" for "PL" (the airport registry's country codes); the code itself if unknown. */
+export function countryName(code: string | null | undefined): string {
+  if (!code) return "";
+  if (code.length !== 2) return code;
+  try {
+    regions ??= new Intl.DisplayNames(["en"], { type: "region" });
+    return regions.of(code.toUpperCase()) ?? code;
+  } catch {
+    return code;
+  }
+}
