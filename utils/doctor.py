@@ -121,11 +121,12 @@ async def _database_check() -> Check:
     return Check("ok", "Database", await get_db_path())
 
 
-def _source_checks() -> List[Check]:
+async def _source_checks() -> List[Check]:
     from scrapers.aggregator import build_flight_scrapers, build_hotel_scrapers
 
     checks = []
     for scraper in [*build_flight_scrapers(), *build_hotel_scrapers()]:
+        await scraper.begin_cycle()  # picks up a stored cooldown (e.g. Google Flights after a block)
         if scraper.enabled:
             checks.append(Check("ok", f"Source {scraper.source_id}", "enabled"))
         else:
@@ -140,5 +141,5 @@ async def run_checks() -> List[Check]:
         *_key_checks(),
         *_preference_checks(),
         await _database_check(),
-        *_source_checks(),
+        *(await _source_checks()),
     ]

@@ -29,6 +29,7 @@ from bs4 import BeautifulSoup
 
 from config import get_settings
 from scrapers.base import BaseFlightScraper, ScrapeStatus, SearchCapability, build_client, random_headers
+from storage.database import get_state, set_state
 from storage.models import RawFlightResult, SearchTask
 from utils import protobuf as pb
 from utils.logging_config import get_logger
@@ -155,6 +156,27 @@ def _is_consent_or_block_page(resp: httpx.Response, body: str) -> bool:
     return "consent.google" in host or "/sorry/" in str(resp.url) or "Before you continue" in body[:20000]
 
 
+# The cooldown after a block is stored in the database, so separate `main.py cycle`
+# runs (e.g. from cron) respect it too.
+COOLDOWN_STATE_KEY = "google_flights_cooldown_until"
+
+
+async def _stored_cooldown() -> Optional[datetime]:
+    try:
+        value = await get_state(COOLDOWN_STATE_KEY)
+        return datetime.fromisoformat(value) if value else None
+    except Exception as exc:  # no usable database: the in-memory cooldown still applies
+        log.warning("gf_cooldown_unreadable", error=str(exc))
+        return None
+
+
+async def _store_cooldown(until: Optional[datetime]) -> None:
+    try:
+        await set_state(COOLDOWN_STATE_KEY, until.isoformat() if until else None)
+    except Exception as exc:
+        log.warning("gf_cooldown_unsaved", error=str(exc))
+
+
 class GoogleFlightsScraper(BaseFlightScraper):
     source_id = "google_flights"
     capability = SearchCapability.ROUTE_DATE
@@ -165,19 +187,28 @@ class GoogleFlightsScraper(BaseFlightScraper):
     def calls_per_cycle(self) -> int:
         return get_settings().google_flights_calls_per_cycle
 
-    def begin_cycle(self) -> None:
-        if self._cooldown_until and utcnow() >= self._cooldown_until:
+    async def begin_cycle(self) -> None:
+        known = [t for t in (await _stored_cooldown(), self._cooldown_until) if t]
+        until = max(known, default=None)
+        if until and utcnow() < until:
+            self._cool_down_until(until)
+        elif until:
             log.info("gf_cooldown_over")
+            await _store_cooldown(None)
             self._cooldown_until = None
             self.enabled = True
             self.disabled_reason = None
 
-    def _start_cooldown(self) -> None:
-        hours = get_settings().google_flights_cooldown_hours
-        self._cooldown_until = utcnow() + timedelta(hours=hours)
+    def _cool_down_until(self, until: datetime) -> None:
+        self._cooldown_until = until
         self.enabled = False
-        self.disabled_reason = f"cooling down until {self._cooldown_until:%H:%M} UTC after a block"
-        log.warning("gf_cooldown_started", until=self._cooldown_until.isoformat())
+        self.disabled_reason = f"cooling down until {until:%H:%M} UTC after a block"
+
+    async def _start_cooldown(self) -> None:
+        until = utcnow() + timedelta(hours=get_settings().google_flights_cooldown_hours)
+        self._cool_down_until(until)
+        await _store_cooldown(until)
+        log.warning("gf_cooldown_started", until=until.isoformat())
 
     def parse_results(self, html: str, task: SearchTask) -> List[RawFlightResult]:
         soup = BeautifulSoup(html, "lxml")
@@ -234,14 +265,14 @@ class GoogleFlightsScraper(BaseFlightScraper):
                     continue
                 if resp.status_code == 429:
                     self._report_status(ScrapeStatus.RATE_LIMITED, f"{route}: HTTP 429")
-                    self._start_cooldown()
+                    await self._start_cooldown()
                     break
                 if resp.status_code != 200:
                     self._record_error(f"{route}: HTTP {resp.status_code}")
                     continue
                 if _is_consent_or_block_page(resp, resp.text):
                     self._report_status(ScrapeStatus.BLOCKED, f"{route}: consent or bot-check page")
-                    self._start_cooldown()
+                    await self._start_cooldown()
                     break
                 found = self.parse_results(resp.text, task)
                 if not found:

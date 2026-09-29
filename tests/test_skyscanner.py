@@ -79,7 +79,7 @@ async def test_calls_are_capped_per_cycle(sky_env):
         await scraper.scrape(_params())
         assert route.call_count == 3
 
-        scraper.begin_cycle()
+        await scraper.begin_cycle()
         await scraper.scrape(_params())
         assert route.call_count == 6
 
@@ -91,7 +91,7 @@ async def test_429_pauses_until_next_utc_midnight(sky_env):
         assert await scraper.scrape(_params()) == []
         assert route.call_count == 1  # stops at the first 429
 
-        scraper.begin_cycle()
+        await scraper.begin_cycle()
         assert await scraper.scrape(_params()) == []
         assert route.call_count == 1  # still paused next cycle
 
