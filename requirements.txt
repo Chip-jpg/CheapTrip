@@ -21,6 +21,10 @@ anthropic==1.8.0
 aiohttp==3.14.3
 ruamel.yaml==0.19.1
 desktop-notifier==6.2.0
+# The app window (Edge WebView2) and tray icon: Windows only (elsewhere `main.py ui` opens the browser)
+pywebview==6.2.1; sys_platform == "win32"
+pystray==0.19.5; sys_platform == "win32"
+pillow==12.3.0
 
 # Utilities
 tenacity==8.3.0

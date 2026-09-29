@@ -10,12 +10,15 @@ Usage:
   python main.py test-alert    # Send a test message with the current top deals to Telegram
   python main.py read-feed     # Show what Claude reads from the newest PiratinViaggio posts
   python main.py ui            # Run the engine with the app's screens in your browser
+  python main.py app           # The desktop app: window, tray, notifications (CheapTrip.exe on Windows)
   python main.py healthcheck   # Exit 1 when no cycle completed recently (Docker healthcheck)
 """
 from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
+from typing import Any, Optional
 
 import click
 
@@ -43,12 +46,28 @@ def cli() -> None:
     configure_logging()
 
 
+def _only_engine() -> Any:
+    """Exit when CheapTrip already runs (the app, `run` or `ui`): two engines would alert twice."""
+    from desktop.instance import InstanceLock
+
+    lock = InstanceLock(Path.cwd())
+    if not lock.acquire():
+        click.echo("CheapTrip is already running (the app or another `run`/`ui`). Quit it first.", err=True)
+        sys.exit(1)
+    return lock
+
+
 @cli.command()
 def run() -> None:
     """Start the continuous 24/7 deal monitoring engine."""
     from scheduler.runner import run_forever
+
+    lock = _only_engine()
     log.info("engine_starting")
-    asyncio.run(run_forever())
+    try:
+        asyncio.run(run_forever())
+    finally:
+        lock.release()
 
 
 @cli.command()
@@ -212,7 +231,21 @@ def ui(port: int, no_browser: bool) -> None:
     """Run the engine with the app's screens in your browser (until Ctrl+C)."""
     from api.server import run_ui
 
-    asyncio.run(run_ui(port=port, open_browser=not no_browser))
+    lock = _only_engine()
+    try:
+        asyncio.run(run_ui(port=port, open_browser=not no_browser))
+    finally:
+        lock.release()
+
+
+@cli.command(context_settings={"ignore_unknown_options": True})
+@click.option("--minimized", is_flag=True, help="Start in the tray")
+@click.argument("link", required=False)
+def app(minimized: bool, link: Optional[str]) -> None:
+    """The desktop app: window, tray and notifications (Windows; elsewhere the screens open in the browser)."""
+    from desktop.app import run as run_app
+
+    sys.exit(run_app([*(["--minimized"] if minimized else []), *([link] if link else [])]))
 
 
 @cli.command("resolve-airports")

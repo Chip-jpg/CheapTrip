@@ -26,6 +26,8 @@ Routes (all under /api/v1):
   POST /setup/test-notification       {"channel": "desktop"|"telegram"} optional: all that are on
   POST /engine/search-now   /engine/pause   /engine/resume
   GET  /events                         server-sent events from the engine
+  POST /app/show   {"route": ...}      show the app's window (a second launch, a cheaptrip:// link)
+  POST /app/quit                       quit the app
 """
 from __future__ import annotations
 
@@ -35,10 +37,9 @@ import json
 import secrets
 import signal
 import webbrowser
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from zoneinfo import ZoneInfo
 
 from aiohttp import web
 
@@ -46,6 +47,7 @@ import control
 from api.records import deal_record, destination_rows, matches, place
 from api.settings_io import SOURCE_SWITCHES, apply_settings, read_settings
 from config import get_settings
+from desktop.links import clean_route
 from preferences import get_preferences
 from scrapers.health_monitor import get_health_monitor
 from storage.database import (
@@ -55,6 +57,7 @@ from storage.database import (
     get_deal,
     get_recent_deals,
     hide_deal,
+    init_db,
     latest_alerts_for,
     recent_cycles,
     seen_fares,
@@ -77,8 +80,8 @@ ENGINE = web.AppKey("engine", object)
 TOKEN = web.AppKey("token", str)
 STATIC_DIR = web.AppKey("static_dir", object)
 CLOSING = web.AppKey("closing", asyncio.Event)
+SHELL = web.AppKey("shell", object)  # the app around the API: show(route), quit()
 SSE_PING_S = 15
-PAUSE_INDEFINITELY_DAYS = 3650
 PROBLEM_STATUSES = ("FAILING", "STALE", "DEGRADED")
 
 # Which Settings switch turns each source on or off (None: always on, or on when its key is set)
@@ -169,7 +172,11 @@ async def static_file(request: web.Request) -> web.StreamResponse:
 # ── Status and deals ──────────────────────────────────────────────────────────
 
 async def status(request: web.Request) -> web.Response:
-    engine = request.app[ENGINE]
+    return _json(await full_status(request.app[ENGINE]))
+
+
+async def full_status(engine: Any) -> Dict[str, Any]:
+    """The top bar's (and the tray's) status: the engine's snapshot plus what needs attention."""
     snapshot = await engine.status()
     settings = get_settings()
     last = snapshot["last_cycle"]
@@ -181,14 +188,14 @@ async def status(request: web.Request) -> web.Response:
             attention.append(f"{health.source_id}: {health.status.lower()}")
     if snapshot["state"] == "running" and attention:
         snapshot["state"] = "attention"
-    return _json({
+    return {
         **snapshot,
         "attention": attention,
         "learning": {"trips": last["trips"], "with_usual_price": last["with_usual_price"]} if last else None,
         "telegram_configured": bool(settings.telegram_bot_token and settings.telegram_chat_id),
         "timezone": settings.timezone,
         "version": __version__,
-    })
+    }
 
 
 def _filters(request: web.Request) -> Dict[str, Any]:
@@ -382,26 +389,56 @@ async def search_now(request: web.Request) -> web.Response:
     return _json({"started": await request.app[ENGINE].search_now()})
 
 
-def _pause_end(body: Dict[str, Any]) -> Dict[str, Any]:
-    if "hours" in body:
-        return {"hours": float(body["hours"])}
-    if body.get("until") == "tomorrow":  # tomorrow morning, local time
-        tz = ZoneInfo(get_settings().timezone)
-        morning = (datetime.now(tz) + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
-        return {"until": morning.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)}
-    if body.get("until") == "resume":  # until the user resumes
-        return {"hours": PAUSE_INDEFINITELY_DAYS * 24}
-    raise ValueError('pause needs {"hours": n}, {"until": "tomorrow"} or {"until": "resume"}')
-
-
 async def pause(request: web.Request) -> web.Response:
-    until = await request.app[ENGINE].pause(**_pause_end(await request.json()))
+    body = await request.json()
+    until = await request.app[ENGINE].pause(**control.pause_end(body.get("hours"), body.get("until")))
     return _json({"paused_until": until.isoformat()})
 
 
 async def resume(request: web.Request) -> web.Response:
     await request.app[ENGINE].resume()
     return _json({"paused_until": None})
+
+
+# ── The app ───────────────────────────────────────────────────────────────────
+
+async def app_show(request: web.Request) -> web.Response:
+    body = await request.json() if request.can_read_body else {}
+    route = body.get("route")
+    if route is not None:
+        route = clean_route(str(route))
+        if route is None:
+            raise ValueError("unknown screen")
+    request.app[SHELL].show(route)
+    log.info("app_show", route=route)
+    return _json({"shown": True})
+
+
+async def app_quit(request: web.Request) -> web.Response:
+    request.app[SHELL].quit()
+    return _json({"quitting": True})
+
+
+class BrowserShell:
+    """The app around the API in `main.py ui`: screens open in the browser."""
+
+    def __init__(self, stop: asyncio.Event) -> None:
+        self.server: Optional["ApiServer"] = None
+        self._stop = stop
+
+    def show(self, route: Optional[str] = None) -> None:
+        if self.server is not None:
+            webbrowser.open(self.server.link(route or ""))
+
+    def quit(self) -> None:
+        self._stop.set()
+
+    def notification_action(self, kind: str, value: str) -> Any:
+        """A notification's buttons: Details opens the deal in the browser; Mute mutes."""
+        if kind == "mute":
+            return control.set_muted(value, True)
+        self.show(f"deals/{value}" if kind == "details" else value)
+        return None
 
 
 # ── Live events ───────────────────────────────────────────────────────────────
@@ -437,12 +474,13 @@ async def _on_shutdown(app: web.Application) -> None:
     app[CLOSING].set()  # ends open event streams
 
 
-def create_app(engine: Any, token: str, static_dir: Optional[Path] = None) -> web.Application:
+def create_app(engine: Any, token: str, static_dir: Optional[Path] = None, shell: Any = None) -> web.Application:
     app = web.Application(middlewares=[guard])
     app[ENGINE] = engine
     app[TOKEN] = token
     app[STATIC_DIR] = static_dir
     app[CLOSING] = asyncio.Event()
+    app[SHELL] = shell
     app.on_shutdown.append(_on_shutdown)
     app.router.add_get(f"{API}/status", status)
     app.router.add_get(f"{API}/deals", deals)
@@ -462,6 +500,9 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None) -> we
     app.router.add_post(f"{API}/engine/pause", pause)
     app.router.add_post(f"{API}/engine/resume", resume)
     app.router.add_get(f"{API}/events", events)
+    if shell is not None:
+        app.router.add_post(f"{API}/app/show", app_show)
+        app.router.add_post(f"{API}/app/quit", app_quit)
     app.router.add_get("/", index)
     app.router.add_get("/{path:.+}", static_file)
     return app
@@ -470,9 +511,11 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None) -> we
 class ApiServer:
     """The API and UI on 127.0.0.1, on a free port unless one is given."""
 
-    def __init__(self, engine: Any, token: Optional[str] = None, static_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self, engine: Any, token: Optional[str] = None, static_dir: Optional[Path] = None, shell: Any = None,
+    ) -> None:
         self.token = token or secrets.token_urlsafe(24)
-        self.app = create_app(engine, self.token, static_dir)
+        self.app = create_app(engine, self.token, static_dir, shell)
         self.port: Optional[int] = None
         self._runner: Optional[web.AppRunner] = None
 
@@ -493,13 +536,6 @@ class ApiServer:
         """The address of one screen, e.g. "deals/<id>" (the fragment survives the token redirect)."""
         return f"{self.url}#/{route}"
 
-    def browser_actions(self, kind: str, value: str) -> Any:
-        """Notification buttons without the app window: open the screen in the browser; Mute mutes."""
-        if kind == "mute":
-            return control.set_muted(value, True)
-        webbrowser.open(self.link(f"deals/{value}" if kind == "details" else value))
-        return None
-
     async def stop(self) -> None:
         if self._runner is not None:
             await self._runner.cleanup()
@@ -511,9 +547,10 @@ async def run_ui(port: int = 0, open_browser: bool = True) -> None:
     from notifier.desktop import DesktopNotifier
     from scheduler.engine import Engine
 
-    engine = Engine(desktop=DesktopNotifier(on_action=lambda kind, value: server.browser_actions(kind, value)))
-    server = ApiServer(engine, static_dir=ui_dir())
     stop = asyncio.Event()
+    shell = BrowserShell(stop)
+    engine = Engine(desktop=DesktopNotifier(on_action=shell.notification_action))
+    server = shell.server = ApiServer(engine, static_dir=ui_dir(), shell=shell)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
@@ -521,8 +558,9 @@ async def run_ui(port: int = 0, open_browser: bool = True) -> None:
         except (NotImplementedError, RuntimeError):
             pass
     try:
-        await engine.start()
+        await init_db()  # before the screens can ask for anything
         await server.start(port)
+        await engine.start()
         print(f"CheapTrip is running at {server.url}\nPress Ctrl+C to stop.", flush=True)
         if open_browser:
             webbrowser.open(server.url)
