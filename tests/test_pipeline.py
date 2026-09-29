@@ -124,14 +124,15 @@ def _same_month_days_ahead(count: int) -> list:
 
 
 async def test_price_drop_against_earlier_cycles_alerts_instantly(engine):
-    days = _same_month_days_ahead(4)
-    for _ in range(3):
+    days = _same_month_days_ahead(7)
+    for _ in range(3):  # six different fares, each seen in three cycles
         await engine.run_cycle(flights=[
-            flight(destination="KRK", price=price, days_ahead=d) for price, d in zip((58.0, 60.0, 62.0), days)
+            flight(destination="KRK", price=price, days_ahead=d)
+            for price, d in zip((58.0, 60.0, 62.0, 59.0, 61.0, 60.0), days)
         ])
     sent_before = len(engine.telegram.texts)
 
-    await engine.run_cycle(flights=[flight(destination="KRK", price=35.0, days_ahead=days[3])])
+    await engine.run_cycle(flights=[flight(destination="KRK", price=35.0, days_ahead=days[6])])
 
     alerts = [t for t in engine.telegram.texts[sent_before:] if "FLIGHT DEAL" in t]
     assert len(alerts) == 1

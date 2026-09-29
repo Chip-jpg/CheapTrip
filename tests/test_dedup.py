@@ -182,13 +182,14 @@ async def test_cold_start_fare_alerts_once_history_shows_it_is_cheap(engine):
     # Round 2 dry run: 7 fares qualified in cycle 3 but none alerted (saved as digest on cycle 1)
     from tests.test_pipeline import _same_month_days_ahead
 
-    days = _same_month_days_ahead(4)
-    fares = [flight(destination="KRK", price=p, days_ahead=d) for p, d in zip((35.0, 58.0, 60.0, 62.0), days)]
+    days = _same_month_days_ahead(6)
+    prices = (35.0, 58.0, 60.0, 62.0, 59.0, 61.0)
+    fares = [flight(destination="KRK", price=p, days_ahead=d) for p, d in zip(prices, days)]
     for _ in range(2):
         await engine.run_cycle(flights=fares)
     assert not any("FLIGHT DEAL" in t for t in engine.telegram.texts)
 
-    await engine.run_cycle(flights=fares)  # two earlier cycles of history: €35 is ~40% below the usual €59
+    await engine.run_cycle(flights=fares)  # six fares from two earlier cycles: €35 is ~41% below the usual €60
     await engine.run_cycle(flights=fares)
 
     alerts = [t for t in engine.telegram.texts if "FLIGHT DEAL" in t]
