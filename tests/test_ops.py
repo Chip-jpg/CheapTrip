@@ -86,6 +86,20 @@ async def test_doctor_flags_blocking_problems(engine, monkeypatch):
     assert checks["Thresholds"][0] == "warn" and "old defaults" in checks["Thresholds"][1]
 
 
+async def test_doctor_shows_a_stored_google_cooldown(engine):
+    from scrapers.google_flights import COOLDOWN_STATE_KEY
+
+    engine.router.get(f"https://api.telegram.org/bot{TEST_BOT_TOKEN}/getMe").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": {"username": "CheapTripBot"}}))
+    await init_db()
+    await set_state(COOLDOWN_STATE_KEY, (utcnow() + timedelta(hours=2)).isoformat())
+
+    checks = _lines(await run_checks())
+
+    level, detail = checks["Source google_flights"]
+    assert level == "warn" and detail.startswith("cooling down until")
+
+
 def test_doctor_command_exits_1_on_failures(engine, monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
     from config import get_settings

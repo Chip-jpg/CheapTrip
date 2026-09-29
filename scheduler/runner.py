@@ -88,7 +88,7 @@ async def run_pipeline_cycle(
     try:
         await load_overrides()  # /mute, /priority, /budget from Telegram
         prefs = get_preferences()
-        aggregator.begin_cycle()
+        await aggregator.begin_cycle()
         try:
             purged = await purge_old_rows()
             if any(purged.values()):

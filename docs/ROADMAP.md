@@ -306,5 +306,5 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B26 | `feat/hotel-search-link` | done |
 | B27 | `fix/first-anomaly-google-calm` | done |
 | B28 | `fix/error-fare-rule` | done |
-| B29 | `fix/google-cooldown-persist` | planned |
+| B29 | `fix/google-cooldown-persist` | done |
 | B30 | `feat/first-live-run` | planned |

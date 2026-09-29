@@ -27,7 +27,7 @@ Start from `.env.example`. Names are case-insensitive environment variables.
 | `RYANAIR_MARKET` | empty | e.g. `it-it`, `en-gb`. Empty: the `market` preference, else your home country. |
 | `RYANAIR_CALLS_PER_CYCLE` | `30` | Searches per cycle. |
 | `GOOGLE_FLIGHTS_CALLS_PER_CYCLE` | `6` | Google throttles datacenter IPs; keep it small. |
-| `GOOGLE_FLIGHTS_COOLDOWN_HOURS` | `3` | Pause after a 429 or bot-check page. |
+| `GOOGLE_FLIGHTS_COOLDOWN_HOURS` | `3` | Pause after a 429 or bot-check page. Stored in the database, so separate `main.py cycle` runs respect it too. |
 | `TRAVELPAYOUTS_CALLS_PER_CYCLE` | `30` | |
 | `ENABLE_PIRATINVIAGGIO` | `true` | Italian deal posts; runs when `ANTHROPIC_API_KEY` is set and a home airport is in Italy. |
 | `AI_EXTRACTION_MAX_POSTS_PER_CYCLE` | `30` | New posts sent to Claude per cycle (each post is read once). |

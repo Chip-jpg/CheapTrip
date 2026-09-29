@@ -223,7 +223,7 @@ class SkyscannerScraper(BaseFlightScraper):
 
     # ── Budget and rate-limit handling ──────────────────────────────────────
 
-    def begin_cycle(self) -> None:
+    async def begin_cycle(self) -> None:
         self._calls_this_cycle = 0
 
     def calls_per_cycle(self) -> int:

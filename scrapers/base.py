@@ -103,8 +103,8 @@ class _OutcomeReporting:
     disabled_reason: Optional[str] = None
     capability: SearchCapability = SearchCapability.ROUTE_DATE
 
-    def begin_cycle(self) -> None:
-        """Called once at the start of each pipeline cycle (reset per-cycle budgets)."""
+    async def begin_cycle(self) -> None:
+        """Called once at the start of each pipeline cycle (reset per-cycle budgets, end cooldowns)."""
 
     def calls_per_cycle(self) -> int:
         """How many search tasks the planner may give this source per cycle."""

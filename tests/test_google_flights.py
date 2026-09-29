@@ -1,8 +1,11 @@
 """Google Flights: tfs encoding, label parsing (live-recorded fixtures), blocks and rate limits."""
 from __future__ import annotations
 
-from datetime import date, datetime
+import asyncio
+from contextlib import contextmanager
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Iterator
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -11,8 +14,16 @@ import respx
 
 from scrapers import google_flights
 from scrapers.base import ScrapeStatus
-from scrapers.google_flights import GoogleFlightsScraper, encode_search, parse_label, search_url
+from scrapers.google_flights import (
+    COOLDOWN_STATE_KEY,
+    GoogleFlightsScraper,
+    encode_search,
+    parse_label,
+    search_url,
+)
+from storage.database import get_state, init_db, set_state
 from storage.models import SearchTask
+from tests.harness import reset_caches
 from utils import protobuf as pb
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -23,6 +34,17 @@ def no_spacing(monkeypatch):
     async def _no_pause(_):
         return None
     monkeypatch.setattr(google_flights, "_pause", _no_pause)
+
+
+@pytest.fixture(autouse=True)
+def own_db(tmp_path, monkeypatch):
+    """Each test gets its own database, where the cooldown after a block is stored."""
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gf.db'}")
+    reset_caches()
+    asyncio.run(init_db())
+    yield
+    monkeypatch.undo()
+    reset_caches()
 
 
 def _task(dest="KRK", dep=date(2026, 11, 6), nights=2) -> SearchTask:
@@ -114,27 +136,70 @@ async def test_consent_page_is_reported_as_blocked():
     assert outcome.status == ScrapeStatus.BLOCKED
 
 
-async def test_block_starts_a_cooldown_then_the_source_comes_back():
-    from datetime import datetime, timedelta
+@contextmanager
+def _google(response: httpx.Response) -> Iterator[respx.Route]:
+    with respx.mock(assert_all_called=False) as router:
+        yield router.get(url__startswith="https://www.google.com/travel/flights").mock(return_value=response)
 
+
+async def test_block_starts_a_cooldown_then_the_source_comes_back():
     scraper = GoogleFlightsScraper()
-    with respx.mock() as router:
-        route = router.get(url__startswith="https://www.google.com/travel/flights").mock(
-            return_value=httpx.Response(429))
+    with _google(httpx.Response(429)) as route:
         await scraper.safe_scrape([_task()])
-        scraper.begin_cycle()
+        await scraper.begin_cycle()
         cooling = await scraper.safe_scrape([_task()])
     assert route.call_count == 1, "no requests while cooling down"
     assert cooling.status == ScrapeStatus.DISABLED and "cooling down until" in cooling.error
 
     scraper._cooldown_until = datetime.utcnow() - timedelta(minutes=1)
-    scraper.begin_cycle()
+    await set_state(COOLDOWN_STATE_KEY, scraper._cooldown_until.isoformat())
+    await scraper.begin_cycle()
     html = (FIXTURES / "google_flights_mxp_krk_rt.html").read_text()
-    with respx.mock() as router:
-        router.get(url__startswith="https://www.google.com/travel/flights").mock(
-            return_value=httpx.Response(200, text=html))
+    with _google(httpx.Response(200, text=html)):
         back = await scraper.safe_scrape([_task()])
     assert back.status == ScrapeStatus.OK
+    assert await get_state(COOLDOWN_STATE_KEY) is None
+
+
+@pytest.mark.parametrize("block", [
+    httpx.Response(429),
+    httpx.Response(200, text="<html><h1>Before you continue to Google</h1></html>"),
+])
+async def test_cooldown_carries_over_to_the_next_process(block):
+    # Round 3 dry run: separate `main.py cycle` runs forgot the cooldown
+    with _google(block):
+        await GoogleFlightsScraper().safe_scrape([_task()])
+    assert await get_state(COOLDOWN_STATE_KEY)
+
+    next_run = GoogleFlightsScraper()
+    await next_run.begin_cycle()
+    with _google(httpx.Response(200, text="<html></html>")) as route:
+        outcome = await next_run.safe_scrape([_task()])
+
+    assert route.call_count == 0
+    assert outcome.status == ScrapeStatus.DISABLED and "cooling down until" in outcome.error
+
+
+async def test_expired_stored_cooldown_lets_the_next_process_search():
+    await set_state(COOLDOWN_STATE_KEY, (datetime.utcnow() - timedelta(minutes=1)).isoformat())
+
+    scraper = GoogleFlightsScraper()
+    await scraper.begin_cycle()
+
+    assert scraper.enabled and scraper.disabled_reason is None
+    assert await get_state(COOLDOWN_STATE_KEY) is None
+
+
+async def test_unusable_database_keeps_the_cooldown_in_memory(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'no_tables.db'}")
+    reset_caches()
+    scraper = GoogleFlightsScraper()
+    with _google(httpx.Response(429)) as route:
+        await scraper.safe_scrape([_task()])
+        await scraper.begin_cycle()
+        await scraper.safe_scrape([_task()])
+
+    assert route.call_count == 1 and not scraper.enabled
 
 
 async def test_health_shows_why_a_source_is_off(engine):
