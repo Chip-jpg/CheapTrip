@@ -263,6 +263,18 @@ Decision: we are not investing further in Skyscanner. This branch only stops it 
 **B30 `feat/first-live-run`** (S–M)
 - Checks for the first run with real keys: `doctor` verifies the chat, webhook and Anthropic key; `main.py test-alert` sends a test message; `main.py read-feed` shows what the Claude reader extracts without saving anything.
 
+### Added in Round 5
+
+**B31 `fix/baseline-distinct-fares`** (M)
+- Found in the Round 4 dry run: baselines counted every observation, so a fare seen in three cycles counted three times, and dates that happened to be searched again dominated the usual price. Lanzarote's 4 fares made a "usual €205" and "€59 is 71% below usual"; 24 of 27 baselines rested on 5 or fewer different fares.
+- Price history now stores each fare's dates; a baseline counts each fare once, at its latest price, and needs 6 different fares.
+
+**B32 `fix/promoted-deal-order`** (S)
+- A digest deal promoted to instant kept an empty discount in the database, so the alert queue could rank it below worse deals.
+
+**B33 `fix/holiday-pirates-hotel-id`** (S)
+- The HolidayPirates hotel scraper shared the flight scraper's source id, merging their health records.
+
 ---
 
 ## 4. Suggested order
@@ -309,3 +321,6 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B28 | `fix/error-fare-rule` | done |
 | B29 | `fix/google-cooldown-persist` | done |
 | B30 | `feat/first-live-run` | done (run it with your keys: `doctor`, `test-alert`, `read-feed`) |
+| B31 | `fix/baseline-distinct-fares` | done |
+| B32 | `fix/promoted-deal-order` | planned |
+| B33 | `fix/holiday-pirates-hotel-id` | planned |

@@ -51,11 +51,11 @@ A deal goes to the **instant** queue when at least one of these holds, and it is
 | Reason | Meaning |
 |---|---|
 | Priority destination | You listed it in `priority_destinations` (or `/priority` in Telegram) |
-| Unusually cheap | At least `PRICE_ANOMALY_MIN_DROP_PCT` (35%) below the usual price for that route, trip length and month, or a new low. Needs at least 6 prices from 2 earlier cycles. |
-| Possible error fare | Flagged by the source, or at most 35% of a usual price seen over at least 3 days (20+ fares) and at least €100 under it |
+| Unusually cheap | At least `PRICE_ANOMALY_MIN_DROP_PCT` (35%) below the usual price for that route, trip length and month, or a new low. Needs at least 6 different fares (each flight and date pair counts once, at its latest price) seen over 2 earlier cycles. |
+| Possible error fare | Flagged by the source, or at most 35% of a usual price built from 20+ different fares over at least 3 days, and at least €100 under it |
 | Backstop price | A dated round trip at or under €25 (Europe) / €250 (long-haul) |
 
-Everything else goes to the **digest**. On a fresh start there is no price history, so for the first cycles almost everything goes to the digest; a fare seen then still alerts once when history later shows it is unusually cheap.
+Everything else goes to the **digest**. On a fresh start there is no price history, so for roughly the first day almost everything goes to the digest; a fare seen then still alerts once when history later shows it is unusually cheap.
 
 ### Deal types
 

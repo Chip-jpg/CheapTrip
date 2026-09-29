@@ -53,12 +53,17 @@ CREATE TABLE IF NOT EXISTS price_history (
     trip_type      TEXT,
     nights_bucket  TEXT,
     depart_month   TEXT,
-    cycle_id       TEXT
+    cycle_id       TEXT,
+    depart_date    TEXT,
+    return_date    TEXT
 )
 """
 
 # Columns added after the first release: added to existing databases by init_db
-_PRICE_HISTORY_KEY_COLUMNS = ("origin_city", "dest_city", "trip_type", "nights_bucket", "depart_month", "cycle_id")
+_PRICE_HISTORY_KEY_COLUMNS = (
+    "origin_city", "dest_city", "trip_type", "nights_bucket", "depart_month", "cycle_id",
+    "depart_date", "return_date",
+)
 # Similarity key for fuzzy dedup (filters/deduplication.py) and the departure date
 _DEALS_DEDUP_COLUMNS = ("dedup_origin", "dedup_dest", "dedup_kind", "dedup_nights", "depart_date")
 
@@ -374,7 +379,8 @@ async def get_digest_deals(limit: int = 20) -> List[Trip]:
     return trips
 
 
-PriceRow = Tuple[str, float, str, str, str, str, str, str]
+# route, price, source, the five PriceKey fields, departure date, return date ("" for one-way)
+PriceRow = Tuple[str, float, str, str, str, str, str, str, str, str]
 """(route, price_eur, source, origin_city, dest_city, trip_type, nights_bucket, depart_month)"""
 
 
@@ -389,8 +395,8 @@ async def record_prices(rows: Sequence[PriceRow], cycle_id: str) -> None:
             """
             INSERT INTO price_history
                 (route, price_eur, source, origin_city, dest_city, trip_type, nights_bucket,
-                 depart_month, recorded_at, cycle_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 depart_month, depart_date, return_date, recorded_at, cycle_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [(*row, now, cycle_id) for row in rows],
         )
@@ -399,22 +405,25 @@ async def record_prices(rows: Sequence[PriceRow], cycle_id: str) -> None:
 
 async def load_price_history(
     since: datetime, exclude_cycle: str,
-) -> List[Tuple[str, str, str, str, str, float, str, str]]:
+) -> List[Tuple[str, str, str, str, str, str, float, str, str]]:
     """
-    Keyed observations recorded since `since`, excluding one cycle:
-    (origin_city, dest_city, trip_type, nights_bucket, depart_month, price_eur, cycle_id, day),
-    where day is the YYYY-MM-DD the fare was recorded on.
-    Rows from before the keyed schema (NULL keys) are ignored.
+    Keyed observations recorded since `since`, excluding one cycle, oldest first:
+    (origin_city, dest_city, trip_type, nights_bucket, depart_month, itinerary, price_eur, cycle_id, day).
+    The itinerary ("MXP-KRK 2026-11-13 2026-11-16") identifies one fare however often it is
+    seen; day is the YYYY-MM-DD it was recorded on. Rows from before fares were keyed or
+    dated are ignored.
     """
     path = await get_db_path()
     async with aiosqlite.connect(path) as db:
         cursor = await db.execute(
             """
-            SELECT origin_city, dest_city, trip_type, nights_bucket, depart_month, price_eur, cycle_id,
-                   substr(recorded_at, 1, 10)
+            SELECT origin_city, dest_city, trip_type, nights_bucket, depart_month,
+                   route || ' ' || depart_date || ' ' || COALESCE(return_date, ''),
+                   price_eur, cycle_id, substr(recorded_at, 1, 10)
             FROM price_history
             WHERE recorded_at >= ? AND cycle_id IS NOT NULL AND cycle_id != ?
-              AND origin_city IS NOT NULL AND depart_month IS NOT NULL
+              AND origin_city IS NOT NULL AND depart_month IS NOT NULL AND depart_date IS NOT NULL
+            ORDER BY recorded_at, id
             """,
             (since.isoformat(), exclude_cycle),
         )

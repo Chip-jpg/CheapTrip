@@ -1,6 +1,7 @@
 """Price history and anomaly detection (B16): keyed baselines from earlier cycles only."""
 from __future__ import annotations
 
+from dataclasses import astuple
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -12,6 +13,7 @@ from storage.models import AlertTier, DealType, FlightLeg, Trip
 from storage.price_analytics import (
     ERROR_FARE_MIN_DAYS,
     MIN_SAMPLES,
+    Observation,
     PriceIndex,
     PriceKey,
     price_key,
@@ -23,19 +25,28 @@ DEP = date(2026, 11, 13)
 
 
 def _leg(price: float = 60.0, origin: str = "MXP", dest: str = "KRK", nights: Optional[int] = 3,
-         dep: date = DEP, **extra) -> FlightLeg:
+         dep: date = DEP, source: str = "ryanair", **extra) -> FlightLeg:
     return FlightLeg(
         origin=origin, destination=dest, price_eur=price, departure_date=dep,
         return_date=dep + timedelta(days=nights) if nights else None, is_round_trip=bool(nights),
-        source="ryanair", booking_url="https://example.com/book", **extra,
+        source=source, booking_url="https://example.com/book", **extra,
     )
 
 
 def _history(key: PriceKey, prices_per_cycle, days_apart: int = 0):
-    """One cycle per list; cycle i is recorded `i * days_apart` days after the first."""
+    """One cycle per list, every price a different fare; cycle i is recorded `i * days_apart` days after the first."""
     return [
-        (key, price, f"cycle{i}", (date(2026, 9, 1) + timedelta(days=i * days_apart)).isoformat())
-        for i, prices in enumerate(prices_per_cycle) for price in prices
+        Observation(key, f"fare {i}-{j}", price, f"cycle{i}",
+                    (date(2026, 9, 1) + timedelta(days=i * days_apart)).isoformat())
+        for i, prices in enumerate(prices_per_cycle) for j, price in enumerate(prices)
+    ]
+
+
+def _seen(key: PriceKey, fares_per_cycle):
+    """One cycle per dict of {fare: price}: the same fare can be seen in several cycles."""
+    return [
+        Observation(key, fare, price, f"cycle{i}", "2026-09-01")
+        for i, fares in enumerate(fares_per_cycle) for fare, price in fares.items()
     ]
 
 
@@ -93,6 +104,29 @@ def test_new_low_is_an_anomaly():
 
     assert result.is_anomaly and result.is_all_time_low
     assert "new low" in result.description
+
+
+def test_a_fare_seen_in_several_cycles_counts_once():
+    # Round 4 dry run: Lanzarote's 4 fares, the two expensive ones searched again in cycle 2,
+    # made a "usual €205" and "€59 is 71% below usual"
+    history = _seen(KEY, [
+        {"ACE 28 Oct": 58.78, "ACE 21 Oct": 71.92, "ACE 14 Oct": 204.98, "ACE 7 Oct": 263.98},
+        {"ACE 14 Oct": 204.98, "ACE 7 Oct": 263.98},
+    ])
+
+    assert PriceIndex(history).baseline(_leg()) is None  # 4 fares, not 6
+
+
+def test_each_fare_counts_at_its_latest_price():
+    history = _seen(KEY, [
+        {"a": 60.0, "b": 62.0, "c": 58.0, "d": 100.0},
+        {"e": 61.0, "f": 59.0, "d": 40.0},  # d dropped from €100 to €40
+    ])
+
+    base = PriceIndex(history).baseline(_leg())
+
+    assert base.samples == 6 and base.low == 40.0
+    assert base.median == 59.5  # 40, 58, 59, 60, 61, 62
 
 
 def test_other_lengths_and_months_have_their_own_baseline():
@@ -162,10 +196,18 @@ async def test_current_cycle_never_forms_its_own_baseline(engine):
     assert index.baseline(_leg()) is None
 
 
+SIX_FARES = (58.0, 60.0, 62.0, 59.0, 61.0, 60.0)
+
+
+def _six_fares(**extra):
+    """Six different November weekend fares: 13–18 Nov departures."""
+    return [_leg(price=p, dep=DEP + timedelta(days=i), **extra) for i, p in enumerate(SIX_FARES)]
+
+
 async def test_drop_after_three_cycles_is_flagged(engine):
     await init_db()
     for _ in range(3):
-        await build_trips([_leg(price=p) for p in (58.0, 60.0, 62.0)], [])
+        await build_trips(_six_fares(), [])
 
     [trip] = await build_trips([_leg(price=35.0)], [])
 
@@ -176,8 +218,9 @@ async def test_drop_after_three_cycles_is_flagged(engine):
 
 
 async def _record_jfk_history(days_apart: int) -> None:
-    for i, prices in enumerate(JFK_HISTORY):
-        await record_fares([_leg(price=p, **JFK) for p in prices], f"c{i}")
+    for i, prices in enumerate(JFK_HISTORY):  # 21 different November fares
+        await record_fares([_leg(price=p, dep=date(2026, 11, 1) + timedelta(days=i * 7 + j), **JFK)
+                            for j, p in enumerate(prices)], f"c{i}")
     async with aiosqlite.connect(await get_db_path()) as db:
         for i in range(len(JFK_HISTORY)):
             day = (datetime.utcnow() - timedelta(days=(len(JFK_HISTORY) - i) * days_apart)).isoformat()
@@ -213,10 +256,48 @@ async def test_source_flag_still_marks_an_error_fare(engine):
     assert trip.is_error_fare and trip.deal_type == DealType.ERROR_FARE
 
 
+async def test_the_same_fare_every_cycle_is_one_fare(engine):
+    await init_db()
+    for i in range(3):
+        await record_fares([_leg(price=60.0 + j) for j in range(3)], f"c{i}")  # one itinerary
+
+    index = await PriceIndex.load(exclude_cycle="now")
+
+    assert index.baseline(_leg()) is None
+
+
+async def test_the_same_fare_from_two_sources_is_one_fare(engine):
+    await init_db()
+    fares = _six_fares()[:5]
+    google = _leg(price=59.5, source="google_flights")  # the same itinerary as Ryanair's first fare
+    await record_fares(fares, "c1")
+    await record_fares(fares + [google], "c2")
+
+    index = await PriceIndex.load(exclude_cycle="now")
+
+    assert index.baseline(_leg()) is None  # 5 fares, not 6
+
+
 async def test_feed_deals_stay_out_of_the_history(engine):
     await init_db()
     recorded = await record_fares([_leg(is_feed_deal=True), _leg()], "c1")
     assert recorded == 1
+
+
+async def test_rows_from_before_fares_were_dated_are_ignored(engine):
+    await init_db()
+    async with aiosqlite.connect(await get_db_path()) as db:
+        for i in range(10):
+            await db.execute(
+                "INSERT INTO price_history (route, price_eur, source, recorded_at, origin_city, dest_city, "
+                "trip_type, nights_bucket, depart_month, cycle_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("MXP-KRK", 60.0 + i, "old", datetime.utcnow().isoformat(), *astuple(KEY), f"c{i % 2}"),
+            )
+        await db.commit()
+
+    index = await PriceIndex.load(exclude_cycle="now")
+
+    assert index.baseline(_leg()) is None
 
 
 async def test_rows_from_before_the_keyed_schema_are_ignored(engine):
@@ -246,8 +327,9 @@ async def test_init_db_adds_key_columns_to_an_old_database(engine):
     await record_fares([_leg()], "c1")
 
     async with aiosqlite.connect(await get_db_path()) as db:
-        row = await (await db.execute("SELECT origin_city, nights_bucket, cycle_id FROM price_history")).fetchone()
-    assert row == ("MIL", "weekend", "c1")
+        row = await (await db.execute(
+            "SELECT origin_city, nights_bucket, cycle_id, depart_date, return_date FROM price_history")).fetchone()
+    assert row == ("MIL", "weekend", "c1", "2026-11-13", "2026-11-16")
 
 
 # ── Retention and sending order ───────────────────────────────────────────────
