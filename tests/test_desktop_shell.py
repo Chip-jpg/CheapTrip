@@ -160,6 +160,14 @@ async def test_the_app_routes_show_and_quit(engine):
 
 
 def test_run_refuses_a_second_engine(engine, tmp_path, monkeypatch):
+    import scheduler.runner
+
+    started = []
+
+    async def engine_would_start() -> None:  # never a real 24/7 engine in a test
+        started.append(True)
+
+    monkeypatch.setattr(scheduler.runner, "run_forever", engine_would_start)
     monkeypatch.chdir(tmp_path)
     lock = InstanceLock(tmp_path)
     assert lock.acquire()
@@ -167,7 +175,9 @@ def test_run_refuses_a_second_engine(engine, tmp_path, monkeypatch):
         result = CliRunner().invoke(cli, ["run"])
     finally:
         lock.release()
-    assert result.exit_code == 1 and "already running" in result.output
+    assert result.exit_code == 1 and "already running" in result.output and started == []
+
+    assert CliRunner().invoke(cli, ["run"]).exit_code == 0 and started == [True]  # free again
 
 
 # ── The engine thread and the tray ────────────────────────────────────────────
@@ -270,23 +280,30 @@ def test_the_app_starts_hands_over_and_quits(engine, tmp_path, monkeypatch):
     lock = _lock(tmp_path)
     monkeypatch.setattr(desktop_app, "InstanceLock", lambda folder: lock)
 
+    def quit_app() -> int:
+        info = read_app_file(tmp_path)
+        with httpx.Client(trust_env=False) as client:
+            return client.post(f"http://127.0.0.1:{info['port']}/api/v1/app/quit",
+                               headers={"Authorization": f"Bearer {info['token']}"}).status_code
+
     result: List[int] = []
-    first = threading.Thread(target=lambda: result.append(desktop_app.run(["--minimized"], tmp_path)))
+    first = threading.Thread(target=lambda: result.append(desktop_app.run(["--minimized"], tmp_path)), daemon=True)
     first.start()
-    assert _wait(lambda: read_app_file(tmp_path) is not None)
-    assert opened == []  # started minimized
+    try:
+        assert _wait(lambda: read_app_file(tmp_path) is not None)
+        assert opened == []  # started minimized
 
-    monkeypatch.setattr(desktop_app, "InstanceLock", lambda folder: _Taken())  # a second launch…
-    assert desktop_app.run(["cheaptrip://deal/abc"], tmp_path) == 0  # …hands over
-    assert _wait(lambda: len(opened) == 1) and opened[0].endswith("#/deals/abc")
-    assert desktop_app.run(["--minimized"], tmp_path) == 0 and len(opened) == 1  # sign-in again: nothing
+        monkeypatch.setattr(desktop_app, "InstanceLock", lambda folder: _Taken())  # a second launch…
+        assert desktop_app.run(["cheaptrip://deal/abc"], tmp_path) == 0  # …hands over
+        assert _wait(lambda: len(opened) == 1) and opened[0].endswith("#/deals/abc")
+        assert desktop_app.run(["--minimized"], tmp_path) == 0 and len(opened) == 1  # sign-in again: nothing
 
-    info = read_app_file(tmp_path)
-    with httpx.Client(trust_env=False) as client:
-        resp = client.post(f"http://127.0.0.1:{info['port']}/api/v1/app/quit",
-                           headers={"Authorization": f"Bearer {info['token']}"})
-    assert resp.status_code == 200
-    first.join(timeout=30)
+        assert quit_app() == 200
+        first.join(timeout=30)
+    finally:
+        if first.is_alive() and read_app_file(tmp_path) is not None:  # a failed step: don't leave it running
+            quit_app()
+            first.join(timeout=30)
     assert not first.is_alive() and result == [0]
     assert read_app_file(tmp_path) is None
     assert boxes == []  # started at sign-in: no "opened in your browser" message

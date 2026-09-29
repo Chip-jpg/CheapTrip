@@ -140,7 +140,9 @@ try {
     Confirm-Step ($status.version -eq $Version) "the app's API answers (version $($status.version), $($status.state))"
     $page = Invoke-WebRequest "http://127.0.0.1:$($info.port)/" -NoProxy
     Confirm-Step ($page.Content -match 'id="root"') "the app serves its screens"
-    Confirm-Step (Wait-Until { (Invoke-Api GET "/status").Body.last_cycle.status -eq "ok" } 300) `
+    # (the dry-run cycle above is in the history too: wait for the app's own search at start)
+    Confirm-Step (Wait-Until { $s = (Invoke-Api GET "/status").Body
+                               -not $s.searching -and $s.last_cycle.trigger -eq "startup" -and $s.last_cycle.status -eq "ok" } 300) `
         "the app's first search completes"
     $deals = (Invoke-Api GET "/deals").Body
     $found = @($deals.instant).Count + @($deals.digest).Count
