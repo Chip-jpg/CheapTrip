@@ -119,11 +119,10 @@ function SummaryTiles({ best, cheap, lastSearch, onLearning }: {
       <Tile label="Learning prices" icon="model_training" iconTone="text-tertiary" onClick={onLearning}>
         <div className="mt-1 flex items-baseline gap-space-xs">
           <span className="font-mono text-mono-lg whitespace-nowrap text-tertiary">
-            {learning?.trips ? `${learning.with_usual_price ?? 0}/${learning.trips}` : "–"}
+            {learning?.trips ? `${learning.with_usual_price ?? 0} / ${learning.trips}` : "–"}
           </span>
-          <span className="truncate text-body text-on-surface-variant">trips have a usual price</span>
         </div>
-        <span className="text-caption text-tertiary-fixed-dim">What does this mean?</span>
+        <span className="text-caption text-outline">trips have a usual price · <span className="text-tertiary-fixed-dim">what does this mean?</span></span>
       </Tile>
     </section>
   );
