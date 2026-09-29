@@ -1,14 +1,14 @@
 # CheapTrip — Status Report & Branch Roadmap
 
-## Where things stand (end of Round 4)
+## Where things stand (end of Round 5)
 
-Every card below (B01–B30) is merged into `main`; the progress tracker at the end has the details. In short:
+Every card below (B01–B33) is merged into `main`; the progress tracker at the end has the details. In short:
 
-- **Data:** Ryanair's fare API is the backbone (about 750 fares per cycle), Google Flights adds exact-route searches with a cooldown when Google throttles (kept in the database, so it holds across separate runs), and Travelpayouts is ready once a token is set. PiratinViaggio posts (flights, packages, hotels) are read by Claude when an Anthropic key is set.
-- **Alerts:** a fare is instant when it is well below the usual price for its route, length and month in earlier cycles (or a priority destination, a possible error fare, or under the €25/€250 backstop). "Possible error fare" needs several days of price history and a saving of at least €100. Near-duplicates merge, and a known deal alerts again only after a real price drop.
-- **Control:** Telegram commands (`/deals`, `/mute`, `/priority`, `/budget`, `/pause`), any home airport, `main.py doctor` and a Docker healthcheck.
-- **First run:** `doctor` checks the bot, the chat, the webhook and the Anthropic key; `test-alert` and `read-feed` show Telegram delivery and the Claude reader working with your keys.
-- **Still open:** real hotel prices (flight alerts link a Booking.com search instead; the Hotellook hotel API that Travelpayouts offered no longer answers), and the first live run with the owner's keys.
+- **Data:** Ryanair's fare API is the backbone (about 700 fares per cycle), Google Flights adds exact-route searches with a cooldown when Google throttles (kept in the database, so it holds across separate runs), and Travelpayouts is ready once a token is set. PiratinViaggio posts (flights, packages, hotels) are read by Claude when an Anthropic key is set.
+- **Alerts:** a fare is instant when it is well below the usual price for its route, length and month (each fare counts once, at its latest price), or for a priority destination, a possible error fare, or a fare under the €25/€250 backstop. Near-duplicates merge, and a known deal alerts again only after a real price drop.
+- **Control:** Telegram commands (`/deals`, `/mute`, `/priority`, `/budget`, `/pause`), any home airport, `main.py doctor` and a Docker healthcheck. `doctor`, `test-alert` and `read-feed` check a first run with real keys.
+- **Found in the Round 5 dry run (10 cycles):** with honest counting, baselines are sparse. Ryanair returns the cheapest fare per destination for the same date windows every cycle, so after cycle 2 no new fares arrive until the windows slide the next day. Only 6 of 494 route/length/month keys reached 6 different fares; most hold 2. Comparing a fare with the same route and length departing within ±30 days would give 37% of fares a baseline (±21 days: 21%). This is the next decision.
+- **Still open:** sparse baselines (above), real hotel prices (flight alerts link a Booking.com search instead; the Hotellook hotel API that Travelpayouts offered no longer answers), and the first live run with the owner's keys.
 
 The rest of this document is the original review and plan; its "Status at a glance" section describes the code before Round 1.
 
@@ -323,4 +323,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B30 | `feat/first-live-run` | done (run it with your keys: `doctor`, `test-alert`, `read-feed`) |
 | B31 | `fix/baseline-distinct-fares` | done |
 | B32 | `fix/promoted-deal-order` | done |
-| B33 | `fix/holiday-pirates-hotel-id` | planned |
+| B33 | `fix/holiday-pirates-hotel-id` | done |
