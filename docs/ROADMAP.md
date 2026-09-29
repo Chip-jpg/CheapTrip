@@ -322,5 +322,5 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B29 | `fix/google-cooldown-persist` | done |
 | B30 | `feat/first-live-run` | done (run it with your keys: `doctor`, `test-alert`, `read-feed`) |
 | B31 | `fix/baseline-distinct-fares` | done |
-| B32 | `fix/promoted-deal-order` | planned |
+| B32 | `fix/promoted-deal-order` | done |
 | B33 | `fix/holiday-pirates-hotel-id` | planned |
