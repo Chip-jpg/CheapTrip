@@ -98,6 +98,24 @@ CREATE TABLE IF NOT EXISTS feed_extractions (
 
 # Small key/value tables: engine state (poller offset, last cycle, pause) and
 # preference overrides set from Telegram commands (values are JSON)
+# One row per search cycle (B37): Activity's search history and "searches today"
+_CREATE_CYCLES_TABLE = """
+CREATE TABLE IF NOT EXISTS cycles (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at   TEXT NOT NULL,
+    finished_at  TEXT,
+    duration_s   REAL,
+    trigger      TEXT,
+    fares        INTEGER,
+    trips        INTEGER,
+    new_instant  INTEGER,
+    new_digest   INTEGER,
+    sent         INTEGER,
+    status       TEXT NOT NULL,
+    error        TEXT
+)
+"""
+
 _CREATE_ENGINE_STATE_TABLE = """
 CREATE TABLE IF NOT EXISTS engine_state (
     key         TEXT PRIMARY KEY,
@@ -160,8 +178,10 @@ async def init_db() -> None:
     path = await get_db_path()
     async with aiosqlite.connect(path) as db:
         await db.execute(_CREATE_DEALS_TABLE)
-        await _add_missing_columns(db, "deals", _DEALS_DEDUP_COLUMNS)
+        await _add_missing_columns(db, "deals", (*_DEALS_DEDUP_COLUMNS, "hidden"))
         await db.execute(_CREATE_ALERTS_TABLE)
+        await _add_missing_columns(db, "alerts_sent", ("channel",))
+        await db.execute(_CREATE_CYCLES_TABLE)
         await db.execute(_CREATE_PRICES_TABLE)
         await _add_missing_columns(db, "price_history", _PRICE_HISTORY_KEY_COLUMNS)
         await db.execute(_CREATE_SCRAPER_HEALTH_TABLE)
@@ -287,7 +307,8 @@ async def is_duplicate(trip_hash: str) -> bool:
         return row is not None
 
 
-async def mark_alerted(trip_hash: str, tier: AlertTier) -> None:
+async def mark_alerted(trip_hash: str, tier: AlertTier, channel: str = "telegram") -> None:
+    """Record a sent alert; `channel` names where it went ("telegram", "desktop" or "desktop,telegram")."""
     path = await get_db_path()
     now = utcnow().isoformat()
     async with aiosqlite.connect(path) as db:
@@ -295,10 +316,19 @@ async def mark_alerted(trip_hash: str, tier: AlertTier) -> None:
             "UPDATE deals SET is_alerted = 1 WHERE hash = ?", (trip_hash,)
         )
         await db.execute(
-            "INSERT INTO alerts_sent (hash, alert_tier, sent_at) VALUES (?, ?, ?)",
-            (trip_hash, AlertTier(tier).value, now),
+            "INSERT INTO alerts_sent (hash, alert_tier, sent_at, channel) VALUES (?, ?, ?, ?)",
+            (trip_hash, AlertTier(tier).value, now, channel),
         )
         await db.commit()
+
+
+async def hide_deal(trip_hash: str) -> bool:
+    """Hide a deal from the digest and the instant queue (the app's "Hide this deal")."""
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        cursor = await db.execute("UPDATE deals SET hidden = '1' WHERE hash = ?", (trip_hash,))
+        await db.commit()
+    return bool(cursor.rowcount)
 
 
 async def count_alerts_sent_last_hour(tier: AlertTier) -> int:
@@ -319,7 +349,7 @@ async def get_pending_instant_alerts(limit: int = 10) -> List[Trip]:
         cursor = await db.execute(
             """
             SELECT payload FROM deals
-            WHERE alert_tier = ? AND is_alerted = 0
+            WHERE alert_tier = ? AND is_alerted = 0 AND hidden IS NULL
             ORDER BY COALESCE(discount_pct, 0) DESC, confidence DESC, total_cost ASC
             LIMIT ?
             """,
@@ -365,7 +395,7 @@ async def get_digest_deals(limit: int = 20) -> List[Trip]:
             """
             SELECT payload FROM deals
             WHERE alert_tier IN (?, ?)
-              AND created_at >= ?
+              AND created_at >= ? AND hidden IS NULL
             ORDER BY confidence DESC, total_cost ASC
             LIMIT ?
             """,
@@ -447,6 +477,7 @@ async def purge_old_rows(
         deals = await db.execute("DELETE FROM deals WHERE expires_at < ?", (expired_cutoff,))
         alerts = await db.execute("DELETE FROM alerts_sent WHERE sent_at < ?", (alerts_cutoff,))
         await db.execute("DELETE FROM feed_extractions WHERE created_at < ?", (alerts_cutoff,))
+        await db.execute("DELETE FROM cycles WHERE started_at < ?", (alerts_cutoff,))
         await db.commit()
     return {"price_history": prices.rowcount, "deals": deals.rowcount, "alerts_sent": alerts.rowcount}
 
@@ -586,3 +617,63 @@ async def set_search_cursor(cursor_key: str, position: int) -> None:
             (cursor_key, position, utcnow().isoformat()),
         )
         await db.commit()
+
+
+# ── Search cycles (B37) ───────────────────────────────────────────────────────
+
+async def start_cycle_record(trigger: str) -> int:
+    """Record a cycle that is starting; returns its id."""
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        cursor = await db.execute(
+            "INSERT INTO cycles (started_at, trigger, status) VALUES (?, ?, 'running')",
+            (utcnow().isoformat(), trigger),
+        )
+        await db.commit()
+    return cursor.lastrowid
+
+
+async def finish_cycle_record(cycle_id: int, stats: Dict[str, object]) -> None:
+    """Store a finished cycle: status ("ok", "failed", "stopped"), error, duration_s and its counts."""
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            """
+            UPDATE cycles SET finished_at = ?, duration_s = ?, fares = ?, trips = ?, new_instant = ?,
+                              new_digest = ?, sent = ?, status = ?, error = ?
+             WHERE id = ?
+            """,
+            (utcnow().isoformat(), stats.get("duration_s"), stats.get("fares"), stats.get("trips"),
+             stats.get("new_instant"), stats.get("new_digest"), stats.get("sent"),
+             stats.get("status") or ("failed" if stats.get("error") else "ok"), stats.get("error"), cycle_id),
+        )
+        await db.commit()
+
+
+async def close_interrupted_cycles() -> int:
+    """Mark searches left 'running' by a crash or power cut as stopped (called when the engine starts)."""
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        cursor = await db.execute(
+            "UPDATE cycles SET status = 'stopped', error = 'interrupted' WHERE status = 'running'"
+        )
+        await db.commit()
+    return cursor.rowcount
+
+
+async def recent_cycles(limit: int = 20) -> List[Dict[str, object]]:
+    """The latest cycles, newest first, as dicts of the cycles table's columns."""
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM cycles ORDER BY id DESC LIMIT ?", (limit,))
+        return [dict(row) for row in await cursor.fetchall()]
+
+
+async def count_cycles_since(since: datetime) -> int:
+    path = await get_db_path()
+    async with aiosqlite.connect(path) as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM cycles WHERE started_at >= ? AND status != 'running'", (since.isoformat(),)
+        )
+        return (await cursor.fetchone())[0]

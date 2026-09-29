@@ -17,6 +17,7 @@ from scrapers.secret_flying import SecretFlyingScraper
 from scrapers.skyscanner import SkyscannerScraper
 from scrapers.travelpayouts import TravelpayoutsScraper
 from storage.models import RawFlightResult, RawHotelResult
+from utils.events import get_event_bus
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -87,6 +88,14 @@ class ScraperAggregator:
         log.info("hotels_collected", total=len(results), sources=stats)
         return results, stats
 
+    @staticmethod
+    async def _scrape(scraper, tasks: list) -> ScrapeOutcome:
+        """One source's run, announced when it finishes (the app's "Searching… 2 of 4 sources")."""
+        outcome = await scraper.safe_scrape(tasks)
+        get_event_bus().publish("source_done", source=scraper.source_id, status=outcome.status.value,
+                                count=outcome.count)
+        return outcome
+
     async def _run(self, scrapers: list, plan: Optional[CyclePlan]) -> Tuple[list, dict]:
         """
         Run scrapers concurrently with their planned tasks (feeds take none) and
@@ -101,7 +110,7 @@ class ScraperAggregator:
             runnable.append((scraper, tasks))
 
         outcomes = await asyncio.gather(
-            *(s.safe_scrape(tasks) for s, tasks in runnable), return_exceptions=True
+            *(self._scrape(s, tasks) for s, tasks in runnable), return_exceptions=True
         )
         results: list = []
         stats: dict = {}
