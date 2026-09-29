@@ -72,7 +72,7 @@ async def test_searches_carry_the_number_of_adults(engine):
 
 
 def test_google_party_total_becomes_a_per_person_price():
-    html = (FIXTURES / "google_flights_mxp_krk_rt.html").read_text()
+    html = (FIXTURES / "google_flights_mxp_krk_rt.html").read_text(encoding="utf-8")
     one = GoogleFlightsScraper().parse_results(html, _task(adults=1))
     two = GoogleFlightsScraper().parse_results(html, _task(adults=2))
 

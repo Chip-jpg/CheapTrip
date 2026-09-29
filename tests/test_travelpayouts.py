@@ -14,7 +14,7 @@ from scrapers.base import ScrapeStatus
 from scrapers.travelpayouts import TravelpayoutsScraper
 from storage.models import SearchTask
 
-FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "travelpayouts_prices_for_dates_mil.json").read_text())
+FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "travelpayouts_prices_for_dates_mil.json").read_text(encoding="utf-8"))
 API = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates"
 
 

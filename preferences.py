@@ -58,7 +58,7 @@ def load_preferences(path: Path = _DEFAULT_YAML_PATH) -> UserPreferences:
     try:
         import yaml
 
-        with open(path) as f:
+        with open(path, encoding="utf-8-sig") as f:  # Notepad may add a BOM
             data = yaml.safe_load(f) or {}
         # Only pass fields that UserPreferences knows about
         known = UserPreferences.model_fields.keys()

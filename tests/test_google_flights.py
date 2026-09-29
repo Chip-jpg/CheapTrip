@@ -90,7 +90,7 @@ def test_non_result_labels_are_ignored():
 
 
 def test_parse_live_fixture_europe():
-    html = (FIXTURES / "google_flights_mxp_krk_rt.html").read_text()
+    html = (FIXTURES / "google_flights_mxp_krk_rt.html").read_text(encoding="utf-8")
     results = GoogleFlightsScraper().parse_results(html, _task())
     assert [(r.price, r.airline, r.stops) for r in results] == [
         (80.0, "Ryanair", 0), (113.0, "Wizz Air", 0), (173.0, "Air Dolomiti and Lufthansa", 1),
@@ -103,14 +103,14 @@ def test_parse_live_fixture_europe():
 
 
 def test_parse_live_fixture_long_haul():
-    html = (FIXTURES / "google_flights_mxp_jfk_rt.html").read_text()
+    html = (FIXTURES / "google_flights_mxp_jfk_rt.html").read_text(encoding="utf-8")
     results = GoogleFlightsScraper().parse_results(html, _task("JFK", date(2026, 11, 13), 7))
     assert results[0].price == 463.0 and results[0].airline == "American"
     assert results[0].duration_minutes == 9 * 60 + 4
 
 
 async def test_results_from_the_live_fixture_via_http():
-    html = (FIXTURES / "google_flights_mxp_krk_rt.html").read_text()
+    html = (FIXTURES / "google_flights_mxp_krk_rt.html").read_text(encoding="utf-8")
     with respx.mock() as router:
         route = router.get(url__startswith="https://www.google.com/travel/flights").mock(
             return_value=httpx.Response(200, text=html))
@@ -154,7 +154,7 @@ async def test_block_starts_a_cooldown_then_the_source_comes_back():
     scraper._cooldown_until = datetime.utcnow() - timedelta(minutes=1)
     await set_state(COOLDOWN_STATE_KEY, scraper._cooldown_until.isoformat())
     await scraper.begin_cycle()
-    html = (FIXTURES / "google_flights_mxp_krk_rt.html").read_text()
+    html = (FIXTURES / "google_flights_mxp_krk_rt.html").read_text(encoding="utf-8")
     with _google(httpx.Response(200, text=html)):
         back = await scraper.safe_scrape([_task()])
     assert back.status == ScrapeStatus.OK

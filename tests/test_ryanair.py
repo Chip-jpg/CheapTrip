@@ -17,7 +17,7 @@ from scrapers.ryanair import RyanairScraper
 from storage.models import SearchTask
 from utils import airports
 
-FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "ryanair_round_trip_bgy.json").read_text())
+FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "ryanair_round_trip_bgy.json").read_text(encoding="utf-8"))
 API = "https://www.ryanair.com/api/farfnd/v4/roundTripFares"
 
 

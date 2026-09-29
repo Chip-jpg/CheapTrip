@@ -223,7 +223,7 @@ class Engine:
     def set_prefs(self, **overrides: Any) -> None:
         data = dict(DEFAULT_PREFS)
         data.update(overrides)
-        self.prefs_path.write_text(yaml.safe_dump(data))
+        self.prefs_path.write_text(yaml.safe_dump(data), encoding="utf-8")
         get_preferences.cache_clear()
 
     async def run_cycle(

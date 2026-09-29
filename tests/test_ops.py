@@ -4,8 +4,10 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import sys
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from click.testing import CliRunner
 
 from main import cli
@@ -110,6 +112,8 @@ def test_doctor_command_exits_1_on_failures(engine, monkeypatch):
 
 # ── graceful shutdown ─────────────────────────────────────────────────────────
 
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="SIGTERM ends a Windows process outright; there the engine stops with Ctrl+C")
 async def test_sigterm_stops_the_engine_cleanly(engine, monkeypatch):
     import scheduler.runner as runner
 
