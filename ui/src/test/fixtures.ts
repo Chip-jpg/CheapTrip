@@ -24,7 +24,7 @@ export const DEALS: DealsResponse = {
 export const STATUS: Status = {
   state: "running", searching: false, paused_until: null, next_search_at: "2026-09-29T12:30:00",
   last_cycle: null, searches_today: 3, attention: [], learning: { trips: 80, with_usual_price: 30 },
-  telegram_configured: true, timezone: "Europe/Rome", version: "0.6.0",
+  telegram_configured: true, timezone: "Europe/Rome", version: "0.6.0", app: "desktop",
 };
 
 /** A fetch that answers from `routes` (path → JSON) and records every call. */

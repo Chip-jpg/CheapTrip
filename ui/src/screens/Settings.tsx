@@ -175,7 +175,7 @@ export function Settings() {
       <Section title="App" busy={busy} onSave={() => save({ app: s.app })}>
         <Field label="Closing the window keeps CheapTrip running in the tray">
           <input type="checkbox" checked={s.app.close_to_tray}
-                 onChange={(e) => edit((d) => ({ ...d, app: { close_to_tray: e.target.checked } }))} />
+                 onChange={(e) => edit((d) => ({ ...d, app: { ...d.app, close_to_tray: e.target.checked } }))} />
         </Field>
       </Section>
 

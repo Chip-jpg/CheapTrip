@@ -42,3 +42,60 @@ export const TYPE_LABELS: Record<DealType, string> = {
   flight_hotel: "Flight + hotel",
   via_hub: "Via a hub",
 };
+
+/** A UTC timestamp from the engine as a Date. */
+export function moment(iso: string): Date {
+  return new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`);
+}
+
+/** "14:00" (local time). */
+export function clock(iso: string | null | undefined): string {
+  if (!iso) return "–";
+  return moment(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+/** "in 42 min", "in 1 h 5 min", "now". */
+export function fromNow(iso: string | null | undefined, now: Date = new Date()): string {
+  if (!iso) return "";
+  const minutes = Math.round((moment(iso).getTime() - now.getTime()) / 60000);
+  if (minutes <= 0) return "now";
+  if (minutes < 60) return `in ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 ? `in ${hours} h ${minutes % 60} min` : `in ${hours} h`;
+}
+
+/** "just now", "4 min ago", "2 h ago", "3 days ago". */
+export function ago(iso: string | null | undefined, now: Date = new Date()): string {
+  if (!iso) return "–";
+  const minutes = Math.round((now.getTime() - moment(iso).getTime()) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
+}
+
+/** How long a pause lasts: "until 14:00", "until Thu 08:00", or "until you resume" (a pause without end). */
+export function pausedUntil(iso: string | null | undefined, now: Date = new Date()): string {
+  if (!iso) return "";
+  const end = moment(iso);
+  if (end.getFullYear() - now.getFullYear() > 1) return "until you resume";
+  const time = end.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  if (end.toDateString() === now.toDateString()) return `until ${time}`;
+  return `until ${WEEKDAYS[end.getDay()]} ${time}`;
+}
+
+/** "Wed 21 Oct" for an ISO date. */
+export function dayLabel(iso: string | null | undefined): string {
+  if (!iso) return "–";
+  const d = day(iso.slice(0, 10));
+  return `${d.weekday} ${d.date} ${d.month}`;
+}
+
+/** "21 Oct" for an ISO date. */
+export function shortDay(iso: string | null | undefined): string {
+  if (!iso) return "–";
+  const d = day(iso.slice(0, 10));
+  return `${d.date} ${d.month}`;
+}

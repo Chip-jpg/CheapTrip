@@ -28,7 +28,9 @@ datas = [
     (str(ROOT / "config" / "user_preferences.yaml.example"), "config"),
     (str(ROOT / ".env.example"), "."),
     (str(UI), "ui/dist"),
+    (str(ROOT / "desktop" / "assets"), "desktop/assets"),  # the notification and tray icons
 ]
+ICON = str(ROOT / "packaging" / "icons" / "cheaptrip.ico")  # rendered by packaging/icons/make_icons.mjs
 hiddenimports = []
 if sys.platform == "win32":
     # Imported at run time by name: the tray's Windows backend, the notification backends
@@ -44,11 +46,11 @@ app = Analysis([str(ROOT / "packaging" / "app_entry.py")], **common)  # noqa: F8
 
 cli_exe = EXE(  # noqa: F821
     PYZ(cli.pure), cli.scripts, [],  # noqa: F821
-    exclude_binaries=True, name="cheaptrip-cli", console=True, upx=False,
+    exclude_binaries=True, name="cheaptrip-cli", console=True, upx=False, icon=ICON,
 )
 app_exe = EXE(  # noqa: F821
     PYZ(app.pure), app.scripts, [],  # noqa: F821
-    exclude_binaries=True, name="CheapTrip", console=False, upx=False,
+    exclude_binaries=True, name="CheapTrip", console=False, upx=False, icon=ICON,
 )
 coll = COLLECT(  # noqa: F821
     cli_exe, app_exe, cli.binaries, cli.datas, app.binaries, app.datas, name="cheaptrip", upx=False,

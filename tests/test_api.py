@@ -242,6 +242,16 @@ async def test_saving_settings_writes_env_and_preferences(api, tmp_path):
     assert str(job.trigger).startswith("cron[") and "hour='7'" in str(job.trigger)
 
 
+async def test_app_settings_theme_and_close_button(api, tmp_path):
+    assert (await api.get("/settings"))["app"] == {"close_to_tray": True, "theme": "system"}
+    result = await api.call("PUT", "/settings", {"app": {"theme": "dark", "close_to_tray": False}})
+
+    assert result["settings"]["app"] == {"close_to_tray": False, "theme": "dark"}
+    assert result["applies"] == {"app.theme": "now", "app.close_to_tray": "now"}
+    env = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "THEME=dark" in env and "CLOSE_TO_TRAY=false" in env
+
+
 async def test_saving_a_destination_list_replaces_telegram_overrides(api):
     await control.set_priority("JFK", True)  # e.g. from Telegram /priority JFK
     await api.call("PUT", "/settings", {"preferences": {"priority_destinations": ["NRT"]}})
@@ -258,6 +268,9 @@ async def test_saving_a_destination_list_replaces_telegram_overrides(api):
     ({"alerts": {"instant_alerts_per_hour": 0}}, "greater than or equal to 1"),
     ({"keys": {"database_url": "x"}}, "unknown keys"),
     ({"sources": {"enable_rockets": True}}, "unknown source switches"),
+    ({"app": {"theme": "sepia"}}, "theme must be one of system, light, dark"),
+    ({"app": {"close_to_tray": "yes"}}, "close_to_tray must be true or false"),
+    ({"app": {"wallpaper": "x"}}, "unknown app settings"),
 ])
 async def test_bad_settings_are_refused(api, body, message):
     error = await api.call("PUT", "/settings", body, status=400)

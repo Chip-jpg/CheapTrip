@@ -2,8 +2,8 @@
  * The typed client for the engine's local API (api/server.py, /api/v1).
  *
  * The app opens the UI through /?token=…, which sets an HttpOnly cookie; every
- * request here is same-origin, so the cookie authorizes it. Round 8 builds the
- * designed screens on this client unchanged.
+ * request here is same-origin, so the cookie authorizes it. The designed
+ * screens (Round 8) are built on it.
  */
 
 // ── Shapes ────────────────────────────────────────────────────────────────────
@@ -38,6 +38,8 @@ export interface Status {
   telegram_configured: boolean;
   timezone: string;
   version: string;
+  /** Where the screens run: the desktop app's window, or a browser (`main.py ui`) */
+  app: "desktop" | "browser" | null;
 }
 
 export interface Place {
@@ -247,7 +249,7 @@ export interface Settings {
   };
   sources: Record<string, boolean>;
   notifications: NotificationSettings & { telegram_ready: boolean };
-  app: { close_to_tray: boolean };
+  app: { close_to_tray: boolean; theme: ThemeChoice };
   files: { settings: string; preferences: string };
 }
 
@@ -257,8 +259,10 @@ export interface SettingsUpdate {
   keys?: Record<string, string | null>; // "" clears a key; leave a key out to keep it
   sources?: Record<string, boolean>;
   notifications?: Partial<NotificationSettings>;
-  app?: { close_to_tray?: boolean };
+  app?: { close_to_tray?: boolean; theme?: ThemeChoice };
 }
+
+export type ThemeChoice = "system" | "light" | "dark";
 
 export interface SaveResult {
   saved: string[];
@@ -352,6 +356,7 @@ export const api = {
   resume: () => request<{ paused_until: null }>("POST", "/engine/resume"),
 
   quitApp: () => request<{ quitting: boolean }>("POST", "/app/quit"),
+  hideWindow: () => request<{ hidden: boolean }>("POST", "/app/hide"),
 };
 
 const EVENT_TYPES = [

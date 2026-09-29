@@ -47,6 +47,20 @@ def message_box(title: str, text: str) -> None:
     ctypes.windll.user32.MessageBoxW(None, text, title, MB_OK_ICONINFORMATION)
 
 
+def system_prefers_dark() -> bool:
+    """True when Windows is set to dark mode for apps (the app's "system" theme follows it)."""
+    if sys.platform != "win32":
+        return False
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
+            return winreg.QueryValueEx(key, "AppsUseLightTheme")[0] == 0
+    except OSError:  # an older Windows: light
+        return False
+
+
 def webview2_available() -> bool:
     """
     True when the app window can use Edge WebView2. pywebview would quietly

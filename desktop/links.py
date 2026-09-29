@@ -2,7 +2,8 @@
 cheaptrip:// links and the app's screen routes (B40).
 
 A route is what follows "#/" in the app's address: "deals", "deals/<id>",
-"destinations", "activity", "settings" or "setup" ("" is the start screen).
+"destinations", "destinations/<airport>", "activity", "settings",
+"settings/<section>", "setup" or "notifications" ("" is the start screen).
 Windows runs `CheapTrip.exe cheaptrip://deal/<id>` for a link; the running app
 then shows that screen.
 """
@@ -14,8 +15,10 @@ from typing import Optional, Sequence
 from urllib.parse import unquote, urlsplit
 
 SCHEME = "cheaptrip"
-SCREENS = ("deals", "destinations", "activity", "settings", "setup")
+SCREENS = ("deals", "destinations", "activity", "settings", "setup", "notifications")
+SETTINGS_SECTIONS = ("trips", "alerts", "notifications", "keys", "sources", "app")
 _DEAL_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+_AIRPORT = re.compile(r"^[A-Za-z]{3}$")
 
 
 def clean_route(route: str) -> Optional[str]:
@@ -25,8 +28,14 @@ def clean_route(route: str) -> Optional[str]:
         return ""
     if parts[0] in SCREENS and len(parts) == 1:
         return parts[0]
-    if parts[0] in ("deal", "deals") and len(parts) == 2 and _DEAL_ID.match(parts[1]):
+    if len(parts) != 2:
+        return None
+    if parts[0] in ("deal", "deals") and _DEAL_ID.match(parts[1]):
         return f"deals/{parts[1]}"
+    if parts[0] == "destinations" and _AIRPORT.match(parts[1]):
+        return f"destinations/{parts[1].upper()}"
+    if parts[0] == "settings" and parts[1] in SETTINGS_SECTIONS:
+        return f"settings/{parts[1]}"
     return None
 
 
