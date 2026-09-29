@@ -232,10 +232,12 @@ class Engine:
         hotels: ResultsSpec = (),
         feeds: Sequence[Any] = (),
         extra_flight_scrapers: Sequence[BaseFlightScraper] = (),
+        notifier: Any = None,
     ) -> ScraperAggregator:
         """
         Run one full pipeline cycle; returns the aggregator. Its scrapers are
         [FakeFlightScraper, FakeFeedScraper] and [FakeHotelScraper] — inspect their calls.
+        `notifier` defaults to a TelegramNotifier (the mocked Bot API).
         """
         from scheduler.runner import run_pipeline_cycle
 
@@ -244,13 +246,13 @@ class Engine:
             flight_scrapers=[FakeFlightScraper(flights), FakeFeedScraper(feeds), *extra_flight_scrapers],
             hotel_scrapers=[FakeHotelScraper(hotels)],
         )
-        notifier = await TelegramNotifier.create()
+        notifier = notifier or await TelegramNotifier.create()
         await run_pipeline_cycle(aggregator=aggregator, notifier=notifier)
         return aggregator
 
-    async def run_digest(self) -> None:
+    async def run_digest(self, notifier: Any = None) -> None:
         from scheduler.runner import run_daily_digest
 
         await init_db()
-        notifier = await TelegramNotifier.create()
+        notifier = notifier or await TelegramNotifier.create()
         await run_daily_digest(notifier=notifier)

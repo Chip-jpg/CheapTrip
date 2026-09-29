@@ -30,6 +30,7 @@ def test_db(tmp_path_factory):
 @pytest.fixture
 def engine(tmp_path, monkeypatch):
     """Isolated engine: temp DB + temp preferences + mocked Telegram API."""
+    saved_env = dict(os.environ)  # Settings saved through the API also write os.environ
     prefs_path = tmp_path / "user_preferences.yaml"
     prefs_path.write_text(yaml.safe_dump(DEFAULT_PREFS), encoding="utf-8")
 
@@ -48,4 +49,6 @@ def engine(tmp_path, monkeypatch):
         yield Engine(tmp_path=tmp_path, prefs_path=prefs_path, telegram=capture, router=router)
 
     monkeypatch.undo()
+    os.environ.clear()
+    os.environ.update(saved_env)
     reset_caches()

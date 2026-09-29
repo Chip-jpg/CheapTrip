@@ -3,6 +3,9 @@ The Settings screen's data (B38): read the effective settings, and apply
 changes to `.env` (keys, alert rules, source switches) and to the preferences
 YAML (trips, destinations), then to the running engine without a restart.
 
+Notification switches (desktop, Telegram, which kinds of message, sound) are
+read at every send, so they apply at once.
+
 Keys are never sent back in full: the screen gets {"set": true, "hint": "…1234"}.
 In an update a key's value "" clears it and a missing key is left alone.
 """
@@ -29,6 +32,8 @@ SOURCE_SWITCHES = (
     "enable_ryanair", "enable_piratinviaggio", "enable_skyscanner", "enable_google_hotels",
     "enable_booking_html", "enable_secret_flying", "enable_going", "enable_holiday_pirates",
 )
+# Settings → Notifications: NOTIFY_<NAME> in .env
+NOTIFY_SWITCHES = ("desktop", "telegram", "instant", "digest", "source_problems", "sound")
 # Preference lists that Telegram /mute and /priority (and /budget) override: saving them
 # in Settings makes the saved value the truth again
 _OVERRIDES_OF = {
@@ -63,6 +68,15 @@ class SettingsUpdate(BaseModel):
     alerts: Optional[AlertRules] = None
     keys: Optional[Dict[str, Optional[str]]] = None
     sources: Optional[Dict[str, bool]] = None
+    notifications: Optional[Dict[str, bool]] = None
+
+    @field_validator("notifications")
+    @classmethod
+    def _known_switches(cls, value: Optional[Dict[str, bool]]) -> Optional[Dict[str, bool]]:
+        unknown = set(value or {}) - set(NOTIFY_SWITCHES)
+        if unknown:
+            raise ValueError(f"unknown notification switches: {', '.join(sorted(unknown))}")
+        return value
 
     @field_validator("keys")
     @classmethod
@@ -107,6 +121,10 @@ def read_settings() -> Dict[str, Any]:
             **{name: getattr(settings, name) or "" for name in PLAIN_KEYS},
         },
         "sources": {name: getattr(settings, name) for name in SOURCE_SWITCHES},
+        "notifications": {
+            **{name: getattr(settings, f"notify_{name}") for name in NOTIFY_SWITCHES},
+            "telegram_ready": bool(settings.telegram_bot_token and settings.telegram_chat_id),
+        },
         "files": {"settings": str(env_path()), "preferences": str(preferences_path())},
     }
 
@@ -171,6 +189,11 @@ async def apply_settings(payload: Dict[str, Any], engine: Any = None) -> Dict[st
         env[name.upper()] = _env_value(on)
         saved.append(f"sources.{name}")
         applies[f"sources.{name}"] = "next search"
+
+    for name, on in (update.notifications or {}).items():
+        env[f"NOTIFY_{name.upper()}"] = _env_value(on)
+        saved.append(f"notifications.{name}")
+        applies[f"notifications.{name}"] = "now"
 
     if env:
         update_env_file(env_path(), env)

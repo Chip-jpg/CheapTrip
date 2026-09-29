@@ -63,6 +63,12 @@ It also gives the desktop app its controls:
 
 The pause state and the mute, priority and budget overrides live in `control.py`. The Telegram commands and the app call the same functions, and each change is published on the event bus.
 
+The notifier is `notifier/channels.ChannelNotifier`.
+- It sends each alert to the desktop (`notifier/desktop.py`, through `desktop-notifier`) and to Telegram, as the `NOTIFY_*` settings say.
+- The desktop channel exists only when the app provides one (`Engine(desktop=...)`).
+- Both channels share the hourly limit, and `alerts_sent.channel` records which ones delivered each alert.
+- Status messages (startup, cycle summary) stay on Telegram. A failing or recovered source also shows on the desktop.
+
 `main.py run` (and Docker) is `Engine().run()`, which stops cleanly on SIGTERM or SIGINT; stopping cancels a running search. The last completed cycle time is still recorded for `main.py healthcheck`.
 
 ## The local API (`api/`)
@@ -83,7 +89,7 @@ The desktop app's screens read JSON from a small aiohttp server (`api/server.py`
 | `GET /destinations?tab=`, `POST`/`DELETE /destinations/{code}/priority\|mute`, `GET /airports?q=` | Destinations; the same overrides as Telegram's `/priority` and `/mute` |
 | `GET /activity` | Sources, alerts log, search history |
 | `GET`/`PUT /settings` | Settings: `.env` (keys masked) and the preferences YAML (comments kept), applied live (`api/settings_io.py`) |
-| `GET /setup/checks`, `POST /setup/test-telegram` | First-run checks (`utils/doctor.py`) |
+| `GET /setup/checks`, `POST /setup/test-telegram`, `POST /setup/test-notification` | First-run checks (`utils/doctor.py`) and a test notification on each channel that is on |
 | `POST /engine/search-now`, `/pause`, `/resume` | Controls |
 | `GET /events` | Server-sent events from the event bus |
 
