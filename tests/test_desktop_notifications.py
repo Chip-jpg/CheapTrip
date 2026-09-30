@@ -375,6 +375,13 @@ async def test_the_app_sends_a_test_notification(engine, monkeypatch):
         resp = await client.post(url, json={"channel": "fax"}, headers=AUTH)
         assert resp.status == 400
 
+        backend.fail = True  # Windows refuses it: the screens get words to show, not "HTTP 502"
+        resp = await client.post(url, json={"channel": "desktop"}, headers=AUTH)
+        assert resp.status == 502 and await resp.json() == {
+            "sent": {"desktop": False},
+            "error": "Windows didn't show it (check CheapTrip in Windows' notification settings)"}
+        backend.fail = False
+
         _setting(monkeypatch, notify_desktop=False, notify_telegram=False)
         resp = await client.post(url, headers=AUTH)
         assert resp.status == 409

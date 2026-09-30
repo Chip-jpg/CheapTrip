@@ -63,6 +63,10 @@ def _peak_memory_mb() -> float:
 
 
 def _environment(folder: Path) -> None:
+    # Windows pipes use the ANSI code page, which has no "→": an unprintable log line would end the search
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{folder / 'bench.db'}"
     os.environ["CHEAPTRIP_PREFS_PATH"] = str(folder / "prefs.yaml")
     for key in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "ANTHROPIC_API_KEY", "RAPIDAPI_KEY", "TRAVELPAYOUTS_TOKEN"):

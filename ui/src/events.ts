@@ -5,7 +5,9 @@ import { subscribe, type EngineEvent } from "./api";
 export function useEngineEvents(onEvent: (event: EngineEvent) => void): void {
   const latest = useRef(onEvent);
   latest.current = onEvent;
-  useEffect(() => subscribe((event) => latest.current(event)), []);
+  useEffect(() => {
+    return subscribe((event) => latest.current(event));
+  }, []);
 }
 
 /** Whether nobody can see the page: the window is hidden in the tray, or minimized. */

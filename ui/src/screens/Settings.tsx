@@ -50,8 +50,9 @@ export function useSave(onSaved: (settings: SettingsData) => void) {
   return (update: SettingsUpdate, what = "Saved") => api.saveSettings(update)
     .then((result) => {
       onSaved(result.settings);
-      const later = Object.values(result.applies).includes("next search");
-      toast(`${what} · ${later ? "applies from the next search" : "applies now"}`);
+      const applies = Object.values(result.applies);
+      toast(`${what} · ${applies.includes("next start") ? "applies when CheapTrip starts again"
+        : applies.includes("next search") ? "applies from the next search" : "applies now"}`);
       return result;
     })
     .catch((err: Error) => { toast(`Not saved: ${err.message}`, { tone: "error" }); return null; });  // the toast says it
@@ -72,14 +73,14 @@ function Trips({ s, save }: { s: SettingsData; save: ReturnType<typeof useSave> 
       </Section>
       <Section title="Trips you like" icon="date_range">
         <Row label="Trip lengths" help="Fares for other lengths are still shown, but these are searched.">
-          <div className="grid grid-cols-2 gap-space-xs">
+          <div className="grid w-[21rem] max-w-full grid-cols-2 gap-space-xs">
             {LENGTHS.map((l) => {
               const on = p.preferred_trip_lengths.includes(l.value);
               return (
                 <button key={l.value} role="checkbox" aria-checked={on} onClick={() => {
                   const next = on ? p.preferred_trip_lengths.filter((x) => x !== l.value) : [...p.preferred_trip_lengths, l.value];
                   if (next.length) void save({ preferences: { preferred_trip_lengths: next } });
-                }} className={`flex w-40 items-center gap-space-sm rounded-lg border px-space-md py-1.5 text-left ${on
+                }} className={`flex min-w-0 items-center gap-space-sm rounded-lg border px-space-md py-2 text-left ${on
                   ? "border-primary-container bg-primary-container/10" : "border-stroke hover:bg-surface-container-highest"}`}>
                   <Icon name={on ? "check_box" : "check_box_outline_blank"} size={18} className={on ? "text-primary" : "text-outline"} />
                   <span className="flex flex-col"><span className="text-body text-on-surface">{l.label}</span>
@@ -231,7 +232,7 @@ function KeyCheck({ what }: { what: "telegram" | "anthropic" }) {
       }}>
         <Icon name={busy ? "progress_activity" : "fact_check"} size={16} className={busy ? "animate-spin" : ""} />Check
       </button>
-      {checks && <div className="w-[480px]"><CheckList checks={checks} /></div>}
+      {checks && <div className="w-full max-w-[32rem]"><CheckList checks={checks} /></div>}
     </div>
   );
 }
@@ -291,7 +292,7 @@ function Sources({ s, save }: { s: SettingsData; save: ReturnType<typeof useSave
 }
 
 function AppSection({ s, save }: { s: SettingsData; save: ReturnType<typeof useSave> }) {
-  const { choice, choose } = useTheme();
+  const { choice, choose, textSize, chooseTextSize } = useTheme();
   const { status } = useEngine();
   const toast = useToast();
   const [update, setUpdate] = useState<UpdateInfo | string>();
@@ -313,6 +314,11 @@ function AppSection({ s, save }: { s: SettingsData; save: ReturnType<typeof useS
             { value: "system", label: "Like Windows", icon: "contrast" }, { value: "light", label: "Light", icon: "light_mode" },
             { value: "dark", label: "Dark", icon: "dark_mode" }]} />
         </Row>
+        <Row label="Text size" help="Everything grows with the text. Ctrl + and Ctrl − change it anywhere; Ctrl 0 goes back to standard.">
+          <Segmented label="Text size" value={textSize} onChange={chooseTextSize} options={[
+            { value: "standard", label: "Standard", icon: "text_fields" }, { value: "large", label: "Large", icon: "format_size" },
+            { value: "largest", label: "Largest", icon: "text_increase" }]} />
+        </Row>
         <Row label="Data folder" help={<span className="font-mono text-mono-sm">{s.files.settings.replace(/[\\/]\.env$/, "")}</span>}>
           <button className="btn-secondary" onClick={() => api.open("data").catch((err: Error) => toast(err.message, { tone: "error" }))}>
             <Icon name="folder_open" size={16} />Open
@@ -329,6 +335,16 @@ function AppSection({ s, save }: { s: SettingsData; save: ReturnType<typeof useS
           <button className="btn-secondary" onClick={() => api.update().then(setUpdate).catch((err: Error) => setUpdate(err.message))}>
             <Icon name="update" size={16} />Check for updates
           </button>
+        </Row>
+      </Section>
+      <Section title="Advanced" icon="build" description="For reporting a problem: the log folder, and the window's developer tools.">
+        <Row label="Log folder" help="What CheapTrip did and any errors, one file a day.">
+          <button className="btn-secondary" onClick={() => api.open("logs").catch((err: Error) => toast(err.message, { tone: "error" }))}>
+            <Icon name="folder_open" size={16} />Open
+          </button>
+        </Row>
+        <Row label="Developer tools" help="F12 (or right-click → Inspect) opens WebView2's developer tools in the window. Applies when CheapTrip starts again.">
+          <Switch label="Developer tools" on={s.app.devtools} onChange={(on) => save({ app: { devtools: on } }, on ? "Developer tools on" : "Developer tools off")} />
         </Row>
       </Section>
       <section className="flex flex-col gap-space-md rounded-xl border border-error/40 bg-error-container/10 p-space-lg" aria-label="Danger zone">
@@ -378,11 +394,13 @@ export function Settings({ section }: { section?: string }) {
       <PageHeader label="Configuration · Settings" title="Settings">
         Changes save as you make them; each says whether it applies now or from the next search.
       </PageHeader>
-      <div className="flex items-start gap-space-lg">
-        <nav aria-label="Settings sections" className="sticky top-[72px] flex w-52 shrink-0 flex-col gap-space-xs">
+      {/* The section menu beside the settings, or above them as tabs where the screen is narrow */}
+      <div className="flex flex-col gap-space-lg @4xl:flex-row @4xl:items-start">
+        <nav aria-label="Settings sections"
+             className="flex flex-wrap gap-space-xs @4xl:sticky @4xl:top-[5.5rem] @4xl:w-56 @4xl:shrink-0 @4xl:flex-col">
           {SECTIONS.map((x) => (
             <a key={x.id} href={href({ screen: "settings", param: x.id })} aria-current={current === x.id ? "page" : undefined}
-               className={`flex items-center gap-space-md rounded-lg px-space-md py-2 text-body ${current === x.id
+               className={`flex items-center gap-space-md rounded-lg px-space-md py-2.5 text-body ${current === x.id
                  ? "border border-stroke bg-surface-container-high font-semibold text-primary"
                  : "text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"}`}>
               <Icon name={x.icon} size={18} filled={current === x.id} />{x.label}

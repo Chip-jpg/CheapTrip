@@ -152,7 +152,7 @@ function AddDialog({ onClose, onAdd, initial }: {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim backdrop-blur-sm" onMouseDown={onClose}>
       <div role="dialog" aria-modal="true" aria-label="Add a destination" onMouseDown={(e) => e.stopPropagation()}
-           className="flyout flex w-[440px] flex-col gap-space-lg p-space-lg">
+           className="flyout flex w-[30rem] max-w-[calc(100vw-2rem)] flex-col gap-space-lg p-space-lg">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-space-md">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-container text-on-primary"><Icon name="add_location" size={22} /></div>
@@ -166,7 +166,7 @@ function AddDialog({ onClose, onAdd, initial }: {
         <label className="flex flex-col gap-space-xs">
           <span className="label-caps">Airport or city</span>
           <span className="relative">
-            <Icon name="flight" size={18} className="pointer-events-none absolute top-[7px] left-space-md text-outline" />
+            <Icon name="flight" size={18} className="pointer-events-none absolute top-1/2 left-space-md -translate-y-1/2 text-outline" />
             <input autoFocus className="field pl-10" placeholder="e.g. Reykjavik or KEF" role="combobox" aria-expanded={results.length > 0}
                    value={chosen ? `${chosen.city} (${chosen.code})` : query}
                    onChange={(e) => { setChosen(undefined); setQuery(e.target.value); }} />
@@ -262,7 +262,7 @@ export function Destinations({ focus }: { focus?: string }) {
       <PageHeader label="Radar · Destinations" title="Destinations" count={`${all.length} seen`} actions={
         <>
           <span className="relative w-64">
-            <Icon name="search" size={18} className="pointer-events-none absolute top-[7px] left-space-md text-outline" />
+            <Icon name="search" size={18} className="pointer-events-none absolute top-1/2 left-space-md -translate-y-1/2 text-outline" />
             <input className="field pl-10" placeholder="Filter destinations or IATA…" aria-label="Filter destinations"
                    value={query} onChange={(e) => setQuery(e.target.value)} />
           </span>
@@ -272,7 +272,7 @@ export function Destinations({ focus }: { focus?: string }) {
         Choose which destinations always alert and which never do, and see what every destination found in the last 30 days costs.
       </PageHeader>
 
-      <section className="grid grid-cols-2 gap-gutter xl:grid-cols-4" aria-label="Summary">
+      <section className="grid grid-cols-1 gap-gutter @2xl:grid-cols-2 @6xl:grid-cols-4" aria-label="Summary">
         <StatTile label="Priority" status="Always notify" value={`${pri.length} ${pri.length === 1 ? "place" : "places"}`}
                   detail="Alert at any price" bar={all.length ? pri.length / Math.max(all.length, 1) : 0} />
         <StatTile label="Muted" status="Never notify" statusTone="text-tertiary" barTone="bg-tertiary-container"
@@ -321,7 +321,7 @@ export function Destinations({ focus }: { focus?: string }) {
             </div>
             <span className="font-mono text-mono-sm text-outline">Also from Telegram: /{tab === "priority" ? "priority" : "mute"} CODE</span>
           </div>
-          <div className="grid grid-cols-1 gap-gutter lg:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-gutter @3xl:grid-cols-2 @5xl:grid-cols-3">
             {shown.map((d) => <DestinationCard key={d.code} d={d} onRule={rule} />)}
             <button onClick={() => setAdding(tab === "priority" ? "priority" : "muted")}
                     className="pane flex min-h-[220px] flex-col items-center justify-center gap-space-sm border-dashed p-space-lg text-center transition-colors hover:bg-surface-container-high"
@@ -347,7 +347,7 @@ export function Destinations({ focus }: { focus?: string }) {
             <span className="font-mono text-mono-sm text-outline">Cheapest first</span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-body">
+            <div className="overflow-x-auto"><table className="w-full min-w-[42rem] text-left text-body">
               <thead>
                 <tr className="bg-surface-container-lowest/50 text-caption tracking-wider text-outline uppercase">
                   <th className="rounded-l px-space-md py-2.5 font-normal">Destination</th>
@@ -383,7 +383,7 @@ export function Destinations({ focus }: { focus?: string }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
             {shown.length === 0 && (
               <p className="p-space-lg text-center text-body text-on-surface-variant">
                 {all.length ? "No destination matches this filter." : "Nothing found yet: destinations appear after the first search."}

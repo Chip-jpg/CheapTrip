@@ -69,7 +69,7 @@ function Welcome({ interval }: { interval: number }) {
           unusually cheap. Setting it up takes about two minutes.
         </p>
       </div>
-      <div className="grid grid-cols-3 gap-gutter">
+      <div className="grid grid-cols-1 gap-gutter @3xl:grid-cols-3">
         <Point icon="radar" title="It searches for you">Every {interval} minutes it checks Ryanair, Google Flights and deal sites, from your home airports.</Point>
         <Point icon="insights" title="It knows a real bargain">It learns what each route usually costs, then alerts when a fare is well below that, or is a likely error fare.</Point>
         <Point icon="notifications_active" title="It tells you at once">A Windows notification with Book, Details and Mute, and on Telegram if you like. Then a daily digest.</Point>
@@ -81,7 +81,7 @@ function Welcome({ interval }: { interval: number }) {
 function Origins({ s, save }: { s: SettingsData; save: ReturnType<typeof useSave> }) {
   const p = s.preferences;
   return (
-    <div className="grid grid-cols-2 gap-gutter">
+    <div className="grid grid-cols-1 gap-gutter @4xl:grid-cols-2">
       <div className="card flex flex-col gap-space-md p-space-lg">
         <span className="text-body-lg font-semibold text-on-surface">Home airports</span>
         <span className="text-body text-on-surface-variant">Airports of the same city are searched together: MXP covers Linate and Bergamo too.</span>
@@ -125,7 +125,7 @@ function Delivery({ s, save }: { s: SettingsData; save: ReturnType<typeof useSav
     .then((r) => toast(r.sent[channel] ? "Test sent" : "It didn't arrive: see Activity", { tone: r.sent[channel] ? "ok" : "error" }))
     .catch((err: Error) => toast(err.message, { tone: "error" }));
   return (
-    <div className="grid grid-cols-2 gap-gutter">
+    <div className="grid grid-cols-1 gap-gutter @4xl:grid-cols-2">
       <div className="card flex flex-col justify-between gap-space-md p-space-lg">
         <div className="flex flex-col gap-space-md">
           <div className="flex items-start justify-between">
@@ -192,7 +192,7 @@ function Delivery({ s, save }: { s: SettingsData; save: ReturnType<typeof useSav
 function Extras({ s, save }: { s: SettingsData; save: ReturnType<typeof useSave> }) {
   const [check, setCheck] = useState<Awaited<ReturnType<typeof api.checkKey>>>();
   return (
-    <div className="grid grid-cols-2 gap-gutter">
+    <div className="grid grid-cols-1 gap-gutter @4xl:grid-cols-2">
       <div className="card flex flex-col gap-space-md p-space-lg">
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-space-sm text-body-lg font-semibold text-on-surface"><Icon name="auto_awesome" size={20} className="text-primary" />Anthropic API key</span>
@@ -252,7 +252,7 @@ export function Setup() {
   const toast = useToast();
   const save = useSave(setFresh);
   const s = fresh ?? loaded.data;
-  useEffect(() => window.scrollTo?.(0, 0), [step]);
+  useEffect(() => { window.scrollTo?.(0, 0); }, [step]);  // a block: scrollTo returns a Promise, not a cleanup
 
   const finish = () => api.saveSettings({ app: { setup_done: true } })
     .then(() => { reload(); toast("All set: CheapTrip is watching prices"); navigate({ screen: "deals" }); })

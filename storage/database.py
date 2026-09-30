@@ -419,10 +419,10 @@ async def mark_alerted(trip_hash: str, tier: AlertTier, channel: str = "telegram
         await db.commit()
 
 
-async def hide_deal(trip_hash: str) -> bool:
-    """Hide a deal from the digest and the instant queue (the app's "Hide this deal")."""
+async def hide_deal(trip_hash: str, hidden: bool = True) -> bool:
+    """Hide a deal from the digest and the instant queue (the app's "Hide this deal"), or show it again (Undo)."""
     async with connection() as db:
-        cursor = await db.execute("UPDATE deals SET hidden = '1' WHERE hash = ?", (trip_hash,))
+        cursor = await db.execute("UPDATE deals SET hidden = ? WHERE hash = ?", ("1" if hidden else None, trip_hash))
         await db.commit()
     return bool(cursor.rowcount)
 

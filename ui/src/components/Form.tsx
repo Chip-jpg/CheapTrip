@@ -29,12 +29,13 @@ export function Section({ title, icon, description, children, right }: {
 /** One setting: its name and a line of help on the left, the control on the right. */
 export function Row({ label, help, children, htmlFor }: { label: string; help?: ReactNode; children: ReactNode; htmlFor?: string }) {
   return (
-    <div className="flex items-center justify-between gap-space-xl py-space-md first:pt-0 last:pb-0">
-      <div className="flex min-w-0 flex-col gap-0.5">
+    <div className="flex flex-wrap items-center justify-between gap-x-space-xl gap-y-space-sm py-space-md first:pt-0 last:pb-0">
+      <div className="flex min-w-[16rem] flex-[1_1_16rem] flex-col gap-0.5">
         <label htmlFor={htmlFor} className="text-body font-semibold text-on-surface">{label}</label>
         {help && <span className="text-caption text-on-surface-variant">{help}</span>}
       </div>
-      <div className="flex shrink-0 items-center gap-space-sm">{children}</div>
+      {/* Beside the label where there's room, under it where there isn't (a narrow window, large text) */}
+      <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-space-sm">{children}</div>
     </div>
   );
 }
@@ -48,10 +49,10 @@ export function Stepper({ value, min, max, onChange, label, unit = "" }: {
 }) {
   return (
     <div className="flex items-center gap-1" role="group" aria-label={label}>
-      <button className="btn-secondary h-8 w-8 px-0" aria-label={`Fewer ${label}`} disabled={value <= min}
+      <button className="btn-secondary h-10 w-10 px-0" aria-label={`Fewer ${label}`} disabled={value <= min}
               onClick={() => onChange(Math.max(min, value - 1))}><Icon name="remove" size={16} /></button>
       <span className="w-14 text-center font-mono text-mono font-semibold text-on-surface" aria-live="polite">{value}{unit}</span>
-      <button className="btn-secondary h-8 w-8 px-0" aria-label={`More ${label}`} disabled={value >= max}
+      <button className="btn-secondary h-10 w-10 px-0" aria-label={`More ${label}`} disabled={value >= max}
               onClick={() => onChange(Math.min(max, value + 1))}><Icon name="add" size={16} /></button>
     </div>
   );
@@ -62,10 +63,10 @@ export function Segmented<T extends string>({ options, value, onChange, label }:
   options: { value: T; label: string; icon?: string }[]; value: T; onChange: (value: T) => void; label: string;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex gap-0.5 rounded-lg bg-surface-container-lowest p-0.5">
+    <div role="radiogroup" aria-label={label} className="inline-flex max-w-full flex-wrap gap-0.5 rounded-lg bg-surface-container-lowest p-0.5">
       {options.map((o) => (
         <button key={o.value} role="radio" aria-checked={o.value === value} onClick={() => onChange(o.value)}
-                className={`flex items-center gap-1 rounded px-space-md py-1 text-body ${o.value === value
+                className={`flex items-center gap-2 rounded-md px-space-md py-2 text-body ${o.value === value
                   ? "border border-stroke bg-surface-container-high font-semibold text-primary shadow-sm" : "text-on-surface-variant hover:text-on-surface"}`}>
           {o.icon && <Icon name={o.icon} size={16} />}{o.label}
         </button>
@@ -152,7 +153,7 @@ export function AirportChips({ codes, onChange, label, max = 12 }: {
     input.current?.focus();
   };
   return (
-    <div className="flex w-[420px] flex-col gap-space-xs">
+    <div className="flex w-full max-w-[28rem] flex-col gap-space-xs">
       <div className="flex flex-wrap items-center gap-space-xs rounded border border-stroke bg-surface-container-lowest p-1.5" role="group" aria-label={label}>
         {codes.map((code) => (
           <span key={code} className="flex items-center gap-1 rounded-full bg-primary-container/20 py-0.5 pr-1 pl-2 text-body text-on-surface">
@@ -202,13 +203,13 @@ export function SecretField({ secret, label, onSave, placeholder = "Paste it her
     onSave(value).then((result) => { if (result !== null) setDraft(""); }).finally(() => setBusy(false));
   };
   return (
-    <div className="flex items-center gap-space-xs">
-      <span className="relative">
+    <div className="flex max-w-full flex-wrap items-center gap-space-xs">
+      <span className="relative max-w-full">
         <input type={visible ? "text" : "password"} autoComplete="off" spellCheck={false} aria-label={label}
                placeholder={secret.set ? `Saved (${secret.hint}): paste a new one to replace it` : placeholder}
-               className="field w-[340px] pr-9 font-mono text-mono" value={draft} onChange={(e) => setDraft(e.target.value)}
+               className="field w-[22rem] max-w-full pr-10 font-mono text-mono" value={draft} onChange={(e) => setDraft(e.target.value)}
                onKeyDown={(e) => e.key === "Enter" && draft.trim() && save(draft.trim())} />
-        <button className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center text-outline hover:text-on-surface"
+        <button className="absolute top-1/2 right-1.5 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded text-outline hover:text-on-surface"
                 aria-label={visible ? `Hide ${label}` : `Show ${label}`} onClick={() => setVisible((v) => !v)}>
           <Icon name={visible ? "visibility_off" : "visibility"} size={16} />
         </button>

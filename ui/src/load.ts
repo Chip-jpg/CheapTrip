@@ -25,6 +25,6 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[]): Loaded<T> {
       .finally(() => call === latest.current && setLoading(false));
   }, [run]);
 
-  useEffect(reload, [reload]);
+  useEffect(() => { reload(); }, [reload]);
   return { data, error, loading, reload };
 }

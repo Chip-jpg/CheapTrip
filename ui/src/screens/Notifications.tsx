@@ -132,7 +132,7 @@ export function Notifications() {
             : <Pill tone="off">Only in the desktop app</Pill>)}
         </div>
         {previews.error && <p className="text-body text-error">{previews.error}</p>}
-        <div className="grid grid-cols-1 gap-gutter lg:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-gutter @3xl:grid-cols-2 @5xl:grid-cols-3">
           {data ? data.previews.map((p) => <ToastPreview key={p.kind} preview={p} onSend={() => send(p.kind)} />)
             : [0, 1, 2].map((i) => <div key={i} className="skeleton h-56" />)}
           {data && (
@@ -152,7 +152,7 @@ export function Notifications() {
 
       <section className="flex flex-col gap-space-md" aria-label="System tray">
         <h2 className="flex items-center gap-space-sm text-headline-sm text-on-surface"><Icon name="system_update_alt" size={22} />The tray icon</h2>
-        <div className="grid grid-cols-1 gap-gutter lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-gutter @5xl:grid-cols-3">
           <Card title="What the icon says" icon="smartphone" right="16 / 32 px">
             <p className="text-body text-on-surface-variant">CheapTrip keeps running in the tray (by the clock) when you close its window. The dot shows what it's doing:</p>
             <div className="flex flex-col gap-space-xs">
@@ -172,10 +172,10 @@ export function Notifications() {
             <div className="flyout flex flex-col gap-0.5 p-space-xs text-body">
               <span className="flex items-center gap-space-xs rounded px-space-md py-1.5 font-mono text-mono-sm text-on-surface-variant">
                 <span className="h-1.5 w-1.5 rounded-full bg-secondary" />
-                CheapTrip {status?.version} · {status?.state === "paused" ? "Alerts paused" : `Running${status?.next_search_at ? ` (next ${clock(status.next_search_at)})` : ""}`}
+                CheapTrip {status?.version} · {status?.paused_until ? "Alerts paused" : `Running${status?.next_search_at ? ` (next ${clock(status.next_search_at)})` : ""}`}
               </span>
               <span className="my-0.5 h-px bg-stroke" />
-              {[["open_in_new", "Open CheapTrip"], ["radar", "Search now"], ["pause_circle", status?.state === "paused" ? "Resume alerts" : "Pause alerts ›"],
+              {[["open_in_new", "Open CheapTrip"], ["radar", "Search now"], ["pause_circle", status?.paused_until ? "Resume alerts" : "Pause alerts ›"],
                 ["settings", "Settings"]].map(([icon, label]) => (
                 <span key={label} className="flex items-center gap-space-sm rounded px-space-md py-1.5 text-on-surface"><Icon name={icon} size={18} />{label}</span>
               ))}

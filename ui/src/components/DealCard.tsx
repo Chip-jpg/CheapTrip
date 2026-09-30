@@ -120,7 +120,7 @@ export function useDealActions(onChange?: () => void) {
         : `${cityOf(deal)} is no longer a priority`, () => api.setPriority(code, !on))).catch(failed);
     },
     hide(deal: Deal) {
-      api.hideDeal(deal.id).then(() => done("Deal hidden")).catch(failed);
+      api.hideDeal(deal.id).then(() => done("Deal hidden", () => api.hideDeal(deal.id, false))).catch(failed);
     },
     copyLink(deal: Deal) {
       const link = deal.links.book ?? deal.links.hotels;
@@ -276,10 +276,10 @@ export function DealCard({ deal, onChange }: { deal: Deal; onChange?: () => void
   const perNight = deal.type === "hotel" && deal.hotel;
   return (
     <article data-testid="deal-card"
-             className={`card group flex flex-col justify-between p-space-md transition-colors hover:border-stroke-strong hover:bg-surface-container-highest ${deal.is_error_fare ? "border-error/40" : ""}`}>
+             className={`card group flex flex-col justify-between gap-space-md p-space-lg transition-colors hover:border-stroke-strong hover:bg-surface-container-highest ${deal.is_error_fare ? "border-error/40" : ""}`}>
       <div className="flex flex-col gap-space-sm">
-        <div className="flex items-center justify-between gap-space-xs">
-          <div className="flex min-w-0 items-center gap-space-xs overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-x-space-sm gap-y-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-space-xs">
             <TypeBadge deal={deal} />
             {deal.type === "package" || deal.type === "hotel"
               ? <span className="truncate rounded bg-surface-container px-2 py-0.5 text-caption font-semibold text-on-surface-variant">{deal.sources.map(sourceName).join(" · ")}</span>

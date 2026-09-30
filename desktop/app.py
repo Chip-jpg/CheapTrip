@@ -21,7 +21,7 @@ import sys
 import threading
 import webbrowser
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, Tuple
 
 import control
 from config import get_settings
@@ -29,17 +29,46 @@ from desktop.engine_thread import EngineThread
 from desktop.instance import InstanceLock, hand_over, read_app_file, remove_app_file, write_app_file
 from desktop.links import parse_args
 from desktop.tray import Tray, assets_dir
+from desktop.webview_watch import ProcessWatch
 from desktop.windows import allow_foreground, message_box, set_app_id, system_prefers_dark, webview2_available
 from notifier.desktop import APP_ID
 from utils.logging_config import get_logger
 
 log = get_logger(__name__)
 
-WINDOW_SIZE = (1280, 800)
-WINDOW_MIN_SIZE = (1100, 720)
+WINDOW_SIZE = (1440, 900)
+WINDOW_MIN_SIZE = (1024, 700)  # a 1366×768 laptop still fits it
+SCREEN_MARGIN = (80, 80)  # room left around a window that opens on a small screen
 START_SCREEN = "deals"
 # The window's colour before the screens draw (the design's background), so opening it doesn't flash
 BACKGROUND = {"dark": "#131313", "light": "#F3F3F3"}
+# WebView2's debugging port: the window smoke test (ui/e2e/window-smoke.mjs) drives the real window through it
+DEVTOOLS_PORT_ENV = "CHEAPTRIP_DEVTOOLS_PORT"
+
+
+def devtools_port() -> Optional[int]:
+    """The port CHEAPTRIP_DEVTOOLS_PORT asks for, or None (the default: no port)."""
+    value = os.getenv(DEVTOOLS_PORT_ENV, "").strip()
+    return int(value) if value.isdigit() else None
+
+
+def window_size(screen: Optional[Tuple[int, int]]) -> Tuple[int, int]:
+    """The window's first size: WINDOW_SIZE, shrunk to fit the screen (never below WINDOW_MIN_SIZE)."""
+    if not screen or screen[0] <= 0 or screen[1] <= 0:
+        return WINDOW_SIZE
+    return tuple(  # type: ignore[return-value]
+        max(least, min(wanted, available - margin))
+        for wanted, least, available, margin in zip(WINDOW_SIZE, WINDOW_MIN_SIZE, screen, SCREEN_MARGIN))
+
+
+def _primary_screen() -> Optional[Tuple[int, int]]:
+    try:
+        import webview
+
+        screen = webview.screens[0]
+        return int(screen.width), int(screen.height)
+    except Exception:  # no screen information: the default size
+        return None
 
 
 def window_background() -> str:
@@ -63,6 +92,7 @@ class DesktopApp:
         self._done = threading.Event()
         self._quit_lock = threading.Lock()
         self._quitting = False
+        self.watch = ProcessWatch()
 
     def _make_engine(self) -> Any:
         from notifier.desktop import DesktopNotifier
@@ -128,13 +158,26 @@ class DesktopApp:
         import webview
 
         start = self.route if self.route is not None else START_SCREEN if get_settings().setup_done else "setup"
+        width, height = window_size(_primary_screen())
         self.window = webview.create_window(
             "CheapTrip", self.server.link(start),
-            width=WINDOW_SIZE[0], height=WINDOW_SIZE[1], min_size=WINDOW_MIN_SIZE, hidden=hidden,
+            width=width, height=height, min_size=WINDOW_MIN_SIZE, hidden=hidden,
             background_color=window_background(),
         )
         self.window.events.closing += self._on_closing
-        webview.start()  # returns when the window is destroyed
+        self.window.events.loaded += self._on_loaded
+        port = devtools_port()
+        if port is not None:
+            webview.settings["REMOTE_DEBUGGING_PORT"] = port
+            log.info("devtools_port_open", port=port)
+        devtools = get_settings().devtools  # Settings → App → Developer tools: F12 opens them
+        webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = False
+        webview.start(debug=devtools)  # returns when the window is destroyed
+
+    def _on_loaded(self) -> None:
+        """Each page load (pywebview's thread): watch WebView2's processes, once it has them."""
+        if not self.watch.attached and self.window is not None:
+            self.watch.attach(self.window)
 
     def _on_closing(self) -> bool:
         """The window's close button: hide to the tray, or quit (False keeps the window)."""

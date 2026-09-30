@@ -15,12 +15,14 @@ Routes (all under /api/v1):
   GET  /status                         top bar: state, next/last search, learning progress, attention
   GET  /deals                          Deals: unusually cheap + best of the rest, with filters
   GET  /deals/{id}                     Deal detail, with both charts' data
-  POST /deals/{id}/hide
+  POST|DELETE /deals/{id}/hide         hide a deal, or show it again (Undo)
   GET  /destinations?tab=priority|muted|seen
   POST|DELETE /destinations/{code}/priority|mute
   GET  /airports?q=                    autocomplete
   GET  /activity                       sources, alerts log, search history
   GET  /settings   PUT /settings
+  PUT  /ui                             the window's own state: {"sidebar": "collapsed"|"open"}
+  POST /ui/error                       a screen failed: its error, into the log
   GET  /setup/checks                   the doctor checks
   POST /setup/check   {"what": "telegram"|"anthropic"}  check one key (Settings, the setup wizard)
   POST /setup/test-telegram
@@ -56,7 +58,7 @@ from pydantic import ValidationError
 
 import control
 from api.records import deal_record, destination_rows, matches, place
-from api.settings_io import SOURCE_SWITCHES, apply_settings, read_settings, readable_error
+from api.settings_io import SOURCE_SWITCHES, apply_settings, read_settings, readable_error, text_size
 from config import get_settings
 from desktop.links import clean_route
 from desktop.windows import open_path
@@ -185,14 +187,17 @@ async def index(request: web.Request) -> web.StreamResponse:
 
 async def _page(static: Path) -> web.Response:
     """
-    index.html with the saved theme and sidebar on <html>, so the window opens as
-    it was left: no light flash before a dark theme, no sidebar jumping shut.
+    index.html with the saved theme, text size and sidebar on <html>, so the window
+    opens as it was left: no light flash before a dark theme, no text jumping in
+    size, no sidebar jumping shut.
     With THEME=system the page's own script follows Windows.
     """
     html = (static / "index.html").read_text(encoding="utf-8")
     marks, theme = [], get_settings().theme
     if theme in ("light", "dark"):
         marks.append(f'data-theme="{theme}"')
+    if text_size() != "standard":
+        marks.append(f'data-text-size="{text_size()}"')
     try:
         collapsed = await get_state(SIDEBAR_STATE) == "collapsed"
     except Exception as exc:  # the page opens anyway, with the sidebar open
@@ -223,6 +228,23 @@ async def ui_state_put(request: web.Request) -> web.Response:
         return _error("sidebar must be collapsed or open", 400)
     await set_state(SIDEBAR_STATE, sidebar)
     return _json({"sidebar": sidebar})
+
+
+async def ui_error(request: web.Request) -> web.Response:
+    """
+    A screen failed (caught by an error boundary, or uncaught): its error goes to the
+    log, so a window that shows the problem, or a blank one, leaves a trace to fix it by.
+    """
+    body = await request.json() if request.can_read_body else {}
+    if not isinstance(body, dict):
+        raise ValueError("expected the error as an object")
+
+    def text(name: str, limit: int) -> str:
+        return str(body.get(name) or "")[:limit]
+
+    log.error("ui_error", kind=text("kind", 40) or "error", message=text("message", 1000), route=text("route", 200),
+              stack=text("stack", 4000), component=text("component", 4000), version=text("version", 40))
+    return _json({"logged": True})
 
 
 # ── Status and deals ──────────────────────────────────────────────────────────
@@ -337,11 +359,12 @@ async def deal_detail(request: web.Request) -> web.Response:
 
 
 async def deal_hide(request: web.Request) -> web.Response:
-    deal_id = request.match_info["id"]
-    if not await hide_deal(deal_id):
+    """POST hides the deal; DELETE shows it again (the Undo on "Deal hidden")."""
+    deal_id, hidden = request.match_info["id"], request.method == "POST"
+    if not await hide_deal(deal_id, hidden):
         return _error("no such deal", 404)
-    get_event_bus().publish("deal_hidden", id=deal_id)
-    return _json({"id": deal_id, "hidden": True})
+    get_event_bus().publish("deal_hidden", id=deal_id, hidden=hidden)
+    return _json({"id": deal_id, "hidden": hidden})
 
 
 # ── Destinations ──────────────────────────────────────────────────────────────
@@ -520,7 +543,12 @@ async def setup_test_notification(request: web.Request) -> web.Response:
     results = await notifier.send_test(only=channel) if hasattr(notifier, "send_test") else {}
     if not results:
         return _error("no notification channel is on" + (f" for {channel}" if channel else ""), 409)
-    return _json({"sent": results}, status=200 if any(results.values()) else 502)
+    if any(results.values()):
+        return _json({"sent": results})
+    # Nothing was shown: say where it failed, in words the screens can show (not "HTTP 502")
+    why = {"desktop": "Windows didn't show it (check CheapTrip in Windows' notification settings)",
+           "telegram": "Telegram didn't accept it (check the bot token and chat ID)"}
+    return _json({"sent": results, "error": "; ".join(why.get(name, f"{name} failed") for name in results)}, status=502)
 
 
 # ── Notifications (the Notifications screen) ──────────────────────────────────
@@ -637,7 +665,11 @@ async def app_open(request: web.Request) -> web.Response:
     target = openable(str(body.get("what", "")))
     if target is None:
         raise ValueError('what must be "logs", "data" or (on Windows) "notification-settings"')
-    await asyncio.to_thread(open_path, target)
+    try:
+        await asyncio.to_thread(open_path, target)
+    except OSError as exc:
+        log.warning("open_failed", target=target, error=str(exc))
+        return _error(f"Couldn't open {target}: {exc.strerror or exc}", 500)
     return _json({"opened": target})
 
 
@@ -766,6 +798,7 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None, shell
     app.router.add_get(f"{API}/deals", deals)
     app.router.add_get(f"{API}/deals/{{id}}", deal_detail)
     app.router.add_post(f"{API}/deals/{{id}}/hide", deal_hide)
+    app.router.add_delete(f"{API}/deals/{{id}}/hide", deal_hide)
     app.router.add_get(f"{API}/destinations", destinations)
     app.router.add_route("POST", f"{API}/destinations/{{code}}/{{what:priority|mute}}", destination_toggle)
     app.router.add_route("DELETE", f"{API}/destinations/{{code}}/{{what:priority|mute}}", destination_toggle)
@@ -774,6 +807,7 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None, shell
     app.router.add_get(f"{API}/settings", settings_get)
     app.router.add_put(f"{API}/settings", settings_put)
     app.router.add_put(f"{API}/ui", ui_state_put)
+    app.router.add_post(f"{API}/ui/error", ui_error)
     app.router.add_get(f"{API}/setup/checks", setup_checks)
     app.router.add_post(f"{API}/setup/check", setup_check)
     app.router.add_post(f"{API}/setup/test-telegram", setup_test_telegram)
