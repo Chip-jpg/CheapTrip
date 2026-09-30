@@ -13,7 +13,7 @@ import { useReloadOn } from "../events";
 import { ago, clock, euros, fromNow, when } from "../format";
 import { useLoad } from "../load";
 import { href } from "../router";
-import { sourceName } from "../sources";
+import { attentionText, sourceName } from "../sources";
 
 const SOURCE_STATUS: Record<string, { tone: "ok" | "warn" | "bad" | "off"; icon: string; label: string }> = {
   OK: { tone: "ok", icon: "check_circle", label: "OK" },
@@ -44,12 +44,12 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
 
 function EngineCard() {
   const { status, progress, searchNow, busy } = useEngine();
-  if (!status) return <div className="skeleton h-44 xl:col-span-2" />;
+  if (!status) return <div className="skeleton h-44 @5xl:col-span-2" />;
   const last = status.last_cycle;
   const learning = status.learning;
   const known = learning?.trips ? (learning.with_usual_price ?? 0) / learning.trips : 0;
   return (
-    <section className="card flex flex-col gap-space-lg p-space-lg xl:col-span-2" aria-label="Engine">
+    <section className="card flex flex-col gap-space-lg p-space-lg @5xl:col-span-2" aria-label="Engine">
       <div className="flex items-center justify-between gap-space-md">
         <div className="flex items-center gap-space-sm">
           <StateDot state={status.state} />
@@ -59,7 +59,7 @@ function EngineCard() {
           <Icon name="radar" size={16} />Search now
         </button>
       </div>
-      <div className="grid grid-cols-4 gap-space-md">
+      <div className="grid grid-cols-2 gap-space-md @4xl:grid-cols-4">
         <Metric label="Last search" value={last ? clock(last.finished_at ?? last.started_at) : "–"}
                 detail={last?.duration_s ? `took ${Math.round(last.duration_s)} s` : undefined} />
         <Metric label="Fares checked" value={last?.fares !== null && last ? String(last.fares) : "–"}
@@ -87,7 +87,7 @@ function EngineCard() {
       {status.attention.length > 0 && (
         <div className="flex flex-col gap-1 rounded-lg bg-error-container/20 p-space-md" role="alert">
           {status.attention.map((item) => (
-            <span key={item} className="flex items-center gap-space-xs text-body text-error"><Icon name="warning" size={16} />{item}</span>
+            <span key={item} className="flex items-center gap-space-xs text-body text-error"><Icon name="warning" size={16} />{attentionText(item)}</span>
           ))}
         </div>
       )}
@@ -125,7 +125,7 @@ function SourcesTable({ sources, switches, onToggle }: {
         <h2 className="flex items-center gap-space-sm text-body-lg font-semibold text-on-surface"><Icon name="hub" size={20} className="text-outline" />Sources</h2>
         <span className="font-mono text-mono-sm text-outline">Switches apply from the next search</span>
       </div>
-      <table className="w-full text-left text-body">
+      <div className="overflow-x-auto"><table className="w-full min-w-[42rem] text-left text-body">
         <thead>
           <tr className="bg-surface-container-lowest/50 text-caption tracking-wider text-outline uppercase">
             <th className="rounded-l px-space-md py-2.5 font-normal">Source</th>
@@ -145,7 +145,7 @@ function SourcesTable({ sources, switches, onToggle }: {
                 <td className="px-space-md py-2.5 font-mono text-mono-sm text-on-surface-variant">
                   {s.last_run_at ? `${s.last_count ?? 0} found · ${clock(s.last_run_at)}` : "–"}
                 </td>
-                <td className="max-w-[340px] truncate px-space-md py-2.5 text-caption text-outline" title={sourceNote(s)}>{sourceNote(s)}</td>
+                <td className="max-w-[22rem] truncate px-space-md py-2.5 text-caption text-outline" title={sourceNote(s)}>{sourceNote(s)}</td>
                 <td className="px-space-md py-2.5 text-right">
                   {s.switch && switches ? (
                     <button role="switch" aria-checked={switches[s.switch] ?? s.enabled} className="switch"
@@ -156,7 +156,7 @@ function SourcesTable({ sources, switches, onToggle }: {
             );
           })}
         </tbody>
-      </table>
+      </table></div>
     </section>
   );
 }
@@ -198,7 +198,7 @@ function SearchHistory({ searches }: { searches: Cycle[] }) {
   return (
     <section className="pane flex flex-col gap-space-md p-space-md" aria-label="Search history">
       <h2 className="flex items-center gap-space-sm text-body-lg font-semibold text-on-surface"><Icon name="history" size={20} className="text-outline" />Search history</h2>
-      <table className="w-full text-left text-body">
+      <div className="overflow-x-auto"><table className="w-full min-w-[42rem] text-left text-body">
         <thead>
           <tr className="bg-surface-container-lowest/50 text-caption tracking-wider text-outline uppercase">
             <th className="rounded-l px-space-md py-2.5 font-normal">Started</th>
@@ -228,7 +228,7 @@ function SearchHistory({ searches }: { searches: Cycle[] }) {
             );
           })}
         </tbody>
-      </table>
+      </table></div>
       {searches.length === 0 && <p className="text-body text-on-surface-variant">No searches yet.</p>}
     </section>
   );
@@ -256,7 +256,7 @@ export function Activity() {
       }>
         What CheapTrip searched, what each source found, and which notifications went out.
       </PageHeader>
-      <div className="grid grid-cols-1 gap-gutter xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-gutter @5xl:grid-cols-3">
         <EngineCard />
         {a ? <AlertsCard limit={a.alerts.per_hour_limit} sentLastHour={a.alerts.sent_last_hour} waiting={a.alerts.waiting} />
           : <div className="skeleton h-44" />}
@@ -265,9 +265,9 @@ export function Activity() {
       {a && (
         <>
           <SourcesTable sources={a.sources} switches={settings.data?.sources} onToggle={toggle} />
-          <div className="grid grid-cols-1 gap-gutter xl:grid-cols-5">
-            <div className="xl:col-span-2"><AlertsLog log={a.alerts.log} /></div>
-            <div className="xl:col-span-3"><SearchHistory searches={a.searches} /></div>
+          <div className="grid grid-cols-1 gap-gutter @5xl:grid-cols-5">
+            <div className="@5xl:col-span-2"><AlertsLog log={a.alerts.log} /></div>
+            <div className="@5xl:col-span-3"><SearchHistory searches={a.searches} /></div>
           </div>
           <p className="text-caption text-outline">
             Last updated {ago(a.searches[0]?.finished_at ?? a.searches[0]?.started_at ?? null)} · Sources' problems also

@@ -40,12 +40,12 @@ function NavLink({ item, current, collapsed, badge }: {
   return (
     <a href={href({ screen: item.screen })} aria-current={current ? "page" : undefined}
        title={collapsed ? item.label : undefined}
-       className={`flex items-center justify-between rounded-xl px-space-md py-2 transition-colors ${current
+       className={`flex h-11 items-center justify-between rounded-xl px-space-md transition-colors ${current
          ? "bg-primary-container font-semibold text-on-primary"
          : "text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"}`}>
       <span className="flex items-center gap-space-md">
-        <Icon name={item.icon} size={20} filled={current} />
-        {!collapsed && <span className="text-body">{item.label}</span>}
+        <Icon name={item.icon} size={22} filled={current} />
+        {!collapsed && <span className="text-body-lg font-medium">{item.label}</span>}
       </span>
       {!collapsed && !!badge && (
         <span className="rounded-full bg-tertiary-container px-1.5 py-0.5 font-mono text-mono-sm font-semibold text-on-tertiary-container"
@@ -72,7 +72,7 @@ export function Sidebar({ screen, collapsed }: { screen: Screen; collapsed: bool
   );
 
   return (
-    <aside className={`fixed top-14 bottom-0 left-0 z-30 flex flex-col justify-between overflow-y-auto bg-surface-container-lowest/80 backdrop-blur-xl transition-[width] ${collapsed ? "w-16 p-space-sm" : "w-60 p-space-md"}`}>
+    <aside className={`fixed top-16 bottom-0 left-0 z-30 flex flex-col justify-between overflow-y-auto border-r border-stroke bg-surface-container-lowest transition-[width] ${collapsed ? "w-18 p-space-sm" : "w-68 p-space-md"}`}>
       <div className="flex flex-col gap-space-lg">
         {section("Monitor", MONITOR)}
         {section("Configuration", CONFIGURATION)}

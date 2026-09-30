@@ -29,7 +29,7 @@ export function StatTile({ label, status, statusTone = "text-secondary", value, 
   label: string; status?: string; statusTone?: string; value: ReactNode; detail?: ReactNode; bar?: number; barTone?: string;
 }) {
   return (
-    <div className="card flex flex-col gap-space-sm p-space-md">
+    <div className="card flex flex-col gap-space-sm p-space-lg">
       <div className="flex items-center justify-between gap-space-xs">
         <span className="label-caps">{label}</span>
         {status && (
@@ -38,9 +38,9 @@ export function StatTile({ label, status, statusTone = "text-secondary", value, 
           </span>
         )}
       </div>
-      <div className="flex min-w-0 items-baseline justify-between gap-space-sm">
+      <div className="flex min-w-0 flex-col gap-0.5">
         <span className="truncate font-mono text-mono-lg text-on-surface">{value}</span>
-        {detail && <span className="truncate text-right text-caption text-outline">{detail}</span>}
+        {detail && <span className="truncate text-caption text-outline">{detail}</span>}
       </div>
       {bar !== undefined && (
         <div className="h-1 overflow-hidden rounded-full bg-surface-container-lowest">
@@ -68,10 +68,10 @@ export function Tabs<T extends string>({ tabs, value, onChange, label }: {
         const on = tab.value === value;
         return (
           <button key={tab.value} role="tab" aria-selected={on} onClick={() => onChange(tab.value)}
-                  className={`flex items-center gap-1.5 rounded px-space-md py-1.5 text-body ${on
+                  className={`flex items-center gap-2 rounded-md px-space-md py-2 text-body ${on
                     ? "border border-stroke bg-surface-container-high font-semibold text-primary shadow-sm"
                     : "text-on-surface-variant hover:text-on-surface"}`}>
-            <Icon name={tab.icon} size={16} filled={on} />
+            <Icon name={tab.icon} size={18} filled={on} />
             {tab.label}{tab.count !== undefined && ` (${tab.count})`}
           </button>
         );
@@ -91,7 +91,7 @@ const PILL_TONES = {
 /** A status in words, with an icon (never colour alone). */
 export function Pill({ tone, icon, children }: { tone: keyof typeof PILL_TONES; icon?: string; children: ReactNode }) {
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-caption font-semibold whitespace-nowrap ${PILL_TONES[tone]}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-caption font-semibold whitespace-nowrap ${PILL_TONES[tone]}`}>
       {icon ? <Icon name={icon} size={13} /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}{children}
     </span>
   );

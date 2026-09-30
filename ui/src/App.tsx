@@ -61,9 +61,9 @@ export function App() {
         <FirstRun />
         <TopBar onToggleSidebar={toggle} />
         <Sidebar screen={route.screen} collapsed={collapsed} />
-        <div className={`transition-[padding] ${collapsed ? "pl-16" : "pl-60"}`}>
-          <main className="min-h-screen pt-14">
-            <div className="p-space-lg">
+        <div className={`transition-[padding] ${collapsed ? "pl-18" : "pl-68"}`}>
+          <main className="min-h-screen pt-16">
+            <div className="@container mx-auto max-w-[1760px] p-space-xl">
               {/* A failing screen shows its error, not a blank window; another screen starts afresh */}
               <ErrorBoundary key={route.screen} where="screen">{screenFor(route)}</ErrorBoundary>
             </div>

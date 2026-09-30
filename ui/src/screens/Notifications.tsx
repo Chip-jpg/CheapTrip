@@ -132,7 +132,7 @@ export function Notifications() {
             : <Pill tone="off">Only in the desktop app</Pill>)}
         </div>
         {previews.error && <p className="text-body text-error">{previews.error}</p>}
-        <div className="grid grid-cols-1 gap-gutter lg:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-gutter @3xl:grid-cols-2 @5xl:grid-cols-3">
           {data ? data.previews.map((p) => <ToastPreview key={p.kind} preview={p} onSend={() => send(p.kind)} />)
             : [0, 1, 2].map((i) => <div key={i} className="skeleton h-56" />)}
           {data && (
@@ -152,7 +152,7 @@ export function Notifications() {
 
       <section className="flex flex-col gap-space-md" aria-label="System tray">
         <h2 className="flex items-center gap-space-sm text-headline-sm text-on-surface"><Icon name="system_update_alt" size={22} />The tray icon</h2>
-        <div className="grid grid-cols-1 gap-gutter lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-gutter @5xl:grid-cols-3">
           <Card title="What the icon says" icon="smartphone" right="16 / 32 px">
             <p className="text-body text-on-surface-variant">CheapTrip keeps running in the tray (by the clock) when you close its window. The dot shows what it's doing:</p>
             <div className="flex flex-col gap-space-xs">

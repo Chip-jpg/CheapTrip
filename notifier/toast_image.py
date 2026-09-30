@@ -106,9 +106,10 @@ def render(trip: Trip, comparison: Optional[Dict[str, Any]], folder: Path) -> Op
         if len(points) >= 3:
             prices = [p["price"] for p in points]
             current = next((i for i, p in enumerate(points) if p.get("is_this")), len(points) - 1)
-            draw.rounded_rectangle([420, 60, 690, 200], radius=16, fill=COLORS["panel"])
-            _sparkline(draw, (440, 84, 670, 176), prices, current, tone, comparison.get("median"))
-            write.text((440, 208), "Similar fares ±30 days", "regular", 21, COLORS["muted"])
+            # The caption inside the panel: below it, it ran into the "below the usual" line (B47)
+            draw.rounded_rectangle([420, 36, 690, 200], radius=16, fill=COLORS["panel"])
+            _sparkline(draw, (440, 56, 670, 146), prices, current, tone, comparison.get("median"))
+            write.text((440, 160), "Similar fares ±30 days", "regular", 21, COLORS["muted"])
 
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{trip.hash or 'deal'}.png"

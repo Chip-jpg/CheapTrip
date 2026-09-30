@@ -54,7 +54,7 @@ function Tile({ label, icon, iconTone, children, onClick, live }: {
   const Tag = onClick ? "button" : "div";
   return (
     <Tag onClick={onClick}
-         className={`card relative flex items-center justify-between overflow-hidden p-space-md text-left ${onClick ? "transition-colors hover:bg-surface-container-highest" : ""}`}>
+         className={`card relative flex items-center justify-between gap-space-md overflow-hidden p-space-lg text-left ${onClick ? "transition-colors hover:bg-surface-container-highest" : ""}`}>
       <div className="z-10 flex min-w-0 flex-col gap-0.5">
         <div className="flex items-center gap-space-xs">
           {live && (
@@ -80,7 +80,7 @@ function SummaryTiles({ best, cheap, lastSearch, onLearning }: {
   const { status } = useEngine();
   const learning = status?.learning;
   return (
-    <section className="grid grid-cols-2 gap-gutter xl:grid-cols-4" aria-label="Summary">
+    <section className="grid grid-cols-1 gap-gutter @2xl:grid-cols-2 @6xl:grid-cols-4" aria-label="Summary">
       <Tile label="Unusually cheap" icon="radar" iconTone="text-secondary" live={cheap > 0}>
         <div className="mt-1 flex items-baseline gap-space-xs" data-testid="summary">
           <span className="font-mono text-mono-lg text-on-surface">{cheap}</span>
@@ -96,7 +96,7 @@ function SummaryTiles({ best, cheap, lastSearch, onLearning }: {
               <span className="truncate text-headline-sm text-on-surface">{cityOf(best)}</span>
               <span className="font-mono text-mono-lg text-primary">{euros(best.price)}</span>
             </div>
-            <div className="flex items-center gap-space-xs">
+            <div className="flex flex-wrap items-center gap-x-space-sm gap-y-1">
               <DeltaPill deal={best} suffix=" below usual" />
               <span className="truncate text-caption text-outline">
                 {best.origin && best.destination ? `${best.origin.code} → ${best.destination.code}` : best.route}
@@ -200,7 +200,7 @@ function FilterBar({ filters, set }: { filters: DealFilters; set: (change: Parti
   }
   const commitPrice = (value: number) => set({ max_price: value >= PRICE_STEPS.max ? undefined : value });
   return (
-    <section className="pane flex flex-col gap-space-md p-space-md" aria-label="Filters">
+    <section className="pane flex flex-col gap-space-md p-space-lg" aria-label="Filters">
       <div className="flex flex-wrap items-center justify-between gap-space-md">
         <div className="flex flex-wrap items-center gap-space-xs" role="group" aria-label="Deal types">
           {TYPE_CHIPS.map((chip) => {
@@ -221,7 +221,7 @@ function FilterBar({ filters, set }: { filters: DealFilters; set: (change: Parti
             const on = filters.lengths?.includes(length.value) ?? false;
             return (
               <button key={length.value} aria-pressed={on} onClick={() => set({ lengths: toggled(filters.lengths, [length.value]) })}
-                      className={`rounded px-2.5 py-1 font-mono text-mono-sm ${on
+                      className={`rounded-md px-3 py-1.5 font-mono text-mono-sm ${on
                         ? "bg-surface-container-high font-semibold text-primary shadow-sm" : "text-outline hover:text-on-surface"}`}>
                 {length.label}
               </button>
@@ -229,13 +229,13 @@ function FilterBar({ filters, set }: { filters: DealFilters; set: (change: Parti
           })}
         </div>
       </div>
-      <div className="grid grid-cols-12 items-center gap-space-md">
-        <div className="relative col-span-3 flex items-center">
+      <div className="flex flex-wrap items-center gap-space-md">
+        <div className="relative flex min-w-[15rem] flex-[2_1_15rem] items-center">
           <Icon name="search" size={18} className="pointer-events-none absolute left-space-md text-outline" />
           <input className="field pl-10" placeholder="Filter destinations, IATA…" aria-label="Destination"
                  value={filters.q ?? ""} onChange={(e) => set({ q: e.target.value || undefined })} />
         </div>
-        <div className="col-span-3 flex flex-col gap-0.5 px-space-xs">
+        <div className="flex min-w-[13rem] flex-[2_1_13rem] flex-col gap-1 px-space-xs">
           <div className="flex items-center justify-between text-caption text-on-surface-variant">
             <label htmlFor="max-price">Max price</label>
             <span className="font-mono text-mono-sm font-semibold text-primary">{price >= PRICE_STEPS.max ? "Any" : euros(price)}</span>
@@ -245,18 +245,18 @@ function FilterBar({ filters, set }: { filters: DealFilters; set: (change: Parti
                  onMouseUp={() => commitPrice(price)} onKeyUp={() => commitPrice(price)} onTouchEnd={() => commitPrice(price)}
                  className="h-1.5 w-full cursor-pointer accent-[var(--c-primary-container)]" />
         </div>
-        <div className="col-span-2"><DateWindow filters={filters} set={set} /></div>
-        <label className="col-span-2 flex items-center justify-end gap-space-xs text-body text-on-surface-variant">
+        <div className="min-w-[14rem] flex-[1_1_14rem]"><DateWindow filters={filters} set={set} /></div>
+        <label className="flex flex-none items-center gap-space-sm text-body text-on-surface-variant">
           <button role="switch" aria-checked={filters.priority_only ?? false} aria-label="Priority only" className="switch"
                   onClick={() => set({ priority_only: !filters.priority_only })} />
           Priority only
         </label>
-        <div className="relative col-span-2">
-          <select aria-label="Sort" value={filters.sort} className="field cursor-pointer appearance-none pr-7"
+        <div className="relative ml-auto min-w-[12rem] max-w-[20rem] flex-[1_1_12rem]">
+          <select aria-label="Sort" value={filters.sort} className="field cursor-pointer appearance-none pr-9"
                   onChange={(e) => set({ sort: e.target.value as DealFilters["sort"] })}>
             {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
-          <Icon name="unfold_more" size={16} className="pointer-events-none absolute top-2 right-2 text-outline" />
+          <Icon name="unfold_more" size={16} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-outline" />
         </div>
       </div>
     </section>
@@ -304,7 +304,7 @@ function RestTable({ deals, sort }: { deals: Deal[]; sort: DealFilters["sort"] }
         <span className="font-mono text-mono-sm text-outline">{deals.length} routes</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-body">
+        <div className="overflow-x-auto"><table className="w-full min-w-[42rem] text-left text-body">
           <thead>
             <tr className="bg-surface-container-lowest/50 text-caption tracking-wider text-outline uppercase">
               <th className="rounded-l px-space-md py-2.5 font-normal">Destination</th>
@@ -346,7 +346,7 @@ function RestTable({ deals, sort }: { deals: Deal[]; sort: DealFilters["sort"] }
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </div>
       {deals.length > TABLE_ROWS && (
         <button className="btn-ghost self-center" onClick={() => setAll((a) => !a)}>
@@ -360,9 +360,9 @@ function RestTable({ deals, sort }: { deals: Deal[]; sort: DealFilters["sort"] }
 function Skeleton() {
   return (
     <div className="flex flex-col gap-space-lg" aria-busy="true" aria-label="Loading deals">
-      <div className="grid grid-cols-2 gap-gutter xl:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="skeleton h-[88px]" />)}</div>
+      <div className="grid grid-cols-1 gap-gutter @2xl:grid-cols-2 @6xl:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="skeleton h-[88px]" />)}</div>
       <div className="skeleton h-[104px]" />
-      <div className="grid grid-cols-1 gap-gutter lg:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-80" />)}</div>
+      <div className="grid grid-cols-1 gap-gutter @3xl:grid-cols-2 @6xl:grid-cols-3">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-80" />)}</div>
     </div>
   );
 }
@@ -424,11 +424,11 @@ export function Deals() {
           )
         ) : (
           <>
-            <div className="grid grid-cols-1 gap-gutter lg:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-gutter @3xl:grid-cols-2 @6xl:grid-cols-3">
               {d.instant.slice(0, HERO_CARDS).map((deal) => <DealCard key={deal.id} deal={deal} onChange={deals.reload} />)}
             </div>
             {d.instant.length > HERO_CARDS && (
-              <div className="grid grid-cols-2 gap-gutter xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-gutter @2xl:grid-cols-2 @6xl:grid-cols-4">
                 {d.instant.slice(HERO_CARDS).map((deal) => <CompactDealCard key={deal.id} deal={deal} />)}
               </div>
             )}

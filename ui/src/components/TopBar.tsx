@@ -8,7 +8,7 @@ import { api, type Airport, type EngineState as State, type Status } from "../ap
 import { progressLabel, useEngine, type Progress } from "../engine";
 import { clock, fromNow, pausedUntil } from "../format";
 import { href, navigate } from "../router";
-import { sourceName } from "../sources";
+import { attentionText, sourceName } from "../sources";
 import { useTheme } from "../theme";
 import { Icon } from "./Icon";
 import { Logo } from "./Logo";
@@ -62,7 +62,7 @@ function StatusPill() {
   const now = useNow();
   if (!status) {
     return (
-      <span className="flex h-8 items-center gap-space-xs rounded-full bg-surface-container-low px-space-md font-mono text-mono-sm text-on-surface-variant">
+      <span className="flex h-10 items-center gap-space-sm rounded-full bg-surface-container px-space-lg font-mono text-mono-sm text-on-surface-variant">
         <StateDot state="stopped" />{error ? "Can't reach the engine" : "Connecting…"}
       </span>
     );
@@ -71,9 +71,9 @@ function StatusPill() {
   return (
     <Popover className="w-80" button={(open, toggle) => (
       <button onClick={toggle} aria-expanded={open} aria-haspopup="menu" data-testid="state"
-              className="flex h-8 items-center gap-space-xs rounded-full border border-stroke bg-surface-container-low px-space-md font-mono text-mono-sm text-on-surface transition-colors hover:bg-surface-container">
+              className="flex h-10 items-center gap-space-sm rounded-full border border-stroke bg-surface-container px-space-lg font-mono text-mono-sm text-on-surface transition-colors hover:bg-surface-container-high">
         <StateDot state={status.state} />
-        <span className="max-w-[260px] truncate">{statusText(status, progress, now)}</span>
+        <span className="max-w-[16rem] truncate">{statusText(status, progress, now)}</span>
         <Icon name="expand_more" size={16} className="text-on-surface-variant" />
       </button>
     )}>
@@ -113,7 +113,7 @@ function StatusPill() {
           )}
           {status.attention.map((item) => (
             <div key={item} className="flex items-start gap-space-sm rounded-lg px-space-md py-1.5 text-body text-error">
-              <Icon name="warning" size={16} /> <span>{item}</span>
+              <Icon name="warning" size={16} /> <span>{attentionText(item)}</span>
             </div>
           ))}
           <a href={href({ screen: "activity" })} onClick={close}
@@ -243,13 +243,13 @@ function ThemeToggle() {
 
 export function TopBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   return (
-    <header className="fixed top-0 right-0 left-0 z-40 flex h-14 items-center justify-between gap-space-md bg-surface/90 px-space-md shadow-[0_1px_8px_rgba(0,0,0,0.25)] backdrop-blur-xl">
+    <header className="fixed top-0 right-0 left-0 z-40 flex h-16 items-center justify-between gap-space-lg border-b border-stroke bg-surface-container-low px-space-lg">
       <div className="flex min-w-0 items-center gap-space-md">
         <button className="btn-icon" onClick={onToggleSidebar} aria-label="Show or hide the navigation">
-          <Icon name="menu" size={20} />
+          <Icon name="menu" size={22} />
         </button>
         <a href={href({ screen: "deals" })} className="flex items-center gap-space-sm" aria-label="CheapTrip: Deals">
-          <Logo size={30} />
+          <Logo size={34} />
           <span className="text-headline-sm tracking-tight text-on-surface">CheapTrip</span>
           <span className="rounded bg-surface-container-highest px-space-xs py-0.5 font-mono text-mono-sm tracking-wider text-primary uppercase">Radar</span>
         </a>

@@ -17,3 +17,13 @@ export const SOURCE_NAMES: Record<string, string> = {
 export function sourceName(id: string): string {
   return SOURCE_NAMES[id] ?? id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+const HEALTH_WORDS: Record<string, string> = { failing: "isn't working", degraded: "is having trouble", disabled: "is off" };
+
+/** "google_flights: failing" (the engine's words) → "Google Flights isn't working"; anything else as it is. */
+export function attentionText(item: string): string {
+  const match = /^([a-z0-9_]+): ([a-z]+)$/.exec(item);
+  if (!match) return item;
+  const [, id, state] = match;
+  return `${sourceName(id)} ${HEALTH_WORDS[state] ?? `: ${state}`}`.replace(" :", ":");
+}

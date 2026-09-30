@@ -148,7 +148,7 @@ export function DealDetail({ id }: { id: string }) {
     <>
       <div className="fixed inset-0 z-50 bg-scrim backdrop-blur-sm" onClick={close} aria-hidden="true" />
       <aside role="dialog" aria-modal="true" aria-label={d ? `${d.route} details` : "Deal details"}
-             className="fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[540px] flex-col overflow-y-auto border-l border-stroke bg-surface-container-high/95 shadow-[-12px_0_32px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
+             className="fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[38rem] flex-col overflow-y-auto border-l border-stroke bg-surface-container-high/95 shadow-[-12px_0_32px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
         <div className="sticky top-0 z-20 flex flex-col gap-space-md bg-surface-container-highest/40 p-space-lg backdrop-blur-xl">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-space-xs">

@@ -124,6 +124,25 @@ describe("Settings", () => {
   });
 });
 
+describe("Settings → App", () => {
+  it("makes the text bigger at once, and keeps it", async () => {
+    start("#/settings/app");
+    const sizes = await screen.findByRole("radiogroup", { name: "Text size" });
+    fireEvent.click(within(sizes).getByRole("radio", { name: /Largest/ }));
+    expect(document.documentElement.dataset.textSize).toBe("largest");
+    await waitFor(() => expect(puts()).toContain('{"app":{"text_size":"largest"}}'));
+    fireEvent.keyDown(window, { key: "0", ctrlKey: true });  // Ctrl 0: back to standard
+    expect(document.documentElement.dataset.textSize).toBeUndefined();
+    await waitFor(() => expect(puts()).toContain('{"app":{"text_size":"standard"}}'));
+  });
+
+  it("turns the developer tools on for the next start", async () => {
+    start("#/settings/app");
+    fireEvent.click(await screen.findByRole("switch", { name: "Developer tools" }));
+    await waitFor(() => expect(puts()).toContain('{"app":{"devtools":true}}'));
+  });
+});
+
 describe("the setup wizard", () => {
   it("opens by itself on a new install and finishes on the deals", async () => {
     start("", { ...STATUS, setup_needed: true });
