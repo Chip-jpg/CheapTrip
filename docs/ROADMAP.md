@@ -1,8 +1,8 @@
 # CheapTrip — Status Report & Branch Roadmap
 
-## Where things stand (release v0.8.1)
+## Where things stand (release v0.8.2)
 
-Every card below (B01–B45) is merged into `main`, and v0.8.1 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45. The progress tracker at the end has the details. In short:
+Every card below (B01–B46) is merged into `main`, and v0.8.2 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45 (v0.8.1) and the optimizations in B46. The progress tracker at the end has the details. In short:
 
 - **The app (Windows):** one setup `.exe` from the [releases](https://github.com/Chip-jpg/CheapTrip/releases), with no admin rights needed.
   - It is a desktop app in the owner's design ("Fluent Deal Radar"), in light and dark. Its screens: Deals with a detail panel and charts, Destinations, Activity, Notifications & tray, Settings, and a setup wizard at the first launch.
@@ -447,7 +447,9 @@ The owner's design is built and released as v0.8.0:
 - **Database size:** prices are kept 45 days (was 120), an unused index is gone, and free space is given back (VACUUM) when a quarter of the file is free.
 - **Icon font:** trimmed to the 114 icons the app names (`ui/scripts/trim_icons.py`), pixel-identical, outlined and filled.
 - **Hidden window:** the screens don't refresh while the window is in the tray; they refresh once when it's shown.
-- **`scripts/bench.py`**, which CI's test-windows job runs, with the table in its summary.
+- **`scripts/bench.py`**, which CI's test-windows job runs, with the table in its summary. On Windows: a search takes 2.4 s and peaks at 86 MB.
+
+**Release v0.8.2:** version and notes; the merge publishes the installer.
 
 ---
 
@@ -513,3 +515,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B45 | `fix/v0.8.1` | done |
 | — | `release/v0.8.1` | done (released as v0.8.1) |
 | B46 | `perf/v0.8.2` | done |
+| — | `release/v0.8.2` | done (released as v0.8.2) |
