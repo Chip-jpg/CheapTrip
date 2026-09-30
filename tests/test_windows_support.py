@@ -17,13 +17,13 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def test_version_matches_pyproject():
     with open(ROOT / "pyproject.toml", "rb") as f:
-        assert tomllib.load(f)["project"]["version"] == __version__ == "0.8.0"
+        assert tomllib.load(f)["project"]["version"] == __version__ == "0.8.1"
 
 
 def test_version_option():
     result = CliRunner().invoke(cli, ["--version"])
 
-    assert result.exit_code == 0 and result.output.strip() == "CheapTrip, version 0.8.0"
+    assert result.exit_code == 0 and result.output.strip() == "CheapTrip, version 0.8.1"
 
 
 # ── App home ──────────────────────────────────────────────────────────────────
