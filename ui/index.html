@@ -6,8 +6,9 @@
     <title>CheapTrip</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <script>
-      // The theme before the app starts, so the window doesn't flash the wrong colours
-      document.documentElement.dataset.theme =
+      // The theme before the app starts, so the window doesn't flash the wrong colours: the engine
+      // marks <html> with a chosen light or dark theme; "system" follows Windows from here
+      if (!document.documentElement.dataset.theme) document.documentElement.dataset.theme =
         window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     </script>
   </head>

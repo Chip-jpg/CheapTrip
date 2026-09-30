@@ -116,7 +116,7 @@ export interface Deal {
   notified: { at: string; channels: string[] } | null;
   waiting: boolean;
   found_at: string;
-  /** Unusually cheap deals: similar fares within ±30 days, for the card's fare range */
+  /** The first unusually cheap deals (the full cards): similar fares within ±30 days, for the card's fare range */
   comparison?: FareComparison | null;
 }
 
@@ -361,6 +361,8 @@ export const api = {
   status: () => request<Status>("GET", "/status"),
 
   deals: (filters: DealFilters = {}) => request<DealsResponse>("GET", "/deals" + dealsQuery(filters)),
+  /** Only the summary (the sidebar's count): no cards, so none of their price comparisons */
+  dealsSummary: () => request<DealsResponse>("GET", "/deals?summary=1"),
   deal: (id: string) => request<DealDetail>("GET", `/deals/${enc(id)}`),
   hideDeal: (id: string) => request<{ id: string; hidden: boolean }>("POST", `/deals/${enc(id)}/hide`),
 
@@ -378,6 +380,8 @@ export const api = {
 
   settings: () => request<Settings>("GET", "/settings"),
   saveSettings: (update: SettingsUpdate) => request<SaveResult>("PUT", "/settings", update),
+  /** The window's own choices (the sidebar), which the engine keeps: the window forgets them when it closes */
+  saveUi: (ui: { sidebar: "collapsed" | "open" }) => request<{ sidebar: string }>("PUT", "/ui", ui),
 
   checks: () => request<{ checks: Check[] }>("GET", "/setup/checks"),
   checkKey: (what: "telegram" | "anthropic") => request<{ checks: Check[] }>("POST", "/setup/check", { what }),

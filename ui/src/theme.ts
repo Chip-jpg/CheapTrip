@@ -32,7 +32,11 @@ const ThemeContext = createContext<ThemeState>({ choice: "system", theme: "dark"
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [choice, setChoice] = useState<ThemeChoice>("system");
-  const [theme, setTheme] = useState<Theme>(() => applyTheme("system"));
+  // As the page opened: the engine marks a chosen theme on <html>, else the page guessed from Windows
+  const [theme, setTheme] = useState<Theme>(() => {
+    const marked = document.documentElement.dataset.theme;
+    return marked === "light" || marked === "dark" ? marked : applyTheme("system");
+  });
 
   useEffect(() => {
     api.settings().then((s) => {

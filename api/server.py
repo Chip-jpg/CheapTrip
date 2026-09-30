@@ -52,10 +52,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aiohttp import web
+from pydantic import ValidationError
 
 import control
 from api.records import deal_record, destination_rows, matches, place
-from api.settings_io import SOURCE_SWITCHES, apply_settings, read_settings
+from api.settings_io import SOURCE_SWITCHES, apply_settings, read_settings, readable_error
 from config import get_settings
 from desktop.links import clean_route
 from desktop.windows import open_path
@@ -68,11 +69,13 @@ from storage.database import (
     count_pending_instants,
     get_deal,
     get_recent_deals,
+    get_state,
     hide_deal,
     init_db,
     latest_alerts_for,
     recent_cycles,
     seen_fares,
+    set_state,
 )
 from storage.models import AlertTier
 from storage.price_analytics import fare_comparison
@@ -105,6 +108,9 @@ SWITCH_OF = {
     "holiday_pirates": "enable_holiday_pirates", "holiday_pirates_hotels": "enable_holiday_pirates",
 }
 assert set(SWITCH_OF.values()) <= set(SOURCE_SWITCHES)
+
+COMPARED_CARDS = 6  # unusually cheap deals shown as full cards, with their fare range (ui: HERO_CARDS)
+SIDEBAR_STATE = "ui_sidebar"  # engine_state key: "collapsed" or "open"
 
 _FALLBACK_PAGE = """<!doctype html><meta charset="utf-8"><title>CheapTrip</title>
 <body style="font-family: system-ui; max-width: 40rem; margin: 3rem auto">
@@ -148,6 +154,8 @@ async def guard(request: web.Request, handler) -> web.StreamResponse:
         return await handler(request)
     except web.HTTPException:
         raise
+    except ValidationError as exc:
+        return _error(readable_error(exc), 400)
     except ValueError as exc:  # bad input (pydantic's ValidationError is a ValueError too)
         return _error(str(exc), 400)
     except Exception as exc:
@@ -168,7 +176,29 @@ async def index(request: web.Request) -> web.StreamResponse:
     static = request.app[STATIC_DIR]
     if static is None:
         return web.Response(text=_FALLBACK_PAGE, content_type="text/html")
-    return web.FileResponse(static / "index.html")
+    return await _page(static)
+
+
+async def _page(static: Path) -> web.Response:
+    """
+    index.html with the saved theme and sidebar on <html>, so the window opens as
+    it was left: no light flash before a dark theme, no sidebar jumping shut.
+    With THEME=system the page's own script follows Windows.
+    """
+    html = (static / "index.html").read_text(encoding="utf-8")
+    marks, theme = [], get_settings().theme
+    if theme in ("light", "dark"):
+        marks.append(f'data-theme="{theme}"')
+    try:
+        collapsed = await get_state(SIDEBAR_STATE) == "collapsed"
+    except Exception as exc:  # the page opens anyway, with the sidebar open
+        log.warning("sidebar_state_unreadable", error=str(exc))
+        collapsed = False
+    if collapsed:
+        marks.append('data-sidebar="collapsed"')
+    if marks:
+        html = html.replace("<html", "<html " + " ".join(marks), 1)
+    return web.Response(text=html, content_type="text/html", headers={"Cache-Control": "no-store"})
 
 
 async def static_file(request: web.Request) -> web.StreamResponse:
@@ -176,9 +206,19 @@ async def static_file(request: web.Request) -> web.StreamResponse:
     if static is None:
         raise web.HTTPNotFound()
     target = (static / request.match_info["path"]).resolve()
-    if not target.is_relative_to(static.resolve()) or not target.is_file():
-        return web.FileResponse(static / "index.html")  # client-side routes
+    if not target.is_relative_to(static.resolve()) or not target.is_file() or target == (static / "index.html").resolve():
+        return await _page(static)  # client-side routes
     return web.FileResponse(target)
+
+
+async def ui_state_put(request: web.Request) -> web.Response:
+    """Choices about the window itself (the sidebar), kept in the database: the window forgets its own."""
+    body = await request.json()
+    sidebar = body.get("sidebar") if isinstance(body, dict) else None
+    if sidebar not in ("collapsed", "open"):
+        return _error("sidebar must be collapsed or open", 400)
+    await set_state(SIDEBAR_STATE, sidebar)
+    return _json({"sidebar": sidebar})
 
 
 # ── Status and deals ──────────────────────────────────────────────────────────
@@ -248,17 +288,23 @@ async def deals(request: web.Request) -> web.Response:
     filters = _filters(request)
     sort = request.query.get("sort")
 
+    summary_only = request.query.get("summary") in ("1", "true")  # the sidebar's count: no cards
+
     instant_all = sorted((r for r in records if r["tier"] == "instant"), key=_SORTS["discount"])
-    instant = sorted((r for r in instant_all if matches(r, filters)), key=_SORTS.get(sort, _SORTS["discount"]))
-    for record, comparison in zip(instant, await asyncio.gather(*(_comparison(by_id[r["id"]]) for r in instant))):
-        record["comparison"] = comparison  # each card's "30-day fare range"
+    instant = [] if summary_only else sorted(
+        (r for r in instant_all if matches(r, filters)), key=_SORTS.get(sort, _SORTS["discount"]))
+    # The first cards show their "30-day fare range" (the Deals screen's HERO_CARDS); the smaller ones don't.
+    # One at a time: run all at once, each on its own database thread, they took a minute with a month of history.
+    for record in instant[:COMPARED_CARDS]:
+        record["comparison"] = await _comparison(by_id[record["id"]])
     best_per_route: Dict[str, Dict[str, Any]] = {}
     for record in records:
         if record["tier"] == "digest":
             current = best_per_route.get(record["route"])
             if current is None or record["price"] < current["price"]:
                 best_per_route[record["route"]] = record
-    digest = sorted((r for r in best_per_route.values() if matches(r, filters)), key=_SORTS.get(sort, _SORTS["price"]))
+    digest = [] if summary_only else sorted(
+        (r for r in best_per_route.values() if matches(r, filters)), key=_SORTS.get(sort, _SORTS["price"]))
 
     finished = [c for c in await recent_cycles(limit=5) if c["status"] != "running"]
     # "Best today": the most unusually cheap deal, else the cheapest of all
@@ -663,6 +709,7 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None, shell
     app.router.add_get(f"{API}/activity", activity)
     app.router.add_get(f"{API}/settings", settings_get)
     app.router.add_put(f"{API}/settings", settings_put)
+    app.router.add_put(f"{API}/ui", ui_state_put)
     app.router.add_get(f"{API}/setup/checks", setup_checks)
     app.router.add_post(f"{API}/setup/check", setup_check)
     app.router.add_post(f"{API}/setup/test-telegram", setup_test_telegram)

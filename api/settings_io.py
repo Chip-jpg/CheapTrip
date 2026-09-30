@@ -15,12 +15,12 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 import control
 from config import get_settings
 from desktop import windows
-from preferences import get_preferences, preferences_path, save_preferences
+from preferences import UserPreferences, get_preferences, preferences_path, save_preferences
 from storage.database import set_pref_override
 from utils import airports
 from utils.envfile import update_env_file
@@ -65,7 +65,7 @@ class AlertRules(BaseModel):
             return value
         hour, _, minute = value.partition(":")
         if not (hour.isdigit() and minute.isdigit() and 0 <= int(hour) < 24 and 0 <= int(minute) < 60):
-            raise ValueError("digest_time must be HH:MM")
+            raise ValueError("must be a time, HH:MM")
         return f"{int(hour):02d}:{int(minute):02d}"
 
 
@@ -152,6 +152,54 @@ def read_settings() -> Dict[str, Any]:
         },
         "files": {"settings": str(env_path()), "preferences": str(preferences_path())},
     }
+
+
+# What the Settings screen calls each value, for error messages
+_LABELS = {
+    "home_airports": "Home airports", "adults": "Travellers", "preferred_trip_lengths": "Trip lengths",
+    "search_window_days": "How far ahead", "max_trip_budget": "Trip budget", "repositioning_hubs": "Hubs",
+    "minimum_hotel_rating": "Minimum hotel rating", "preferred_hotel_rating": "Preferred hotel rating",
+    "min_hotel_review_count": "Minimum reviews", "priority_destinations": "Priority destinations",
+    "excluded_destinations": "Muted destinations",
+    "price_anomaly_min_drop_pct": "Unusually cheap", "europe_trip_max_eur": "Price floor, Europe",
+    "longhaul_trip_max_eur": "Price floor, long-haul", "instant_alerts_per_hour": "Instant alerts",
+    "digest_time": "Daily digest", "scrape_interval_minutes": "Search every",
+}
+
+
+def _bounds(field: str) -> Dict[str, Any]:
+    """The ge/gt/le/lt limits of a preference or alert rule."""
+    for model in (UserPreferences, AlertRules):
+        if field in model.model_fields:
+            return {name: getattr(limit, name) for limit in model.model_fields[field].metadata
+                    for name in ("ge", "gt", "le", "lt") if hasattr(limit, name)}
+    return {}
+
+
+def readable_error(exc: ValidationError) -> str:
+    """ "How far ahead: must be between 14 and 365" rather than pydantic's report."""
+    messages = []
+    for error in exc.errors():
+        field = next((str(part) for part in reversed(error["loc"]) if isinstance(part, str)), "")
+        label = _LABELS.get(field, field.replace("_", " ").capitalize() or "Value")
+        limits = _bounds(field)
+        low, high = limits.get("ge", limits.get("gt")), limits.get("le", limits.get("lt"))
+        if error["type"] in ("greater_than_equal", "greater_than", "less_than_equal", "less_than") and low is not None \
+                and high is not None:
+            text = f"must be between {low:g} and {high:g}"
+        elif error["type"] == "greater_than_equal":
+            text = f"must be {error['ctx']['ge']:g} or more"
+        elif error["type"] == "greater_than":
+            text = f"must be more than {error['ctx']['gt']:g}"
+        elif error["type"] == "less_than_equal":
+            text = f"must be {error['ctx']['le']:g} or less"
+        elif error["type"] in ("int_parsing", "float_parsing", "int_from_float", "int_type", "float_type"):
+            text = "must be a number" if error["type"] != "int_from_float" else "must be a whole number"
+        else:
+            text = str(error.get("ctx", {}).get("error") or error["msg"])
+            text = text.removeprefix("Value error, ")
+        messages.append(f"{label}: {text}")
+    return "; ".join(dict.fromkeys(messages))
 
 
 def _check_airports(prefs: Dict[str, Any]) -> None:

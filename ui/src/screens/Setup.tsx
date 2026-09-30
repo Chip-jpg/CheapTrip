@@ -173,7 +173,7 @@ function Delivery({ s, save }: { s: SettingsData; save: ReturnType<typeof useSav
             <SecretField label="Telegram bot token" secret={s.keys.telegram_bot_token}
                          onSave={(v) => save({ keys: { telegram_bot_token: v } }, "Bot token saved")} /></label>
           <label className="flex flex-col gap-space-xs"><span className="label-caps">Chat ID</span>
-            <CommitInput label="Telegram chat ID" type="text" value={s.keys.telegram_chat_id} width="w-56" placeholder="e.g. 98231019"
+            <CommitInput label="Telegram chat ID" type="text" value={s.keys.telegram_chat_id} width="w-56" placeholder="e.g. 98231019" optional
                          onCommit={(v) => save({ keys: { telegram_chat_id: v.trim() } }, "Chat ID saved")} /></label>
           {telegramCheck && <CheckList checks={telegramCheck.checks} />}
           <TelegramHelp />

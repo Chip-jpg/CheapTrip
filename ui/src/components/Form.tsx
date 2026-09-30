@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, type Airport, type Check, type SecretKey } from "../api";
 import { Icon } from "./Icon";
+import { useToast } from "./Toast";
 
 export function Section({ title, icon, description, children, right }: {
   title: string; icon: string; description?: ReactNode; children: ReactNode; right?: ReactNode;
@@ -73,14 +74,44 @@ export function Segmented<T extends string>({ options, value, onChange, label }:
   );
 }
 
-/** A number (or time) that saves when you leave the field or press Enter. */
-export function CommitInput({ value, onCommit, label, type = "number", min, max, step, suffix, prefix, width = "w-24", placeholder, id }: {
-  value: string | number | null; onCommit: (value: string) => void; label: string; type?: string; min?: number; max?: number;
-  step?: number; suffix?: string; prefix?: string; width?: string; placeholder?: string; id?: string;
+/** "from 14 to 365", "of 0 or more": the range a number field takes. */
+export function rangeText(min?: number, max?: number): string {
+  if (min !== undefined && max !== undefined) return `from ${min} to ${max}`;
+  if (min !== undefined) return `of ${min} or more`;
+  return max !== undefined ? `up to ${max}` : "";
+}
+
+/**
+ * A number (or time, or text) saved when you leave the field or press Enter. Empty is allowed only when
+ * `optional`; a number outside min–max isn't sent. Either way, and when saving
+ * fails (onCommit resolves to null), the field goes back to the saved value.
+ */
+export function CommitInput({ value, onCommit, label, type = "number", min, max, step, suffix, prefix, width = "w-24", placeholder, id, optional }: {
+  value: string | number | null; onCommit: (value: string) => unknown; label: string; type?: string; min?: number; max?: number;
+  step?: number; suffix?: string; prefix?: string; width?: string; placeholder?: string; id?: string; optional?: boolean;
 }) {
-  const [draft, setDraft] = useState(value === null ? "" : String(value));
-  useEffect(() => setDraft(value === null ? "" : String(value)), [value]);
-  const commit = () => { if (draft !== (value === null ? "" : String(value))) onCommit(draft); };
+  const saved = value === null ? "" : String(value);
+  const [draft, setDraft] = useState(saved);
+  const [shown, setShown] = useState(saved);
+  const toast = useToast();
+  if (saved !== shown) {  // saved (here or elsewhere): the field shows it
+    setShown(saved);
+    setDraft(saved);
+  }
+  const commit = () => {
+    const text = draft.trim();
+    if (text === saved) return;
+    const refuse = (why: string) => { setDraft(saved); toast(`${label}: ${why}`, { tone: "error" }); };
+    if (text === "") {
+      if (!optional) return refuse("can't be empty");
+    } else if (type === "number") {
+      const n = Number(text);
+      if (!Number.isFinite(n) || (min !== undefined && n < min) || (max !== undefined && n > max)) {
+        return refuse(`enter a number ${rangeText(min, max)}`.trim());
+      }
+    }
+    void Promise.resolve(onCommit(text)).then((result) => { if (result === null) setDraft(saved); });
+  };
   return (
     <span className="flex items-center gap-space-xs">
       {prefix && <span className="font-mono text-mono text-outline">{prefix}</span>}
@@ -166,7 +197,10 @@ export function SecretField({ secret, label, onSave, placeholder = "Paste it her
   const [draft, setDraft] = useState("");
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
-  const save = (value: string) => { setBusy(true); onSave(value).then(() => setDraft("")).finally(() => setBusy(false)); };
+  const save = (value: string) => {  // a failed save (null) keeps what was pasted, to fix and try again
+    setBusy(true);
+    onSave(value).then((result) => { if (result !== null) setDraft(""); }).finally(() => setBusy(false));
+  };
   return (
     <div className="flex items-center gap-space-xs">
       <span className="relative">

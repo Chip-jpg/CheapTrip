@@ -84,16 +84,18 @@ Copy `config/user_preferences.yaml.example`. Telegram commands (`/mute`, `/prior
 |---|---|---|
 | `home_airports` | `[MXP, LIN, BGY]` | Any airports; each is expanded to its city (MXP → MXP, LIN, BGY). |
 | `preferred_trip_lengths` | `[weekend, short, medium]` | `weekend` (≤4 nights), `short` (≤7), `medium` (≤14), `long` (≤30). |
-| `search_window_days` | `90` | How far ahead to search. |
+| `search_window_days` | `90` | How far ahead to search, 14–365 days. |
 | `priority_destinations` | `[]` | Always instant, whatever the price. Airport codes. |
 | `excluded_destinations` | `[]` | Never shown. |
-| `max_trip_budget` | `null` | Skip trips above this total (EUR per person). |
+| `max_trip_budget` | `null` | Skip trips above this total (EUR per person, more than 0). |
 | `adults` | `1` | Travellers for searches and booking links; prices are shown per person. |
 | `market` | `null` | Airline/site market (`it-it`, `en-gb`, …); `null` = from the first home airport's country. |
 | `allow_repositioning` | `true` | Search from hubs and build home → hub → destination trips. |
 | `repositioning_hubs` | `[LHR, LGW, AMS, CDG, FRA, MAD, BCN, DUB]` | Hubs for repositioning. |
-| `minimum_hotel_rating` | `7.0` | Out of 10; lower-rated hotels only pass with a big discount or a very cheap trip. |
-| `preferred_hotel_rating` | `8.0` | "Luxury Discount" category threshold. |
-| `hotel_low_rating_discount_threshold` | `70.0` | Discount % that lets a low-rated hotel through. |
-| `hotel_exceptionally_low_trip_cost` | `80.0` | Total (EUR) under which a low-rated hotel passes. |
-| `min_hotel_review_count` | `null` | Drop hotels with fewer reviews (unknown counts are kept). |
+| `minimum_hotel_rating` | `7.0` | 0–10; lower-rated hotels only pass with a big discount or a very cheap trip. |
+| `preferred_hotel_rating` | `8.0` | 0–10; "Luxury Discount" category threshold. |
+| `hotel_low_rating_discount_threshold` | `70.0` | Discount % (0–100) that lets a low-rated hotel through. |
+| `hotel_exceptionally_low_trip_cost` | `80.0` | Total (EUR, 0 or more) under which a low-rated hotel passes. |
+| `min_hotel_review_count` | `null` | Drop hotels with fewer reviews (0 or more; unknown counts are kept). |
+
+A value outside its range is refused when saved from the app. In the file, it is ignored with a warning in the log, and its default applies; the other settings in the file still count.

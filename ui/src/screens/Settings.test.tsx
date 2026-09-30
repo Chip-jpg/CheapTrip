@@ -62,6 +62,39 @@ describe("Settings", () => {
     await waitFor(() => expect(puts()).toContain('{"preferences":{"preferred_trip_lengths":["weekend","short","long"]}}'));
   });
 
+  it("won't save an empty or impossible value, and puts the saved one back", async () => {
+    start("#/settings/trips");
+    const days = await screen.findByLabelText("How far ahead") as HTMLInputElement;
+
+    fireEvent.change(days, { target: { value: "" } });
+    fireEvent.blur(days);
+    expect(days.value).toBe("90");
+    expect(await screen.findByText("How far ahead: can't be empty")).toBeTruthy();
+
+    fireEvent.change(days, { target: { value: "0" } });
+    fireEvent.blur(days);
+    expect(days.value).toBe("90");
+    expect(await screen.findByText("How far ahead: enter a number from 14 to 365")).toBeTruthy();
+    expect(puts()).toEqual([]);
+
+    const budget = screen.getByLabelText("Trip budget") as HTMLInputElement;  // optional: empty is "no limit"
+    fireEvent.change(budget, { target: { value: "300" } });
+    fireEvent.blur(budget);
+    await waitFor(() => expect(puts()).toEqual(['{"preferences":{"max_trip_budget":300}}']));
+  });
+
+  it("puts the saved value back when the engine refuses it", async () => {
+    start("#/settings/trips");
+    const days = await screen.findByLabelText("How far ahead") as HTMLInputElement;
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ error: "How far ahead: must be between 14 and 365" }), { status: 400 }));
+
+    fireEvent.change(days, { target: { value: "120" } });
+    fireEvent.blur(days);
+
+    expect(await screen.findByText("Not saved: How far ahead: must be between 14 and 365")).toBeTruthy();
+    await waitFor(() => expect(days.value).toBe("90"));  // and no unhandled rejection, which fails the run
+  });
+
   it("shows each section from its menu", async () => {
     start("#/settings/notifications");
     fireEvent.click(await screen.findByRole("switch", { name: "Daily digest" }));

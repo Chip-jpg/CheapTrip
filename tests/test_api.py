@@ -7,18 +7,19 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
+import aiosqlite
 import httpx
 import pytest
 import yaml
 from aiohttp.test_utils import TestClient, TestServer
 
 import control
-from api.server import RELEASES_API, TOKEN_COOKIE, create_app
+from api.server import COMPARED_CARDS, RELEASES_API, TOKEN_COOKIE, create_app
 from notifier.telegram import TelegramNotifier
 from preferences import UserPreferences, get_preferences, save_preferences
 from scheduler.engine import Engine
 from scrapers.aggregator import ScraperAggregator
-from storage.database import get_pref_overrides, init_db
+from storage.database import get_db_path, get_pref_overrides, init_db
 from tests.harness import FakeFeedScraper, FakeFlightScraper, FakeHotelScraper, flight, mock_doctor_telegram
 from tests.test_engine_service import SlowFlights
 from utils import airports
@@ -96,6 +97,72 @@ async def test_opening_the_app_with_the_token_sets_a_cookie(api):
     assert page.status == 200 and "CheapTrip" in await page.text()
 
 
+PAGE = """<!doctype html>
+<html lang="en">
+  <head><script>/* guesses the theme when <html> has none */</script></head>
+  <body><div id="root"></div></body>
+</html>
+"""
+
+
+@pytest.fixture
+async def page(engine, tmp_path, monkeypatch):
+    """The API with a built UI to serve (index.html plus one asset)."""
+    static = tmp_path / "dist"
+    (static / "assets").mkdir(parents=True)
+    (static / "index.html").write_text(PAGE, encoding="utf-8")
+    (static / "assets" / "app.js").write_text("console.log('app')", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    await init_db()
+    service = Engine(await TelegramNotifier.create(), ScraperAggregator(flight_scrapers=[FakeFlightScraper([])]),
+                     telegram_commands=False)
+    client = TestClient(TestServer(create_app(service, TOKEN, static_dir=static)))
+    await client.start_server()
+    yield Api(client, service, engine)
+    await client.close()
+
+
+async def _html(api: Api, path: str = "/") -> str:
+    resp = await api.client.get(path, headers=AUTH)
+    assert resp.status == 200 and resp.headers["Content-Type"].startswith("text/html")
+    return await resp.text()
+
+
+@pytest.mark.parametrize("theme,mark", [("dark", '<html data-theme="dark" lang="en">'),
+                                        ("light", '<html data-theme="light" lang="en">'),
+                                        ("system", '<html lang="en">')])
+async def test_the_page_opens_in_the_chosen_theme(page, monkeypatch, theme, mark):
+    await page.call("PUT", "/settings", {"app": {"theme": theme}})
+
+    for path in ("/", "/index.html", "/deals"):  # client-side routes get the same page
+        assert mark in await _html(page, path)
+    assert (await (await page.client.get("/assets/app.js")).text()) == "console.log('app')"
+
+
+async def test_the_sidebar_opens_as_it_was_left(page):
+    assert "data-sidebar" not in await _html(page)
+
+    assert await page.call("PUT", "/ui", {"sidebar": "collapsed"}) == {"sidebar": "collapsed"}
+    assert '<html data-sidebar="collapsed" lang="en">' in await _html(page)
+
+    await page.call("PUT", "/ui", {"sidebar": "open"})
+    assert "data-sidebar" not in await _html(page)
+    await page.call("PUT", "/ui", {"sidebar": "sideways"}, status=400)
+
+
+async def test_the_page_opens_even_if_the_sidebar_state_cant_be_read(page, monkeypatch):
+    async def broken(key):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr("api.server.get_state", broken)
+    assert '<html lang="en">' in await _html(page)
+
+
+async def test_the_page_still_takes_the_token(page):
+    resp = await page.client.get(f"/?token={TOKEN}", allow_redirects=False)
+    assert resp.status == 302 and TOKEN_COOKIE in resp.cookies
+
+
 # ── Status and deals ──────────────────────────────────────────────────────────
 
 async def test_status_tracks_the_engine_and_learning(api):
@@ -129,6 +196,48 @@ async def test_deals_split_unusually_cheap_from_the_best_of_the_rest(api):
     assert deals["summary"]["last_search"]["fares"] == 4
     assert krakow["comparison"]["window_days"] == 30  # the card's fare range
     assert "comparison" not in prague
+
+
+async def test_only_the_full_cards_get_their_fare_range(engine, tmp_path, monkeypatch):
+    codes = ["KRK", "PRG", "BCN", "BUD", "VIE", "WAW", "ATH", "LIS"]
+    engine.set_prefs(priority_destinations=codes)
+    fares = [flight(destination=code, price=100.0 + i, days_ahead=20 + i) for i, code in enumerate(codes)]
+    api = await _api(engine, FakeFlightScraper(fares), tmp_path, monkeypatch)
+    try:
+        await control.pause(hours=1)
+        await api.service.run_cycle()
+
+        instant = (await api.get("/deals"))["instant"]
+
+        assert len(instant) == 8
+        assert all(card["comparison"]["window_days"] == 30 for card in instant[:COMPARED_CARDS])
+        assert all("comparison" not in card for card in instant[COMPARED_CARDS:])  # the small cards show none
+    finally:
+        await api.client.close()
+        await api.service.stop()
+
+
+async def test_the_summary_alone_skips_the_cards(api):
+    await control.pause(hours=1)
+    await api.service.run_cycle()
+
+    full, summary = await api.get("/deals"), await api.get("/deals?summary=1")
+
+    assert summary["summary"]["unusually_cheap"] == full["summary"]["unusually_cheap"] == 1
+    assert summary["summary"]["best"]["id"] == full["summary"]["best"]["id"]
+    assert summary["instant"] == [] and summary["digest"] == []  # no cards, so no price comparisons
+
+
+async def test_similar_fares_are_looked_up_by_index():
+    await init_db()
+    async with aiosqlite.connect(await get_db_path()) as db:
+        cursor = await db.execute(
+            "EXPLAIN QUERY PLAN SELECT price_eur FROM price_history"
+            " WHERE origin_city = ? AND dest_city = ? AND trip_type = ? AND nights_bucket = ?"
+            " AND recorded_at >= ? AND depart_date IS NOT NULL ORDER BY recorded_at, id",
+            ("Milan", "Prague", "flight", "weekend", "2026-09-01"))
+        plan = " ".join(str(row[-1]) for row in await cursor.fetchall())
+    assert "idx_prices_key" in plan
 
 
 @pytest.mark.parametrize("query,routes", [
@@ -331,7 +440,11 @@ async def test_saving_a_destination_list_replaces_telegram_overrides(api):
     ({"preferences": {"home_airports": []}}, "at least one airport"),
     ({"preferences": {"flying_carpet": True}}, "unknown preferences"),
     ({"alerts": {"digest_time": "25:00"}}, "HH:MM"),
-    ({"alerts": {"instant_alerts_per_hour": 0}}, "greater than or equal to 1"),
+    ({"alerts": {"instant_alerts_per_hour": 0}}, "Instant alerts: must be between 1 and 60"),
+    ({"preferences": {"search_window_days": 0}}, "How far ahead: must be between 14 and 365"),
+    ({"preferences": {"search_window_days": "abc"}}, "How far ahead: must be a number"),
+    ({"preferences": {"minimum_hotel_rating": 42}}, "Minimum hotel rating: must be between 0 and 10"),
+    ({"preferences": {"max_trip_budget": -5}}, "Trip budget: must be more than 0"),
     ({"keys": {"database_url": "x"}}, "unknown keys"),
     ({"sources": {"enable_rockets": True}}, "unknown source switches"),
     ({"app": {"theme": "sepia"}}, "theme must be one of system, light, dark"),
