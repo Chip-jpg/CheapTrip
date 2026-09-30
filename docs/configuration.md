@@ -65,6 +65,9 @@ Settings → Notifications and Settings → App in the app change these; they ap
 | `CLOSE_TO_TRAY` | `true` | Closing the app's window keeps CheapTrip running in the tray. Off: closing it quits. |
 | `SETUP_DONE` | `false` | The app's setup wizard has been finished; until then it opens at each launch. Its **Finish** button sets it. |
 | `THEME` | `system` | The app's colours: `system` follows Windows' light or dark mode; `light` or `dark` fixes one. The sun/moon button in the top bar switches it too. |
+| `TEXT_SIZE` | `standard` | The app's text size, and everything with it: `standard`, `large` or `largest`. Ctrl + / Ctrl − / Ctrl 0 in the app change it too. |
+| `DEVTOOLS` | `false` | WebView2's developer tools in the app's window (F12, right-click → Inspect), from its next start: for reporting a problem. |
+| `CHEAPTRIP_DEVTOOLS_PORT` | – | Environment only: opens WebView2's remote debugging port (the window smoke test, `ui/e2e/window-smoke.mjs`). |
 
 ### Schedule and storage
 

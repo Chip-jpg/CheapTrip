@@ -451,6 +451,24 @@ The owner's design is built and released as v0.8.0:
 
 **Release v0.8.2:** version and notes; the merge publishes the installer.
 
+### v0.9.0: the window works, bigger and easier to read
+**B47 `claude/tender-dirac-w84xw1`** (L): the owner's report: the app turns black when any sidebar button is pressed, and it's hard to read.
+- **The black window:** the setup wizard's `useEffect(() => window.scrollTo?.(0, 0), [step])` returned what `scrollTo` returns, a Promise in current Chromium and so in Edge WebView2. React called it as the effect's cleanup when the wizard closed, and the TypeError removed the whole app. A new install opens on the wizard, so every sidebar button blanked the window. Headless Chromium 141, where the screens were checked, returns nothing, so it never showed.
+  - Fixed, and effects are blocks everywhere (a test keeps it so).
+  - Error boundaries around the window, each screen and the deal panel; screens' errors, uncaught errors and rejections go to the log (`POST /ui/error`).
+  - WebView2 process failures are logged and a lost page reloaded (`desktop/webview_watch.py`).
+  - **The real window, in CI:** `ui-windows` opens the app on Windows with WebView2's debugging port and drives it (`ui/e2e/window-smoke.mjs`): 1 of 17 steps before the fix, 17 of 17 after.
+- **Bigger and easier to read:**
+  - the root font was 13px, so everything sized in rem was at 81%: now 16px, with a type scale a step up (body 15px), 40px controls, a 64px top bar and a 272px sidebar;
+  - **Text size** (Settings → App, Ctrl + / −): 16, 18 or 20px, and everything scales with it;
+  - layouts reflow with the space (container queries): no screen scrolls sideways at 1024–1920px at any text size;
+  - more contrast for secondary text; stat tiles, deal cards and the filter row no longer cut their text.
+- **Every button proven:** `ui/e2e` (Playwright on the real engine, CI's `ui-e2e`) presses every control on every screen. It found and fixed:
+  - pausing during a search showed nothing until the search ended;
+  - a refused test notification said "HTTP 502";
+  - "Hide this deal" had no Undo (`DELETE /deals/{id}/hide`).
+- **Also:** the window opens at 1440×900 where it fits; the full icon font again; Settings → App → Advanced (log folder, developer tools); readable source warnings; the notification picture's caption no longer overlaps.
+
 ---
 
 ## 4. Suggested order
@@ -516,3 +534,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | — | `release/v0.8.1` | done (released as v0.8.1) |
 | B46 | `perf/v0.8.2` | done |
 | — | `release/v0.8.2` | done (released as v0.8.2) |
+| B47 | `claude/tender-dirac-w84xw1` | done |

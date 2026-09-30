@@ -87,7 +87,7 @@ The desktop app's screens read JSON from a small aiohttp server (`api/server.py`
 |---|---|
 | `GET /status` | Top bar: state, next and last search, learning progress, attention |
 | `GET /deals` | Deals: unusually cheap (each with its fare range) and best of the rest, with filters and sorting |
-| `GET /deals/{id}`, `POST /deals/{id}/hide` | Deal detail, with both charts' data (`storage/price_analytics.fare_comparison`) |
+| `GET /deals/{id}`, `POST`/`DELETE /deals/{id}/hide` | Deal detail, with both charts' data (`storage/price_analytics.fare_comparison`); hide a deal, or show it again (Undo) |
 | `GET /destinations?tab=`, `POST`/`DELETE /destinations/{code}/priority\|mute`, `GET /airports?q=` | Destinations (best fare, usual price, 30-day trend); the same overrides as Telegram's `/priority` and `/mute` |
 | `GET /activity` | Sources, alerts log, search history |
 | `GET`/`PUT /settings` | Settings: `.env` (keys masked) and the preferences YAML (comments kept), applied live (`api/settings_io.py`) |
@@ -97,12 +97,13 @@ The desktop app's screens read JSON from a small aiohttp server (`api/server.py`
 | `GET /events` | Server-sent events from the event bus |
 | `POST /app/show`, `/app/hide`, `/app/quit` | The app around the API: show a screen (a second launch, a `cheaptrip://` link), hide to the tray, quit |
 | `POST /app/open` | Open the log or data folder, or Windows' notification settings |
+| `PUT /ui`, `POST /ui/error` | The window's own state (the sidebar); a screen's error, into the log (the window has no console) |
 
 ## The desktop app (`desktop/`, `ui/`)
 
 `CheapTrip.exe` (`packaging/app_entry.py` → `desktop/app.py`; `main.py app` from source) is the Windows app:
 - **Engine thread** (`desktop/engine_thread.py`): the engine and the API on their own asyncio loop, so the window can own the main thread. The tray gets the status whenever the event bus announces something, and every 30 seconds.
-- **Window:** pywebview on Edge WebView2, 1280×800, showing the screens from the API (`/?token=…#/deals`). It opens in the theme's background colour. Closing it (or the sidebar's "hide to tray", `POST /app/hide`) hides it to the tray unless `CLOSE_TO_TRAY` is off. Without WebView2 (pywebview would fall back to Internet Explorer's engine) the screens open in the default browser.
+- **Window:** pywebview on Edge WebView2, 1440×900 where the screen allows (at least 1024×700), showing the screens from the API (`/?token=…#/deals`). It opens in the theme's background colour. If one of WebView2's processes fails, `desktop/webview_watch.py` logs it and reloads a lost page (at most once a minute). `DEVTOOLS=true` turns on WebView2's developer tools (F12); `CHEAPTRIP_DEVTOOLS_PORT` opens its debugging port, which the window smoke test drives. Closing it (or the sidebar's "hide to tray", `POST /app/hide`) hides it to the tray unless `CLOSE_TO_TRAY` is off. Without WebView2 (pywebview would fall back to Internet Explorer's engine) the screens open in the default browser.
 - **Tray** (`desktop/tray.py`, pystray):
   - the icon (the app's mark with a status dot) and tooltip follow the state: running, searching, paused, needs attention, stopped;
   - the menu starts with a status line and drives the same `Engine` controls as the screens.
@@ -113,10 +114,13 @@ The desktop app's screens read JSON from a small aiohttp server (`api/server.py`
 - **Notifications:** `Engine(desktop=DesktopNotifier(on_action=..., image_folder=...))`. Their Details and Mute buttons reach the app on the engine's loop. A deal's toast carries a picture of its price and fare range (`notifier/toast_image.py`, Pillow, in `data/toasts/`).
 
 The screens (`ui/`, React + Vite + TypeScript + Tailwind) follow the owner's design ("Fluent Deal Radar"):
-- `ui/src/theme.css` holds its tokens: colours as CSS variables with a dark and a light set, which `<html data-theme>` picks (`ui/src/theme.ts`: Windows' mode, or `THEME`). It also holds the type scale and the shared components (cards, buttons, fields, chips). Fonts and icons are bundled.
+- `ui/src/theme.css` holds its tokens: colours as CSS variables with a dark and a light set, which `<html data-theme>` picks (`ui/src/theme.ts`: Windows' mode, or `THEME`). It also holds the type scale and the shared components (cards, buttons, fields, chips). Fonts and icons (the whole Material Symbols font) are bundled.
+- Everything is sized in rem, and `<html data-text-size>` (`TEXT_SIZE`: 16, 18 or 20 px) sets the root size, so the text size setting scales the whole app. Grids follow the width of the screens' area (container queries), so they reflow on a narrow window or at a larger text size.
+- Error boundaries (`ui/src/components/ErrorBoundary.tsx`) around the window, each screen and the deal panel: a failing screen shows its error, and it goes to the log (`POST /ui/error`, with uncaught errors and rejections).
 - `ui/src/api.ts` is the typed client for every route and the live events, which all screens share over one connection. `ui/src/engine.tsx` shares the engine's status and search progress with the top bar, the sidebar and the screens.
 - Routes are hashes (`#/deals/<id>`, `#/destinations/<airport>`, `#/settings/<section>`), so the engine's links and notifications can open any screen.
 - `npm run build` writes `ui/dist`, which the API serves and the Windows build bundles.
+- Tests: `npm test` (components, vitest); `npm run e2e` (`ui/e2e`, Playwright: every screen and control on the real engine with seeded history); `ui/e2e/window-smoke.mjs` drives the real WebView2 window on Windows (CI's `ui-windows`).
 
 ## Key design decisions
 

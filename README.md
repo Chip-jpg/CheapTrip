@@ -109,6 +109,7 @@ On Windows, CheapTrip is a desktop app (from v0.8.0), designed in light and dark
 - **Activity:** the engine, what each source found (each can be switched on or off), the notifications sent and every search.
 - **Notifications & tray:** CheapTrip's notifications as Windows will show them, with today's deals. Each can be sent to your PC.
 - **Settings:** trips, deal rules, notifications, keys (with Check buttons), sources and the app. Changes save as you make them.
+- **Text size:** Settings → App, or Ctrl + and Ctrl − anywhere: standard, large or largest, and everything grows with it.
 - **Setup wizard:** opens at the first launch, and stays in the sidebar.
 - **Windows notifications:**
   - each deal comes with a picture of its price and fare range, and **Book**, **Details** and **Mute Berlin** buttons;
@@ -250,7 +251,15 @@ ruff check .
 pytest -q
 ```
 
-Tests use temporary databases and mocked HTTP (respx); scrapers are tested on trimmed pages recorded from the live sites. CI runs the same on every push and pull request to `main`.
+The app's screens (in `ui/`):
+
+```bash
+npm ci
+npm test                          # components
+npm run build && npm run e2e      # every screen and control on the real engine (npx playwright install chromium first)
+```
+
+Tests use temporary databases and mocked HTTP (respx); scrapers are tested on trimmed pages recorded from the live sites. CI runs the same on every push and pull request to `main`, and on Windows it also drives the app's real window (`ui/e2e/window-smoke.mjs`).
 
 ---
 
