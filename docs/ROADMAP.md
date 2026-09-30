@@ -1,8 +1,8 @@
 # CheapTrip — Status Report & Branch Roadmap
 
-## Where things stand (end of Round 8, release v0.8.0)
+## Where things stand (release v0.8.1)
 
-Every card below (B01–B44) is merged into `main`, and v0.8.0 is published on GitHub Releases with a Windows installer. The progress tracker at the end has the details. In short:
+Every card below (B01–B45) is merged into `main`, and v0.8.1 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45. The progress tracker at the end has the details. In short:
 
 - **The app (Windows):** one setup `.exe` from the [releases](https://github.com/Chip-jpg/CheapTrip/releases), with no admin rights needed.
   - It is a desktop app in the owner's design ("Fluent Deal Radar"), in light and dark. Its screens: Deals with a detail panel and charts, Destinations, Activity, Notifications & tray, Settings, and a setup wizard at the first launch.
@@ -427,6 +427,8 @@ The owner's design is built and released as v0.8.0:
 - **The window opens as it was left:** the engine keeps the sidebar (`PUT /ui`), since WebView2 runs in private mode. It marks the saved sidebar and a chosen light or dark theme on the page it serves, so there's no flash of the wrong theme.
 - **CI:** the GitHub Actions move to their Node 24 versions.
 
+**Release v0.8.1:** version and notes; the merge publishes the installer.
+
 ---
 
 ## 4. Suggested order
@@ -489,3 +491,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B44 | `feat/settings-setup` | done |
 | — | `release/v0.8.0` | done (released as v0.8.0) |
 | B45 | `fix/v0.8.1` | done |
+| — | `release/v0.8.1` | done (released as v0.8.1) |

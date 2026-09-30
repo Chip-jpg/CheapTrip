@@ -1,6 +1,6 @@
 [project]
 name = "cheaptrip"
-version = "0.8.0"
+version = "0.8.1"
 description = "Travel Deal Intelligence Engine — monitors flight and hotel prices and sends Telegram alerts"
 requires-python = ">=3.11"
 
