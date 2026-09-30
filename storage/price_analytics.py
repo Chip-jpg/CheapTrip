@@ -32,7 +32,7 @@ from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 from config import get_settings
-from storage.database import fares_for_key, load_price_history, record_prices
+from storage.database import fares_for_key, load_fare_summaries, record_prices
 from storage.models import FlightLeg
 from trip_builder.feasibility import get_trip_profile
 from utils.airport_clusters import cluster_city_code
@@ -94,12 +94,27 @@ class Observation(NamedTuple):
 
 @dataclass
 class _Fare:
-    """One itinerary's history: its departure, latest price, and when it was seen."""
+    """
+    One itinerary's history: its departure, latest price, and when it was seen: every
+    cycle and day, or (from the database's summary) the first and last, with the counts.
+    """
 
     depart: date
     price: float
     cycles: Set[str] = field(default_factory=set)
     days: Set[str] = field(default_factory=set)
+    cycle_count: int = 0
+    day_count: int = 0
+
+
+# A summary keeps each fare's first and last cycle and day, and how many: the union of
+# those, or the largest count, is exact up to 3, which is all the thresholds ask.
+assert MIN_CYCLES <= 3 and ERROR_FARE_MIN_DAYS <= 3
+
+
+def _seen(sets: Iterable[Set[str]], counts: Iterable[int]) -> int:
+    """How many different cycles (or days) the fares were seen in, exact up to 3."""
+    return max(len(set().union(*sets)), max(counts, default=0))
 
 
 @dataclass
@@ -137,15 +152,24 @@ class PriceIndex:
             fare.price = obs.price
             fare.cycles.add(obs.cycle_id)
             fare.days.add(obs.day)
+            fare.cycle_count, fare.day_count = len(fare.cycles), len(fare.days)
         self._baselines: Dict[Tuple[PriceKey, date], Optional[Baseline]] = {}
+
+    @classmethod
+    def from_summaries(cls, rows: Iterable[Tuple]) -> "PriceIndex":
+        """From load_fare_summaries' rows: one per fare, the database having summed up its history."""
+        index = cls(())
+        for *key, itinerary, depart, price, first_cycle, last_cycle, cycles, first_day, last_day, days in rows:
+            index._fares.setdefault(PriceKey(*key), {})[itinerary] = _Fare(
+                date.fromisoformat(depart), price, {first_cycle, last_cycle}, {first_day, last_day}, cycles, days)
+        return index
 
     @classmethod
     async def load(cls, exclude_cycle: str) -> "PriceIndex":
         since = utcnow() - timedelta(days=LOOKBACK_DAYS)
-        rows = await load_price_history(since, exclude_cycle)
-        index = cls(Observation(PriceKey(*row[:4]), *row[4:8], date.fromisoformat(row[8])) for row in rows)
-        log.info("price_index_loaded", observations=len(rows), keys=len(index._fares),
-                 fares=sum(len(f) for f in index._fares.values()))
+        rows = await load_fare_summaries(since, exclude_cycle)
+        index = cls.from_summaries(rows)
+        log.info("price_index_loaded", keys=len(index._fares), fares=len(rows))
         return index
 
     def _baseline_around(self, key: PriceKey, depart: date) -> Optional[Baseline]:
@@ -153,11 +177,11 @@ class PriceIndex:
             window = timedelta(days=BASELINE_WINDOW_DAYS)
             near = [f for f in self._fares.get(key, {}).values() if abs(f.depart - depart) <= window]
             prices = [f.price for f in near]
-            cycles = set().union(*(f.cycles for f in near))
-            days = set().union(*(f.days for f in near))
+            cycles = _seen((f.cycles for f in near), (f.cycle_count for f in near))
+            days = _seen((f.days for f in near), (f.day_count for f in near))
             base = None
-            if len(prices) >= MIN_SAMPLES and len(cycles) >= MIN_CYCLES:
-                base = Baseline(statistics.median(prices), min(prices), len(prices), len(cycles), len(days))
+            if len(prices) >= MIN_SAMPLES and cycles >= MIN_CYCLES:
+                base = Baseline(statistics.median(prices), min(prices), len(prices), cycles, days)
             self._baselines[(key, depart)] = base
         return self._baselines[(key, depart)]
 

@@ -23,7 +23,7 @@ import aiosqlite
 
 from config import get_settings
 from scrapers.base import ScrapeOutcome, ScrapeStatus
-from storage.database import get_db_path
+from storage.database import connection
 from utils.logging_config import get_logger
 from utils.timeutil import utcnow
 
@@ -116,7 +116,7 @@ class ScraperHealthMonitor:
 
     async def record(self, outcome: ScrapeOutcome) -> ScraperHealth:
         now = utcnow()
-        async with aiosqlite.connect(await get_db_path()) as db:
+        async with connection() as db:
             h = await self._load(db, outcome.source_id)
             h.last_status = outcome.status.value
             if outcome.status == ScrapeStatus.DISABLED:
@@ -162,7 +162,7 @@ class ScraperHealthMonitor:
         )
 
     async def get_health_report(self) -> List[ScraperHealth]:
-        async with aiosqlite.connect(await get_db_path()) as db:
+        async with connection() as db:
             cursor = await db.execute(f"SELECT {', '.join(_COLUMNS)} FROM scraper_health ORDER BY source_id")
             rows = await cursor.fetchall()
         return [ScraperHealth.from_row(r) for r in rows]
@@ -190,7 +190,7 @@ class ScraperHealthMonitor:
         return changes
 
     async def mark_notified(self, source_id: str, status: str) -> None:
-        async with aiosqlite.connect(await get_db_path()) as db:
+        async with connection() as db:
             await db.execute(
                 "UPDATE scraper_health SET notified_status = ? WHERE source_id = ?", (status, source_id)
             )

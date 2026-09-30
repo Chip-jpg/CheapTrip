@@ -429,6 +429,26 @@ The owner's design is built and released as v0.8.0:
 
 **Release v0.8.1:** version and notes; the merge publishes the installer.
 
+### v0.8.2: optimizing what we have
+**B46 `perf/v0.8.2`** (M): no new features, and the same deals: less work to find them. Measured with `scripts/bench.py` (a month of history: 77 deals, ~370k prices, a search of 700 fares):
+
+| | v0.8.1 | v0.8.2 |
+|---|---|---|
+| A search's own processing | 9.2 s | 2.9 s |
+| Database connections opened by a search | 1,872 | 1 |
+| Peak memory | 358 MB | 91 MB |
+| Destinations screen | 1.7 s each time | instant (worked out after each search) |
+| Database once full | 445 MB (120 days) | 157 MB (45 days) |
+| Icon font | 4.0 MB | 99 KB |
+
+- **Price history:** a search loads one summary row per fare (~6k), which the database adds up, instead of every saved price (~370k). A test checks every judgement against the old way.
+- **One shared database connection** in WAL mode, instead of one per query. Long reads take their own.
+- **Destinations:** its figures come from the database, are cached until the history changes, and are refreshed after each search.
+- **Database size:** prices are kept 45 days (was 120), an unused index is gone, and free space is given back (VACUUM) when a quarter of the file is free.
+- **Icon font:** trimmed to the 114 icons the app names (`ui/scripts/trim_icons.py`), pixel-identical, outlined and filled.
+- **Hidden window:** the screens don't refresh while the window is in the tray; they refresh once when it's shown.
+- **`scripts/bench.py`**, which CI's test-windows job runs, with the table in its summary.
+
 ---
 
 ## 4. Suggested order
@@ -492,3 +512,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | — | `release/v0.8.0` | done (released as v0.8.0) |
 | B45 | `fix/v0.8.1` | done |
 | — | `release/v0.8.1` | done (released as v0.8.1) |
+| B46 | `perf/v0.8.2` | done |

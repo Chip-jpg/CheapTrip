@@ -65,16 +65,18 @@ from scrapers.health_monitor import get_health_monitor
 from storage.database import (
     alert_log,
     clear_price_history,
+    close_connections,
     count_alerts_sent_last_hour,
     count_pending_instants,
+    destination_figures,
     get_deal,
     get_recent_deals,
     get_state,
     hide_deal,
     init_db,
     latest_alerts_for,
+    price_history_mark,
     recent_cycles,
-    seen_fares,
     set_state,
 )
 from storage.models import AlertTier
@@ -96,6 +98,8 @@ TOKEN = web.AppKey("token", str)
 STATIC_DIR = web.AppKey("static_dir", object)
 CLOSING = web.AppKey("closing", asyncio.Event)
 SHELL = web.AppKey("shell", object)  # the app around the API: show(route), quit()
+DESTINATION_STATS = web.AppKey("destination_stats", object)
+UNLISTEN = web.AppKey("unlisten", object)  # stops the after-search listener
 SSE_PING_S = 15
 PROBLEM_STATUSES = ("FAILING", "STALE", "DEGRADED")
 
@@ -346,10 +350,54 @@ _BLANK_STATS = {"best_price": None, "best_depart": None, "best_return": None, "b
                 "usual_price": None, "fares": 0, "last_seen": None, "trend": []}
 
 
+class DestinationStats:
+    """
+    The Destinations figures (every destination seen in 30 days, from each of their
+    prices) take a second or two to add up from a month of history (B46). They're
+    worked out once per change of the history, or of the day, and again in the
+    background after each search, so opening the screen doesn't wait.
+    """
+
+    def __init__(self) -> None:
+        self._mark: Optional[tuple] = None
+        self._stats: Dict[str, Dict[str, Any]] = {}
+        self._running: Optional[asyncio.Future] = None
+
+    async def get(self) -> Dict[str, Dict[str, Any]]:
+        if await self._current_mark() == self._mark:
+            return self._stats
+        return await self.refresh()
+
+    async def refresh(self) -> Dict[str, Dict[str, Any]]:
+        if self._running is None or self._running.done():  # one at a time: others wait for it
+            self._running = asyncio.ensure_future(self._compute())
+        return await asyncio.shield(self._running)
+
+    async def close(self) -> None:
+        """Let a refresh in progress finish (its query belongs to this event loop)."""
+        if self._running is not None and not self._running.done():
+            await asyncio.gather(self._running, return_exceptions=True)
+
+    async def warm(self) -> None:
+        try:
+            await self.refresh()
+        except Exception as exc:  # the screen works them out when it opens instead
+            log.warning("destination_stats_failed", error=str(exc))
+
+    async def _current_mark(self) -> tuple:
+        return await price_history_mark(), utcnow().date()
+
+    async def _compute(self) -> Dict[str, Dict[str, Any]]:
+        mark = await self._current_mark()
+        stats = destination_rows(*await destination_figures(utcnow() - timedelta(days=30)))
+        self._mark, self._stats = mark, stats
+        return stats
+
+
 async def destinations(request: web.Request) -> web.Response:
     tab = request.query.get("tab", "seen")
     prefs = get_preferences()
-    stats = destination_rows(await seen_fares(utcnow() - timedelta(days=30)))
+    stats = await request.app[DESTINATION_STATS].get()
 
     def row(code: str) -> Dict[str, Any]:
         return {**_BLANK_STATS, **place(code), **stats.get(code, {}), "code": code,
@@ -686,8 +734,21 @@ async def events(request: web.Request) -> web.StreamResponse:
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
+async def _on_startup(app: web.Application) -> None:
+    loop = asyncio.get_running_loop()
+    stats = app[DESTINATION_STATS]
+
+    def after_search(event: Dict[str, Any]) -> None:  # called in the publisher's thread
+        if event["type"] == "cycle_finished":
+            loop.call_soon_threadsafe(lambda: asyncio.ensure_future(stats.warm()))
+
+    app[UNLISTEN] = get_event_bus().add_listener(after_search)
+
+
 async def _on_shutdown(app: web.Application) -> None:
     app[CLOSING].set()  # ends open event streams
+    app[UNLISTEN]()
+    await app[DESTINATION_STATS].close()
 
 
 def create_app(engine: Any, token: str, static_dir: Optional[Path] = None, shell: Any = None) -> web.Application:
@@ -697,6 +758,9 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None, shell
     app[STATIC_DIR] = static_dir
     app[CLOSING] = asyncio.Event()
     app[SHELL] = shell
+    app[DESTINATION_STATS] = DestinationStats()
+    app[UNLISTEN] = lambda: None
+    app.on_startup.append(_on_startup)
     app.on_shutdown.append(_on_shutdown)
     app.router.add_get(f"{API}/status", status)
     app.router.add_get(f"{API}/deals", deals)
@@ -795,3 +859,4 @@ async def run_ui(port: int = 0, open_browser: bool = True) -> None:
     finally:
         await server.stop()
         await engine.stop()
+        await close_connections()  # also when the engine never started

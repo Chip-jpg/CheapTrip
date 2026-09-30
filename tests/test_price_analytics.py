@@ -1,6 +1,8 @@
 """Price history and anomaly detection (B16): keyed baselines from earlier cycles only."""
 from __future__ import annotations
 
+import os
+import random
 from dataclasses import astuple
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -8,7 +10,14 @@ from typing import Optional
 import aiosqlite
 import pytest
 
-from storage.database import get_db_path, get_pending_instant_alerts, init_db, purge_old_rows, save_deal
+from storage.database import (
+    get_db_path,
+    get_pending_instant_alerts,
+    get_state,
+    init_db,
+    purge_old_rows,
+    save_deal,
+)
 from storage.models import AlertTier, DealType, FlightLeg, Trip
 from storage.price_analytics import (
     BASELINE_WINDOW_DAYS,
@@ -389,6 +398,65 @@ def _trip(hash_: str, discount: Optional[float], cost: float = 50.0) -> Trip:
     )
 
 
+async def test_summaries_judge_exactly_like_every_observation(engine):
+    """B46: the database sums each fare's history up; every baseline and judgement stays the same."""
+    rng = random.Random(46)
+    await init_db()
+    now = datetime.utcnow()
+    routes = {("MXP", "KRK"): 3, ("MXP", "PRG"): 6, ("MXP", "BCN"): None}  # weekend, short, one-way
+    rows = []
+    for c in range(48):  # 48 searches over 12 days (and a few 35 days ago, outside the lookback)
+        at = now - timedelta(hours=6 * c) - (timedelta(days=35) if c >= 45 else timedelta())
+        stamp = (at if c % 5 else at.replace(microsecond=0)).isoformat()  # some without microseconds
+        for (origin, dest), nights in routes.items():
+            key = price_key(_leg(origin=origin, dest=dest, nights=nights))
+            for _ in range(rng.randint(0, 10)):  # the same fare can come twice in one search
+                depart = DEP + timedelta(days=rng.randint(-40, 40))
+                ret = (depart + timedelta(days=nights)).isoformat() if nights else ""
+                rows.append((f"{origin}-{dest}", round(rng.uniform(40, 200), 2), "ryanair", stamp, *astuple(key),
+                             f"{depart:%Y-%m}", f"cycle{c}", depart.isoformat(), ret))
+    rows.append(("MXP-KRK", 99.0, "ryanair", now.isoformat(), *astuple(KEY), "2026-11", "cycle3",
+                 DEP.isoformat(), (DEP + timedelta(days=3)).isoformat()))  # a same-second tie, broken by id
+    async with aiosqlite.connect(await get_db_path()) as db:
+        await db.executemany(
+            "INSERT INTO price_history (route, price_eur, source, recorded_at, origin_city, dest_city, trip_type,"
+            " nights_bucket, depart_month, cycle_id, depart_date, return_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        await db.commit()
+        # The reference: every observation, oldest first, as PriceIndex was fed before B46
+        cursor = await db.execute(
+            """
+            SELECT origin_city, dest_city, trip_type, nights_bucket,
+                   route || ' ' || depart_date || ' ' || COALESCE(return_date, ''),
+                   price_eur, cycle_id, substr(recorded_at, 1, 10), depart_date
+            FROM price_history
+            WHERE recorded_at >= ? AND cycle_id IS NOT NULL AND cycle_id != ?
+              AND origin_city IS NOT NULL AND depart_date IS NOT NULL
+            ORDER BY recorded_at, id
+            """, ((datetime.utcnow() - timedelta(days=30)).isoformat(), "cycle7"))
+        reference = PriceIndex(Observation(PriceKey(*r[:4]), *r[4:8], date.fromisoformat(r[8]))
+                               for r in await cursor.fetchall())
+
+    summarised = await PriceIndex.load(exclude_cycle="cycle7")
+
+    judged = {"baselines": 0, "anomalies": 0, "error fares": 0, "new lows": 0}
+    for (origin, dest), nights in routes.items():
+        for offset in range(-50, 51, 2):
+            for price in (5.0, 30.0, 70.0, 120.0, 250.0):
+                leg = _leg(price=price, origin=origin, dest=dest, nights=nights, dep=DEP + timedelta(days=offset))
+                mine, theirs = summarised.baseline(leg), reference.baseline(leg)
+                assert (mine is None) == (theirs is None), leg
+                if mine:
+                    assert (mine.median, mine.low, mine.samples, mine.is_established) == \
+                           (theirs.median, theirs.low, theirs.samples, theirs.is_established)
+                    judged["baselines"] += 1
+                result = summarised.check(leg)
+                assert result == reference.check(leg), leg
+                judged["anomalies"] += result.is_anomaly
+                judged["error fares"] += result.is_possible_error_fare
+                judged["new lows"] += result.is_all_time_low
+    assert all(judged.values()), judged  # the comparison covered every kind of judgement
+
+
 async def test_retention_purges_old_rows(engine):
     await init_db()
     old = (datetime.utcnow() - timedelta(days=200)).isoformat()
@@ -408,6 +476,45 @@ async def test_retention_purges_old_rows(engine):
     async with aiosqlite.connect(await get_db_path()) as db:
         hashes = [r[0] for r in await (await db.execute("SELECT hash FROM deals")).fetchall()]
     assert hashes == ["keep"]
+
+
+async def test_history_is_kept_45_days_and_the_space_given_back(engine):
+    await init_db()
+    path = await get_db_path()
+    now = datetime.utcnow()
+    rows = [("MXP-KRK", 50.0 + i % 40, "x", (now - timedelta(days=50 if i % 4 else 40)).isoformat())
+            for i in range(40_000)]
+    async with aiosqlite.connect(path) as db:
+        await db.executemany("INSERT INTO price_history (route, price_eur, source, recorded_at) VALUES (?, ?, ?, ?)",
+                             rows)
+        await db.commit()
+    before = os.path.getsize(path)
+
+    purged = await purge_old_rows(vacuum_min_free_mb=0)
+
+    assert purged["price_history"] == 30_000  # 50 days old; the 10,000 from 40 days ago stay
+    assert os.path.getsize(path) < before / 2  # VACUUM gave the space back
+    assert await get_state("last_vacuum") == now.date().isoformat()
+    async with aiosqlite.connect(path) as db:
+        await db.executemany("INSERT INTO price_history (route, price_eur, source, recorded_at) VALUES (?, ?, ?, ?)",
+                             rows)
+        await db.commit()
+    assert "vacuumed_mb" not in await purge_old_rows(vacuum_min_free_mb=0)  # once a day at most
+
+
+async def test_init_db_drops_the_unused_route_index(engine):
+    async with aiosqlite.connect(await get_db_path()) as db:
+        await db.execute("CREATE TABLE price_history (id INTEGER PRIMARY KEY AUTOINCREMENT, route TEXT NOT NULL,"
+                         " price_eur REAL NOT NULL, source TEXT NOT NULL, recorded_at TEXT NOT NULL)")
+        await db.execute("CREATE INDEX idx_prices_route ON price_history(route)")
+        await db.commit()
+
+    await init_db()
+
+    async with aiosqlite.connect(await get_db_path()) as db:
+        indexes = {r[0] for r in await (await db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'price_history'")).fetchall()}
+    assert "idx_prices_route" not in indexes and "idx_prices_key" in indexes
 
 
 async def test_pending_instants_go_out_best_discount_first(engine):

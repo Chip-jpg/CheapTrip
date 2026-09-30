@@ -5,7 +5,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { api, type PauseChoice, type Status } from "./api";
-import { useEngineEvents, useReloadOn } from "./events";
+import { pageHidden, useEngineEvents, useReloadOn, useWhenShown } from "./events";
 import { useLoad } from "./load";
 
 export interface SourceProgress {
@@ -52,10 +52,11 @@ export function EngineProvider({ children }: { children: ReactNode }) {
     if (event.type === "cycle_finished") setProgress(undefined);
   });
 
-  useEffect(() => {  // keeps "next search in 42 min" and a missed event from going stale
-    const timer = window.setInterval(loaded.reload, 60_000);
+  useEffect(() => {  // keeps "next search in 42 min" and a missed event from going stale, while it's seen
+    const timer = window.setInterval(() => { if (!pageHidden()) loaded.reload(); }, 60_000);
     return () => window.clearInterval(timer);
   }, [loaded.reload]);
+  useWhenShown(loaded.reload);  // opened from the tray: up to date at once
 
   const act = useCallback((call: () => Promise<unknown>) => {
     setBusy(true);

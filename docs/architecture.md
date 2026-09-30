@@ -6,7 +6,8 @@
 load Telegram overrides ─► preferences (YAML + /mute, /priority, /budget)
         │
         ▼
-retention purge ─► price history > 120 days, deals expired > 7 days, old alert records
+retention purge ─► price history > 45 days, deals expired > 7 days, old alert records;
+        │            VACUUM (at most daily) when a quarter of the file is free
         │
         ▼
 SearchPlanner.plan ─► tasks per source (scheduler/planner.py)
@@ -29,6 +30,7 @@ build_trips (trip_builder/builder.py)
         │   stay length → trip profile → feasibility (travel hours vs trip length) → category
         │   PriceIndex: baseline per (origin city, destination city, round trip / one way,
         │   length profile), fares departing ±30 days, EARLIER cycles → normal price, discount, anomaly
+        │   (loaded as one summary row per fare, which the database adds up from the history)
         │   this cycle's dated search fares are then added to price_history
         ▼
 collapse_similar ─► one trip per (cities, kind, length profile) within ±2 days: the cheapest;
@@ -147,3 +149,20 @@ Each fare gets a `data_confidence_score` (freshness, number of sources, field co
 | `pref_overrides` | Preferences changed from Telegram |
 
 `init_db()` creates missing tables and columns on startup, so upgrades need no manual migration.
+
+**Connections (B46).** Every function shares one connection per event loop (`connection()`):
+opening one costs ~2 ms, a query on an open one ~0.2 ms, and a search makes ~1,900 queries.
+- A lock gives each `async with connection()` block the connection to itself. What a block
+  leaves uncommitted is rolled back when it ends, as closing its own connection did; a block
+  inside another is refused rather than deadlocking.
+- The journal is WAL (readers and the writer don't wait for each other), `synchronous=NORMAL`,
+  and the WAL file shrinks back to 16 MB after a big write.
+- Long reads take a short-lived connection of their own (`connection(own=True)`): the price
+  history summary and the Destinations figures.
+- The worker thread is a daemon, and `close_connections()` runs when the engine stops, so a
+  connection never keeps the app from exiting.
+- The Destinations figures are cached until the history (or the day) changes, and worked out
+  again in the background after each search.
+
+`scripts/bench.py` times all this on a seeded month of history; CI's test-windows job writes
+its table to the job summary.
