@@ -1,6 +1,6 @@
 ## Install on Windows
 
-1. Download **`CheapTrip-Setup-0.8.1.exe`** below and run it. No administrator rights are needed.
+1. Download **`CheapTrip-Setup-0.8.2.exe`** below and run it. No administrator rights are needed.
 2. Windows SmartScreen may say *"Windows protected your PC"*, because the installer isn't code-signed. Click **More info → Run anyway**.
 3. Leave **Open CheapTrip and set it up** ticked. The app opens on its setup wizard, which asks for:
    - your home airports and the trips you like;
@@ -10,13 +10,24 @@
    It checks everything at the end.
 4. CheapTrip then runs in the tray, by the clock, and starts when you sign in. **Settings → App** turns that off.
 
-**Upgrading from 0.8.0:** run the new installer. Everything is kept, and the setup wizard doesn't open again.
+**Upgrading from 0.8.0 or 0.8.1:** run the new installer. Everything is kept, and the setup wizard doesn't open again. The first start tidies the database once, which can take a few seconds.
 
 **Upgrading from 0.6:** run the new installer. It keeps your settings, preferences and price history in `%APPDATA%\CheapTrip`. The setup wizard opens once, filled in with what you already have: check it, then click **Finish**.
 
 Step-by-step Telegram setup: [docs/telegram_setup.md](https://github.com/Chip-jpg/CheapTrip/blob/main/docs/telegram_setup.md).
 
-## What's fixed in 0.8.1
+## What's faster in 0.8.2
+
+Nothing new to learn: the same deals, the same alerts, and less work to find them. With a month of price history:
+
+- **Searches do their own work about three times faster**: about 2.4 seconds on Windows. They also open the database once instead of about 1,900 times. CheapTrip used to read every price it had saved (about 370,000 after a month) to judge each fare. Now the database adds them up for it, and it finds exactly the same deals as before.
+- **About a quarter of the memory** while it searches: about 86 MB on Windows.
+- **Destinations opens instantly.** Its figures are worked out right after each search, not when you open it.
+- **A database that stays small.** Prices are kept 45 days (everything looks back 30), and the space old ones leave is handed back to the disk. A database that reached about 445 MB after four months now stays around 160 MB.
+- **A smaller app.** The icons now come from a font holding only the ones CheapTrip uses: 99 KB instead of 4 MB. They look exactly the same.
+- **Quieter in the tray.** While the window is hidden, the screens don't refresh; they catch up once when you open it.
+
+## What was fixed in 0.8.1
 
 - **The Deals screen opens quickly again.** After a few weeks of searches it could take up to a minute to load, and the menu's deal count as long. Both now take a fraction of a second. The first start after the update spends about a second preparing the price history.
 - **Settings refuse impossible values.** For example: 0 days ahead, which searched nothing, or a hotel rating of 42 out of 10. The field goes back to what was saved and says the allowed range, for example "How far ahead: enter a number from 14 to 365". A value like that already in your preferences file now falls back to its default alone, instead of resetting the whole file.
