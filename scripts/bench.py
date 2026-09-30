@@ -47,10 +47,14 @@ def _peak_memory_mb() -> float:
                         ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
                         ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
 
+        kernel32, psapi = ctypes.WinDLL("kernel32"), ctypes.WinDLL("psapi")
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE  # a 64-bit pseudo-handle, not an int
+        psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
+        psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
         counters = Counters()
         counters.cb = ctypes.sizeof(Counters)
-        process = ctypes.windll.kernel32.GetCurrentProcess()
-        ctypes.windll.psapi.GetProcessMemoryInfo(process, ctypes.byref(counters), counters.cb)
+        if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+            return float("nan")
         return counters.PeakWorkingSetSize / 2**20
     import resource
 
@@ -201,7 +205,9 @@ def _table(result: dict, days: int) -> str:
     lines = [f"### CheapTrip benchmark: {days} days of price history ({sys.platform}, Python {sys.version.split()[0]})",
              "", "| Measure | Result |", "|---|---|"]
     for label, value in result.items():
-        if isinstance(value, float) and "MB" not in label:
+        if isinstance(value, float) and value != value:  # NaN: couldn't be measured here
+            text = "n/a"
+        elif isinstance(value, float) and "MB" not in label:
             text = f"{value:.2f} s"
         elif isinstance(value, float):
             text = f"{value:.0f} MB"
