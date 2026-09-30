@@ -1,14 +1,14 @@
 # CheapTrip — Status Report & Branch Roadmap
 
-## Where things stand (release v0.8.2)
+## Where things stand (release v0.8.3)
 
-Every card below (B01–B46) is merged into `main`, and v0.8.2 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45 (v0.8.1) and the optimizations in B46. The progress tracker at the end has the details. In short:
+Every card below (B01–B47) is merged into `main`, and v0.8.3 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45 (v0.8.1), the optimizations in B46 (v0.8.2), and B47: the window no longer goes black, a bigger UI with a text size setting, and every button tested. The progress tracker at the end has the details. In short:
 
 - **The app (Windows):** one setup `.exe` from the [releases](https://github.com/Chip-jpg/CheapTrip/releases), with no admin rights needed.
   - It is a desktop app in the owner's design ("Fluent Deal Radar"), in light and dark. Its screens: Deals with a detail panel and charts, Destinations, Activity, Notifications & tray, Settings, and a setup wizard at the first launch.
   - Windows notifications with Book / Details / Mute and a picture of the price; a tray icon showing the engine's state.
   - It starts at sign-in; one instance at a time; `cheaptrip://` links.
-  - CI builds the installer, installs it and drives the installed app through its API on every change.
+  - CI builds the installer, installs it and drives the installed app through its API on every change. It also drives the app's real WebView2 window, and presses every button on every screen.
   - Elsewhere: Python (`main.py run`, or `main.py ui` for the screens in a browser) or Docker, as before.
 - **Data:** Ryanair's fare API is the backbone (about 700–780 fares per search). Google Flights adds exact-route searches and pauses itself after a block. Travelpayouts is ready once a token is set. PiratinViaggio posts (flights, packages, hotels) are read by Claude when an Anthropic key is set.
 - **Alerts:** a fare is instant in any of these cases:
@@ -22,7 +22,7 @@ Every card below (B01–B46) is merged into `main`, and v0.8.2 is published on G
 - **Still open:**
   - real hotel prices: flight alerts link a Booking.com search instead;
   - a code-signing certificate, so Windows SmartScreen stops warning about the installer;
-  - how the window, tray and notifications look on real PCs: CI can't display notifications.
+  - how the tray and notifications look on real PCs: CI drives the real window, but can't display notifications.
 
 The rest of this document is the original review and plan; its "Status at a glance" section describes the code before Round 1.
 
@@ -451,7 +451,7 @@ The owner's design is built and released as v0.8.0:
 
 **Release v0.8.2:** version and notes; the merge publishes the installer.
 
-### v0.9.0: the window works, bigger and easier to read
+### v0.8.3: the window works, bigger and easier to read
 **B47 `claude/tender-dirac-w84xw1`** (L): the owner's report: the app turns black when any sidebar button is pressed, and it's hard to read.
 - **The black window:** the setup wizard's `useEffect(() => window.scrollTo?.(0, 0), [step])` returned what `scrollTo` returns, a Promise in current Chromium and so in Edge WebView2. React called it as the effect's cleanup when the wizard closed, and the TypeError removed the whole app. A new install opens on the wizard, so every sidebar button blanked the window. Headless Chromium 141, where the screens were checked, returns nothing, so it never showed.
   - Fixed, and effects are blocks everywhere (a test keeps it so).
@@ -468,6 +468,8 @@ The owner's design is built and released as v0.8.0:
   - a refused test notification said "HTTP 502";
   - "Hide this deal" had no Undo (`DELETE /deals/{id}/hide`).
 - **Also:** the window opens at 1440×900 where it fits; the full icon font again; Settings → App → Advanced (log folder, developer tools); readable source warnings; the notification picture's caption no longer overlaps.
+
+**Release v0.8.3:** version and notes; the merge publishes the installer.
 
 ---
 
@@ -535,3 +537,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B46 | `perf/v0.8.2` | done |
 | — | `release/v0.8.2` | done (released as v0.8.2) |
 | B47 | `claude/tender-dirac-w84xw1` | done |
+| — | release v0.8.3 | done (released as v0.8.3) |
