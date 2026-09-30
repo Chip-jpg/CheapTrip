@@ -15,7 +15,7 @@ Routes (all under /api/v1):
   GET  /status                         top bar: state, next/last search, learning progress, attention
   GET  /deals                          Deals: unusually cheap + best of the rest, with filters
   GET  /deals/{id}                     Deal detail, with both charts' data
-  POST /deals/{id}/hide
+  POST|DELETE /deals/{id}/hide         hide a deal, or show it again (Undo)
   GET  /destinations?tab=priority|muted|seen
   POST|DELETE /destinations/{code}/priority|mute
   GET  /airports?q=                    autocomplete
@@ -359,11 +359,12 @@ async def deal_detail(request: web.Request) -> web.Response:
 
 
 async def deal_hide(request: web.Request) -> web.Response:
-    deal_id = request.match_info["id"]
-    if not await hide_deal(deal_id):
+    """POST hides the deal; DELETE shows it again (the Undo on "Deal hidden")."""
+    deal_id, hidden = request.match_info["id"], request.method == "POST"
+    if not await hide_deal(deal_id, hidden):
         return _error("no such deal", 404)
-    get_event_bus().publish("deal_hidden", id=deal_id)
-    return _json({"id": deal_id, "hidden": True})
+    get_event_bus().publish("deal_hidden", id=deal_id, hidden=hidden)
+    return _json({"id": deal_id, "hidden": hidden})
 
 
 # ── Destinations ──────────────────────────────────────────────────────────────
@@ -542,7 +543,12 @@ async def setup_test_notification(request: web.Request) -> web.Response:
     results = await notifier.send_test(only=channel) if hasattr(notifier, "send_test") else {}
     if not results:
         return _error("no notification channel is on" + (f" for {channel}" if channel else ""), 409)
-    return _json({"sent": results}, status=200 if any(results.values()) else 502)
+    if any(results.values()):
+        return _json({"sent": results})
+    # Nothing was shown: say where it failed, in words the screens can show (not "HTTP 502")
+    why = {"desktop": "Windows didn't show it (check CheapTrip in Windows' notification settings)",
+           "telegram": "Telegram didn't accept it (check the bot token and chat ID)"}
+    return _json({"sent": results, "error": "; ".join(why.get(name, f"{name} failed") for name in results)}, status=502)
 
 
 # ── Notifications (the Notifications screen) ──────────────────────────────────
@@ -792,6 +798,7 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None, shell
     app.router.add_get(f"{API}/deals", deals)
     app.router.add_get(f"{API}/deals/{{id}}", deal_detail)
     app.router.add_post(f"{API}/deals/{{id}}/hide", deal_hide)
+    app.router.add_delete(f"{API}/deals/{{id}}/hide", deal_hide)
     app.router.add_get(f"{API}/destinations", destinations)
     app.router.add_route("POST", f"{API}/destinations/{{code}}/{{what:priority|mute}}", destination_toggle)
     app.router.add_route("DELETE", f"{API}/destinations/{{code}}/{{what:priority|mute}}", destination_toggle)

@@ -37,8 +37,8 @@ export function statusText(status: Status, progress: Progress | undefined, now =
   switch (status.state) {
     case "stopped":
       return "Stopped";
-    case "searching":
-      return `Searching… ${progressLabel(progress)}`.trim();
+    case "searching":  // a search runs on while alerts are paused: say both
+      return `Searching… ${progressLabel(progress)}`.trim() + (status.paused_until ? " · alerts paused" : "");
     case "paused":
       return `Alerts paused ${pausedUntil(status.paused_until, now)}`;
     case "attention":
@@ -106,7 +106,7 @@ function StatusPill() {
               <span>Searches today: {status.searches_today}</span>
             </div>
           )}
-          {status.state === "paused" && (
+          {status.paused_until && (
             <MenuItem onSelect={() => { resume(); close(); }} className="text-tertiary">
               <Icon name="play_arrow" size={16} /> Resume alerts ({pausedUntil(status.paused_until, now)})
             </MenuItem>
@@ -163,7 +163,7 @@ function QuickJump() {
 
   return (
     <div className="relative mx-space-md max-w-md flex-1">
-      <Icon name="travel_explore" size={18} className="pointer-events-none absolute top-[7px] left-space-md text-outline" />
+      <Icon name="travel_explore" size={18} className="pointer-events-none absolute top-1/2 left-space-md -translate-y-1/2 text-outline" />
       <input ref={input} value={query} role="combobox" aria-expanded={open && results.length > 0}
              aria-label="Jump to a destination" placeholder="Jump to destination or airport code… (e.g. LHR, Tokyo)"
              className="field pl-10"
@@ -204,7 +204,7 @@ function EngineControls() {
         <Icon name={searching ? "progress_activity" : "radar"} size={18} className={searching ? "animate-spin" : ""} />
         {searching ? "Searching…" : "Search now"}
       </button>
-      {status?.state === "paused" ? (
+      {status?.paused_until ? (
         <button className="btn-secondary" disabled={busy} onClick={resume} title="Resume alerts">
           <Icon name="play_arrow" size={18} /> Resume
         </button>

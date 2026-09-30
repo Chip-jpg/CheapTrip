@@ -166,7 +166,7 @@ function AddDialog({ onClose, onAdd, initial }: {
         <label className="flex flex-col gap-space-xs">
           <span className="label-caps">Airport or city</span>
           <span className="relative">
-            <Icon name="flight" size={18} className="pointer-events-none absolute top-[7px] left-space-md text-outline" />
+            <Icon name="flight" size={18} className="pointer-events-none absolute top-1/2 left-space-md -translate-y-1/2 text-outline" />
             <input autoFocus className="field pl-10" placeholder="e.g. Reykjavik or KEF" role="combobox" aria-expanded={results.length > 0}
                    value={chosen ? `${chosen.city} (${chosen.code})` : query}
                    onChange={(e) => { setChosen(undefined); setQuery(e.target.value); }} />
@@ -262,7 +262,7 @@ export function Destinations({ focus }: { focus?: string }) {
       <PageHeader label="Radar · Destinations" title="Destinations" count={`${all.length} seen`} actions={
         <>
           <span className="relative w-64">
-            <Icon name="search" size={18} className="pointer-events-none absolute top-[7px] left-space-md text-outline" />
+            <Icon name="search" size={18} className="pointer-events-none absolute top-1/2 left-space-md -translate-y-1/2 text-outline" />
             <input className="field pl-10" placeholder="Filter destinations or IATA…" aria-label="Filter destinations"
                    value={query} onChange={(e) => setQuery(e.target.value)} />
           </span>

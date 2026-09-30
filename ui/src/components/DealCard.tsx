@@ -120,7 +120,7 @@ export function useDealActions(onChange?: () => void) {
         : `${cityOf(deal)} is no longer a priority`, () => api.setPriority(code, !on))).catch(failed);
     },
     hide(deal: Deal) {
-      api.hideDeal(deal.id).then(() => done("Deal hidden")).catch(failed);
+      api.hideDeal(deal.id).then(() => done("Deal hidden", () => api.hideDeal(deal.id, false))).catch(failed);
     },
     copyLink(deal: Deal) {
       const link = deal.links.book ?? deal.links.hotels;

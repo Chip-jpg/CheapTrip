@@ -379,7 +379,7 @@ export const api = {
   /** Only the summary (the sidebar's count): no cards, so none of their price comparisons */
   dealsSummary: () => request<DealsResponse>("GET", "/deals?summary=1"),
   deal: (id: string) => request<DealDetail>("GET", `/deals/${enc(id)}`),
-  hideDeal: (id: string) => request<{ id: string; hidden: boolean }>("POST", `/deals/${enc(id)}/hide`),
+  hideDeal: (id: string, hidden = true) => request<{ id: string; hidden: boolean }>(hidden ? "POST" : "DELETE", `/deals/${enc(id)}/hide`),
 
   destinations: (tab: DestinationTab) =>
     request<{ tab: DestinationTab; destinations: Destination[] }>("GET", `/destinations?tab=${tab}`),

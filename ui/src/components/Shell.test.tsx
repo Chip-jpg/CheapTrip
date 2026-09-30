@@ -60,6 +60,14 @@ describe("the top bar", () => {
     await waitFor(() => expect(posted()).toEqual(["POST /api/v1/engine/resume"]));
   });
 
+  it("offers Resume at once when alerts are paused during a search", async () => {
+    const pausedWhileSearching = { ...STATUS, state: "searching" as const, searching: true, paused_until: "2036-01-01T08:00:00" };
+    expect(statusText(pausedWhileSearching, undefined)).toBe("Searching… · alerts paused");
+    start(pausedWhileSearching);
+    fireEvent.click(await screen.findByRole("button", { name: /Resume/ }));
+    await waitFor(() => expect(posted()).toContain("POST /api/v1/engine/resume"));
+  });
+
   it("jumps to a destination", async () => {
     start();
     fireEvent.change(screen.getByRole("combobox", { name: "Jump to a destination" }), { target: { value: "krak" } });

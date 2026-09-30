@@ -285,6 +285,10 @@ async def test_hidden_deals_leave_the_list(api):
     assert prague["id"] not in [d["id"] for d in digest]
     assert next(d["price"] for d in digest if d["route"] == "Milan → Prague") == 40.0  # the other week's fare
 
+    assert (await api.call("DELETE", f"/deals/{prague['id']}/hide"))["hidden"] is False  # Undo
+    assert prague["id"] in [d["id"] for d in (await api.get("/deals"))["digest"]]
+    await api.call("DELETE", "/deals/nope/hide", status=404)
+
 
 # ── Destinations ──────────────────────────────────────────────────────────────
 

@@ -172,10 +172,10 @@ export function Notifications() {
             <div className="flyout flex flex-col gap-0.5 p-space-xs text-body">
               <span className="flex items-center gap-space-xs rounded px-space-md py-1.5 font-mono text-mono-sm text-on-surface-variant">
                 <span className="h-1.5 w-1.5 rounded-full bg-secondary" />
-                CheapTrip {status?.version} · {status?.state === "paused" ? "Alerts paused" : `Running${status?.next_search_at ? ` (next ${clock(status.next_search_at)})` : ""}`}
+                CheapTrip {status?.version} · {status?.paused_until ? "Alerts paused" : `Running${status?.next_search_at ? ` (next ${clock(status.next_search_at)})` : ""}`}
               </span>
               <span className="my-0.5 h-px bg-stroke" />
-              {[["open_in_new", "Open CheapTrip"], ["radar", "Search now"], ["pause_circle", status?.state === "paused" ? "Resume alerts" : "Pause alerts ›"],
+              {[["open_in_new", "Open CheapTrip"], ["radar", "Search now"], ["pause_circle", status?.paused_until ? "Resume alerts" : "Pause alerts ›"],
                 ["settings", "Settings"]].map(([icon, label]) => (
                 <span key={label} className="flex items-center gap-space-sm rounded px-space-md py-1.5 text-on-surface"><Icon name={icon} size={18} />{label}</span>
               ))}
