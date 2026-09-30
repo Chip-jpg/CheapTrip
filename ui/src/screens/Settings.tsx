@@ -54,7 +54,7 @@ export function useSave(onSaved: (settings: SettingsData) => void) {
       toast(`${what} · ${later ? "applies from the next search" : "applies now"}`);
       return result;
     })
-    .catch((err: Error) => { toast(`Not saved: ${err.message}`, { tone: "error" }); throw err; });
+    .catch((err: Error) => { toast(`Not saved: ${err.message}`, { tone: "error" }); return null; });  // the toast says it
 }
 
 function Trips({ s, save }: { s: SettingsData; save: ReturnType<typeof useSave> }) {
@@ -90,11 +90,11 @@ function Trips({ s, save }: { s: SettingsData; save: ReturnType<typeof useSave> 
           </div>
         </Row>
         <Row label="How far ahead" help="Departures up to this many days from today.">
-          <CommitInput label="Days ahead" value={p.search_window_days} min={14} max={365} suffix="days"
+          <CommitInput label="How far ahead" value={p.search_window_days} min={14} max={365} suffix="days"
                        onCommit={(v) => save({ preferences: { search_window_days: Number(v) } })} />
         </Row>
         <Row label="Trip budget" help="The most a whole trip may cost per person. Empty: no limit.">
-          <CommitInput label="Trip budget" value={p.max_trip_budget} min={0} prefix="€" placeholder="No limit" width="w-32"
+          <CommitInput label="Trip budget" value={p.max_trip_budget} min={1} prefix="€" placeholder="No limit" width="w-32" optional
                        onCommit={(v) => save({ preferences: { max_trip_budget: v ? Number(v) : null } })} />
         </Row>
       </Section>
@@ -125,11 +125,11 @@ function Alerts({ s, save }: { s: SettingsData; save: ReturnType<typeof useSave>
                        onCommit={(v) => save({ alerts: { price_anomaly_min_drop_pct: Number(v) } })} />
         </Row>
         <Row label="Price floor, Europe" help="A European trip under this always alerts.">
-          <CommitInput label="Europe price floor" value={a.europe_trip_max_eur} min={0} prefix="€"
+          <CommitInput label="Europe price floor" value={a.europe_trip_max_eur} min={0} max={1000} prefix="€"
                        onCommit={(v) => save({ alerts: { europe_trip_max_eur: Number(v) } })} />
         </Row>
         <Row label="Price floor, long-haul" help="A long-haul trip under this always alerts.">
-          <CommitInput label="Long-haul price floor" value={a.longhaul_trip_max_eur} min={0} prefix="€"
+          <CommitInput label="Long-haul price floor" value={a.longhaul_trip_max_eur} min={0} max={5000} prefix="€"
                        onCommit={(v) => save({ alerts: { longhaul_trip_max_eur: Number(v) } })} />
         </Row>
       </Section>
@@ -157,7 +157,7 @@ function Alerts({ s, save }: { s: SettingsData; save: ReturnType<typeof useSave>
                        onCommit={(v) => save({ preferences: { minimum_hotel_rating: Number(v) } })} />
         </Row>
         <Row label="Minimum reviews" help="Empty: any number.">
-          <CommitInput label="Minimum reviews" value={p.min_hotel_review_count} min={0} placeholder="Any"
+          <CommitInput label="Minimum reviews" value={p.min_hotel_review_count} min={0} placeholder="Any" optional
                        onCommit={(v) => save({ preferences: { min_hotel_review_count: v ? Number(v) : null } })} />
         </Row>
       </Section>
@@ -247,7 +247,7 @@ function Keys({ s, save }: { s: SettingsData; save: ReturnType<typeof useSave> }
           <SecretField label="Telegram bot token" secret={k.telegram_bot_token} onSave={(v) => saveKey("telegram_bot_token", v)} />
         </Row>
         <Row label="Chat ID" help="Where the bot writes: your chat, or a group.">
-          <CommitInput label="Telegram chat ID" type="text" value={k.telegram_chat_id} width="w-44" placeholder="e.g. 98231019"
+          <CommitInput label="Telegram chat ID" type="text" value={k.telegram_chat_id} width="w-44" placeholder="e.g. 98231019" optional
                        onCommit={(v) => save({ keys: { telegram_chat_id: v.trim() } }, "Chat ID saved")} />
         </Row>
         <div className="flex items-start justify-between gap-space-xl py-space-md">

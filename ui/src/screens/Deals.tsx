@@ -35,7 +35,7 @@ const SORTS: { value: NonNullable<DealFilters["sort"]>; label: string }[] = [
   { value: "date", label: "Departure date" },
 ];
 const PRICE_STEPS = { min: 20, max: 600, step: 10 };
-const HERO_CARDS = 6;
+const HERO_CARDS = 6;  // with their fare range, which the engine sends for these only (COMPARED_CARDS)
 const TABLE_ROWS = 25;
 
 function toggled<T>(list: T[] | undefined, items: T[]): T[] {
@@ -193,6 +193,11 @@ function DateWindow({ filters, set }: { filters: DealFilters; set: (change: Part
 
 function FilterBar({ filters, set }: { filters: DealFilters; set: (change: Partial<DealFilters>) => void }) {
   const [price, setPrice] = useState(filters.max_price ?? PRICE_STEPS.max);
+  const [shown, setShown] = useState(filters.max_price);
+  if (filters.max_price !== shown) {  // set elsewhere ("Clear filters"): the slider follows
+    setShown(filters.max_price);
+    setPrice(filters.max_price ?? PRICE_STEPS.max);
+  }
   const commitPrice = (value: number) => set({ max_price: value >= PRICE_STEPS.max ? undefined : value });
   return (
     <section className="pane flex flex-col gap-space-md p-space-md" aria-label="Filters">

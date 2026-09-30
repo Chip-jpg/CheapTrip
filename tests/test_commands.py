@@ -104,6 +104,27 @@ async def test_unpriority_removes_a_yaml_priority(engine, chat):
     assert get_preferences().priority_destinations == []
 
 
+async def test_priority_unmutes_and_mute_ends_priority(engine, chat):
+    engine.set_prefs(excluded_destinations=["KRK"], priority_destinations=["BCN"])  # both from the YAML file
+
+    await chat.say("/priority KRK", "/mute BCN")
+
+    prefs = get_preferences()
+    assert prefs.priority_destinations == ["KRK"] and prefs.excluded_destinations == ["BCN"]
+    await engine.run_cycle(flights=[flight(destination="KRK", price=900.0)])
+    assert len(_alerts(engine)) == 1  # a priority now, not muted
+
+
+async def test_priority_and_mute_stay_exclusive_through_overrides(engine, chat):
+    await chat.say("/mute PRG", "/priority PRG")  # neither in the YAML file: overrides only
+    prefs = get_preferences()
+    assert "PRG" in prefs.priority_destinations and "PRG" not in prefs.excluded_destinations
+
+    await chat.say("/mute PRG")
+    prefs = get_preferences()
+    assert "PRG" in prefs.excluded_destinations and "PRG" not in prefs.priority_destinations
+
+
 async def test_invalid_airport_code(chat):
     [reply] = await chat.say("/mute XQZ")
 

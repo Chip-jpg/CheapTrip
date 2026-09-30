@@ -14,15 +14,18 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+import structlog
+from pydantic import BaseModel, Field, ValidationError
 
 _DEFAULT_YAML_PATH = Path(__file__).parent / "config" / "user_preferences.yaml"
+
+log = structlog.get_logger(__name__)
 
 
 class UserPreferences(BaseModel):
     home_airports: List[str] = Field(default_factory=lambda: ["MXP", "LIN", "BGY"])
     allow_repositioning: bool = True
-    max_trip_budget: Optional[float] = None  # None = no limit
+    max_trip_budget: Optional[float] = Field(default=None, gt=0)  # None = no limit
 
     excluded_destinations: List[str] = Field(default_factory=list)
 
@@ -30,14 +33,14 @@ class UserPreferences(BaseModel):
         default_factory=lambda: ["weekend", "short", "medium"]
     )
 
-    minimum_hotel_rating: float = 7.0
-    preferred_hotel_rating: float = 8.0
-    hotel_low_rating_discount_threshold: float = 70.0
-    hotel_exceptionally_low_trip_cost: float = 80.0
+    minimum_hotel_rating: float = Field(default=7.0, ge=0, le=10)
+    preferred_hotel_rating: float = Field(default=8.0, ge=0, le=10)
+    hotel_low_rating_discount_threshold: float = Field(default=70.0, ge=0, le=100)  # percent below usual
+    hotel_exceptionally_low_trip_cost: float = Field(default=80.0, ge=0)
 
-    search_window_days: int = 90
+    search_window_days: int = Field(default=90, ge=14, le=365)
 
-    min_hotel_review_count: Optional[int] = None  # None = no minimum
+    min_hotel_review_count: Optional[int] = Field(default=None, ge=0)  # None = no minimum
 
     priority_destinations: List[str] = Field(default_factory=list)
 
@@ -60,12 +63,26 @@ def load_preferences(path: Path = _DEFAULT_YAML_PATH) -> UserPreferences:
 
         with open(path, encoding="utf-8-sig") as f:  # Notepad may add a BOM
             data = yaml.safe_load(f) or {}
-        # Only pass fields that UserPreferences knows about
-        known = UserPreferences.model_fields.keys()
-        filtered = {k: v for k, v in data.items() if k in known and v is not None}
-        return UserPreferences(**filtered)
+        return UserPreferences(**valid_values(data, path))
     except Exception:
         return UserPreferences()
+
+
+def valid_values(data: Any, path: Optional[Path] = None) -> Dict[str, Any]:
+    """
+    The preferences in `data` that UserPreferences knows and accepts. A value out
+    of range (search_window_days: 0, a rating of 42) is left out, so its default
+    applies, and the rest of the file still counts.
+    """
+    known = {k: v for k, v in data.items() if k in UserPreferences.model_fields and v is not None}
+    try:
+        UserPreferences(**known)
+        return known
+    except ValidationError as exc:
+        bad = {str(error["loc"][0]) for error in exc.errors() if error["loc"]}
+        log.warning("preferences_ignored", fields=sorted(bad), file=str(path) if path else None,
+                    reason="out of range or the wrong type: the default applies")
+        return {k: v for k, v in known.items() if k not in bad}
 
 
 def preferences_path() -> Path:
@@ -174,8 +191,8 @@ def save_preferences(updates: Dict[str, Any], path: Optional[Path] = None) -> Pa
         from ruamel.yaml.comments import CommentedMap
 
         data = CommentedMap()
-    UserPreferences(**{**{k: v for k, v in data.items() if k in UserPreferences.model_fields and v is not None},
-                       **{k: v for k, v in updates.items() if v is not None}})  # raises on bad values
+    # Raises on a bad new value; a bad value already in the file doesn't block saving another
+    UserPreferences(**{**valid_values(data, path), **{k: v for k, v in updates.items() if v is not None}})
     for key, value in updates.items():
         _set_value(data, key, value)
     path.parent.mkdir(parents=True, exist_ok=True)

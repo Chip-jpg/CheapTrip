@@ -147,6 +147,9 @@ _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_alerts_sent_at ON alerts_sent(sent_at)",
     "CREATE INDEX IF NOT EXISTS idx_prices_route ON price_history(route)",
     "CREATE INDEX IF NOT EXISTS idx_prices_recorded ON price_history(recorded_at)",
+    # fares_for_key: the "similar fares" behind each deal's usual price and charts
+    "CREATE INDEX IF NOT EXISTS idx_prices_key"
+    " ON price_history(origin_city, dest_city, trip_type, nights_bucket, recorded_at)",
     "CREATE INDEX IF NOT EXISTS idx_deals_expires ON deals(expires_at)",
     "CREATE INDEX IF NOT EXISTS idx_deals_dedup ON deals(dedup_origin, dedup_dest, dedup_kind, created_at)",
 ]

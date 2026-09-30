@@ -57,7 +57,7 @@ function NavLink({ item, current, collapsed, badge }: {
 
 export function Sidebar({ screen, collapsed }: { screen: Screen; collapsed: boolean }) {
   const { status } = useEngine();
-  const deals = useLoad(() => api.deals(), []);
+  const deals = useLoad(api.dealsSummary, []);
   useReloadOn(["cycle_finished", "deal_hidden", "preferences_changed"], deals.reload);
   const cheap = deals.data?.summary.unusually_cheap;
 

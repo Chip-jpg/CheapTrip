@@ -6,10 +6,11 @@ import { statusText } from "./TopBar";
 
 let fetch: ReturnType<typeof fakeFetch>;
 
-function start(status = STATUS) {
+function start(status = STATUS, theme = "system") {
   fetch = fakeFetch({
     "/deals": DEALS, "/status": status, "/engine/search-now": { started: true }, "/engine/pause": {},
-    "/engine/resume": {}, "/settings": { app: { theme: "system", close_to_tray: true }, preferences: { home_airports: ["MXP"] } },
+    "/engine/resume": {}, "/settings": { app: { theme, close_to_tray: true }, preferences: { home_airports: ["MXP"] } },
+    "/ui": { sidebar: "open" },
     "/airports": [{ code: "KRK", name: "John Paul II", city: "Kraków", country: "PL" }],
   });
   vi.stubGlobal("fetch", fetch.impl);
@@ -76,11 +77,47 @@ describe("the top bar", () => {
   });
 });
 
+describe("the theme", () => {
+  it("starts in the theme the engine marked, without flashing the other", async () => {
+    const root = document.documentElement;
+    root.dataset.theme = "dark";  // THEME=dark, while this "Windows" (jsdom) is light
+    const seen: (string | undefined)[] = [];
+    const watch = new MutationObserver(() => seen.push(root.dataset.theme));
+    watch.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+
+    start(STATUS, "dark");
+    await waitFor(() => expect(fetch.calls.some((c) => c.url === "/api/v1/settings")).toBe(true));
+    await screen.findByRole("button", { name: "Switch to the light theme" });
+    await new Promise((resolve) => setTimeout(resolve, 0));  // let the observer report
+    watch.disconnect();
+
+    expect(root.dataset.theme).toBe("dark");
+    expect(seen.filter((theme) => theme !== "dark")).toEqual([]);
+  });
+});
+
 describe("the sidebar", () => {
   it("counts the unusually cheap deals and shows the engine", async () => {
     start();
     expect(await screen.findByLabelText("1 unusually cheap")).toBeTruthy();
+    expect(fetch.calls.some((c) => c.url === "/api/v1/deals?summary=1")).toBe(true);  // the count, not every card
     expect(screen.getByRole("link", { name: /^Deals/ }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByText("v0.6.0")).toBeTruthy();
+  });
+
+  it("opens as it was left, and the engine keeps each change", async () => {
+    document.documentElement.dataset.sidebar = "collapsed";  // as the engine marks the page
+    try {
+      start();
+      const deals = await screen.findByRole("link", { name: /^Deals/ });
+      expect(deals.getAttribute("title")).toBe("Deals");  // collapsed: icons, with the name on hover
+
+      fireEvent.click(screen.getByRole("button", { name: "Show or hide the navigation" }));
+
+      await waitFor(() => expect(posted()).toContain('PUT /api/v1/ui {"sidebar":"open"}'));
+      expect(screen.getByRole("link", { name: /^Deals/ }).getAttribute("title")).toBeNull();
+    } finally {
+      delete document.documentElement.dataset.sidebar;
+    }
   });
 });

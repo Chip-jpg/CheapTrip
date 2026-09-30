@@ -98,3 +98,37 @@ class TestLoadPreferences:
             assert "DXB" in prefs.excluded_destinations
         finally:
             tmp_path.unlink()
+
+
+class TestOutOfRangeValues:
+    """v0.8.1: impossible values are refused on save and don't take the whole file down on load."""
+
+    def test_impossible_values_are_refused(self):
+        import pytest
+        from pydantic import ValidationError
+
+        for bad in ({"search_window_days": 0}, {"search_window_days": -5}, {"search_window_days": 400},
+                    {"minimum_hotel_rating": 42}, {"max_trip_budget": 0}, {"min_hotel_review_count": -1}):
+            with pytest.raises(ValidationError):
+                UserPreferences(**bad)
+
+    def test_a_bad_value_falls_back_alone(self, tmp_path):
+        path = tmp_path / "prefs.yaml"
+        path.write_text("home_airports: [WAW]\nsearch_window_days: 0\nminimum_hotel_rating: 42\nadults: 2\n")
+
+        prefs = load_preferences(path)
+
+        assert prefs.home_airports == ["WAW"] and prefs.adults == 2  # the rest of the file still counts
+        assert prefs.search_window_days == 90 and prefs.minimum_hotel_rating == 7.0  # defaults
+
+    def test_an_old_bad_value_doesnt_block_saving_another(self, tmp_path):
+        from preferences import save_preferences
+
+        path = tmp_path / "prefs.yaml"
+        path.write_text("home_airports: [WAW]\nsearch_window_days: 0\n")
+
+        save_preferences({"adults": 3}, path)
+        assert load_preferences(path).adults == 3
+
+        save_preferences({"search_window_days": 60}, path)  # and fixing it works too
+        assert load_preferences(path).search_window_days == 60

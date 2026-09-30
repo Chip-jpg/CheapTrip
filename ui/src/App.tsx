@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { api } from "./api";
 import { Sidebar } from "./components/Sidebar";
 import { ToastProvider } from "./components/Toast";
 import { TopBar } from "./components/TopBar";
@@ -12,24 +13,6 @@ import { Notifications } from "./screens/Notifications";
 import { Settings } from "./screens/Settings";
 import { Setup } from "./screens/Setup";
 import { ThemeProvider } from "./theme";
-
-const SIDEBAR_KEY = "cheaptrip.sidebar";
-
-function stored(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function store(key: string, value: string): void {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // private window: the choice lasts until the app closes
-  }
-}
 
 function screenFor(route: Route): ReactNode {
   switch (route.screen) {
@@ -63,11 +46,13 @@ function FirstRun() {
 
 export function App() {
   const route = useRoute();
-  const [collapsed, setCollapsed] = useState(() => stored(SIDEBAR_KEY) === "collapsed");
-  const toggle = () => setCollapsed((c) => {
-    store(SIDEBAR_KEY, c ? "open" : "collapsed");
-    return !c;
-  });
+  // The engine marks <html data-sidebar> with how the sidebar was left, and keeps each change
+  const [collapsed, setCollapsed] = useState(() => document.documentElement.dataset.sidebar === "collapsed");
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    api.saveUi({ sidebar: next ? "collapsed" : "open" }).catch(() => {});  // not kept: it lasts until the app closes
+  };
   return (
     <ThemeProvider>
       <EngineProvider>

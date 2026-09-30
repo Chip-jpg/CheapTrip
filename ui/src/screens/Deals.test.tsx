@@ -51,6 +51,26 @@ describe("the Deals screen", () => {
       && c.url.includes("lengths=weekend"))).toBe(true));
   });
 
+  it("resets the max price when the filters are cleared", async () => {
+    start();
+    const answer = fetch.impl;  // nothing under a max price, so "Clear filters" shows
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => url.includes("max_price")
+      ? Promise.resolve(new Response(JSON.stringify({ ...DEALS, instant: [], digest: [] }), { status: 200 }))
+      : answer(url, init));
+    await screen.findAllByTestId("deal-card");
+    const slider = screen.getByLabelText("Max price") as HTMLInputElement;
+    const shown = () => slider.parentElement!.querySelector("span")!.textContent;
+
+    fireEvent.change(slider, { target: { value: "150" } });
+    fireEvent.mouseUp(slider);
+    expect(shown()).toBe("€150");
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Clear filters" }))[0]);
+
+    await waitFor(() => expect(shown()).toBe("Any"));
+    expect(slider.value).toBe("600");
+  });
+
   it("mutes a destination from a card's menu, with Undo", async () => {
     start();
     const [card] = await screen.findAllByTestId("deal-card");

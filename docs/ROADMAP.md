@@ -415,6 +415,18 @@ The owner's design is built and released as v0.8.0:
 - **Screens:** Deals (with the detail panel), Destinations, Activity, Notifications & tray, Settings and the setup wizard, all on the live API. Each was checked in headless Chromium in dark and light, with the design's sample data and against live searches.
 - **Installer:** the in-app wizard replaces its question pages, and "start at sign-in" is a switch in the app.
 
+### v0.8.1: fixes and tweaks
+**B45 `fix/v0.8.1`** (M): five bugs and two tweaks found after v0.8.0, each with a test.
+- **Faster Deals screen:** with a month of history (77 deals, about 370k prices) `/deals` took about a minute, and the sidebar's count asked for all of it again.
+  - Every card's price comparison ran at once, each on its own database thread.
+  - Now they run one at a time, only for the six full cards that show them, on a new index for the "similar fares" lookup: `/deals` takes 0.14 s.
+  - The sidebar asks for the summary only (`/deals?summary=1`, 0.02 s).
+- **Settings refuse impossible values:** preference ranges (for example 14–365 days ahead, ratings 0–10) with readable errors. A bad value already in the file falls back to its default alone. The fields put the saved value back instead of saving an empty or out-of-range one.
+- **Clear filters resets the max price.**
+- **Priority and mute exclude each other:** making a destination a priority unmutes it, and muting it ends its priority, from Telegram, the app and notifications alike.
+- **The window opens as it was left:** the engine keeps the sidebar (`PUT /ui`), since WebView2 runs in private mode. It marks the saved sidebar and a chosen light or dark theme on the page it serves, so there's no flash of the wrong theme.
+- **CI:** the GitHub Actions move to their Node 24 versions.
+
 ---
 
 ## 4. Suggested order
@@ -476,3 +488,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B43 | `feat/destinations-activity` | done |
 | B44 | `feat/settings-setup` | done |
 | — | `release/v0.8.0` | done (released as v0.8.0) |
+| B45 | `fix/v0.8.1` | done |

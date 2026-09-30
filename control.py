@@ -104,16 +104,28 @@ async def _toggle(list_key: str, undo_key: str, yaml_list: List[str], code: str,
     await load_overrides()
 
 
-async def set_muted(code: str, muted: bool) -> None:
-    """Never alert this destination (muted) or alert it again."""
+async def _set_muted(code: str, muted: bool) -> None:
     await _toggle("muted", "unmuted", load_preferences(preferences_path()).excluded_destinations, code, muted)
+
+
+async def _set_priority(code: str, priority: bool) -> None:
+    await _toggle("priority_added", "priority_removed", load_preferences(preferences_path()).priority_destinations,
+                  code, priority)
+
+
+async def set_muted(code: str, muted: bool) -> None:
+    """Never alert this destination (muted, which ends its priority) or alert it again."""
+    if muted:
+        await _set_priority(code, False)
+    await _set_muted(code, muted)
     get_event_bus().publish("preferences_changed", change="muted" if muted else "unmuted", code=code)
 
 
 async def set_priority(code: str, priority: bool) -> None:
-    """Always alert this destination (priority), or stop doing so."""
-    yaml_list = load_preferences(preferences_path()).priority_destinations
-    await _toggle("priority_added", "priority_removed", yaml_list, code, priority)
+    """Always alert this destination (priority, which unmutes it), or stop doing so."""
+    if priority:
+        await _set_muted(code, False)
+    await _set_priority(code, priority)
     get_event_bus().publish("preferences_changed", change="priority" if priority else "unpriority", code=code)
 
 
