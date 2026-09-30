@@ -37,9 +37,12 @@ SOURCE_SWITCHES = (
 NOTIFY_SWITCHES = ("desktop", "telegram", "instant", "digest", "source_problems", "sound")
 # Settings → App: behaviour of the desktop app's window (switches), its colours, and starting at
 # sign-in (Windows' Run key, not .env: the installer sets it too). setup_done: the first-run wizard ran.
-APP_SWITCHES = ("close_to_tray", "setup_done")
+APP_SWITCHES = ("close_to_tray", "setup_done", "devtools")
 THEMES = ("system", "light", "dark")
-APP_SETTINGS = (*APP_SWITCHES, "theme", "start_at_login")
+TEXT_SIZES = ("standard", "large", "largest")
+APP_SETTINGS = (*APP_SWITCHES, "theme", "text_size", "start_at_login")
+# App settings the window only reads when it opens
+APPLY_AT_START = ("devtools",)
 # Preference lists that Telegram /mute and /priority (and /budget) override: saving them
 # in Settings makes the saved value the truth again
 _OVERRIDES_OF = {
@@ -96,6 +99,8 @@ class SettingsUpdate(BaseModel):
                 raise ValueError(f"{name} must be true or false")
         if value and "theme" in value and value["theme"] not in THEMES:
             raise ValueError(f"theme must be one of {', '.join(THEMES)}")
+        if value and "text_size" in value and value["text_size"] not in TEXT_SIZES:
+            raise ValueError(f"text_size must be one of {', '.join(TEXT_SIZES)}")
         return value
 
     @field_validator("keys")
@@ -118,6 +123,12 @@ class SettingsUpdate(BaseModel):
 def env_path() -> Path:
     """The .env the settings are read from (the working folder: the app home in the Windows app)."""
     return Path.cwd() / ".env"
+
+
+def text_size() -> str:
+    """The app's text size (TEXT_SIZE), "standard" when it isn't one of the three."""
+    value = get_settings().text_size
+    return value if value in TEXT_SIZES else "standard"
 
 
 def _secret(value: str) -> Dict[str, Any]:
@@ -148,6 +159,7 @@ def read_settings() -> Dict[str, Any]:
         "app": {
             **{name: getattr(settings, name) for name in APP_SWITCHES},
             "theme": settings.theme if settings.theme in THEMES else "system",
+            "text_size": text_size(),
             "start_at_login": windows.autostart_enabled(),  # None: only the installed Windows app can
         },
         "files": {"settings": str(env_path()), "preferences": str(preferences_path())},
@@ -274,7 +286,7 @@ async def apply_settings(payload: Dict[str, Any], engine: Any = None) -> Dict[st
         else:
             env[name.upper()] = _env_value(value)
         saved.append(f"app.{name}")
-        applies[f"app.{name}"] = "now"
+        applies[f"app.{name}"] = "next start" if name in APPLY_AT_START else "now"
 
     if env:
         update_env_file(env_path(), env)

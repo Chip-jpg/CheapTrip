@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "./api";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Sidebar } from "./components/Sidebar";
 import { ToastProvider } from "./components/Toast";
 import { TopBar } from "./components/TopBar";
@@ -26,8 +27,8 @@ function screenFor(route: Route): ReactNode {
       return <Settings section={route.param} />;
     case "setup":
       return <Setup />;
-    default:  // a deal's details slide over the list, which stays as it was
-      return <><Deals />{route.dealId && <DealDetail id={route.dealId} />}</>;
+    default:  // a deal's details slide over the list, which stays as it was (and stays if they fail)
+      return <><Deals />{route.dealId && <ErrorBoundary key={route.dealId} where="screen"><DealDetail id={route.dealId} /></ErrorBoundary>}</>;
   }
 }
 
@@ -62,7 +63,10 @@ export function App() {
         <Sidebar screen={route.screen} collapsed={collapsed} />
         <div className={`transition-[padding] ${collapsed ? "pl-16" : "pl-60"}`}>
           <main className="min-h-screen pt-14">
-            <div className="p-space-lg">{screenFor(route)}</div>
+            <div className="p-space-lg">
+              {/* A failing screen shows its error, not a blank window; another screen starts afresh */}
+              <ErrorBoundary key={route.screen} where="screen">{screenFor(route)}</ErrorBoundary>
+            </div>
           </main>
         </div>
         </ToastProvider>

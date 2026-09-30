@@ -252,7 +252,7 @@ export function Setup() {
   const toast = useToast();
   const save = useSave(setFresh);
   const s = fresh ?? loaded.data;
-  useEffect(() => window.scrollTo?.(0, 0), [step]);
+  useEffect(() => { window.scrollTo?.(0, 0); }, [step]);  // a block: scrollTo returns a Promise, not a cleanup
 
   const finish = () => api.saveSettings({ app: { setup_done: true } })
     .then(() => { reload(); toast("All set: CheapTrip is watching prices"); navigate({ screen: "deals" }); })

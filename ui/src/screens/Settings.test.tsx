@@ -16,7 +16,7 @@ const SETTINGS: Settings = {
           travelpayouts_token: { set: false, hint: "" }, rapidapi_key: { set: false, hint: "" }, telegram_chat_id: "4242" },
   sources: { enable_ryanair: true, enable_going: false },
   notifications: { desktop: true, telegram: true, instant: true, digest: true, source_problems: true, sound: true, telegram_ready: true },
-  app: { close_to_tray: true, setup_done: false, theme: "system", start_at_login: null },
+  app: { close_to_tray: true, setup_done: false, theme: "system", text_size: "standard", devtools: false, start_at_login: null },
   files: { settings: "C:/Users/me/AppData/Roaming/CheapTrip/.env", preferences: "C:/Users/me/AppData/Roaming/CheapTrip/config/user_preferences.yaml" },
 };
 
@@ -137,5 +137,16 @@ describe("the setup wizard", () => {
     fireEvent.click(screen.getByRole("button", { name: /Finish/ }));
     await waitFor(() => expect(puts()).toContain('{"app":{"setup_done":true}}'));
     await waitFor(() => expect(window.location.hash).toBe("#/deals"));
+  });
+
+  it("can be left for another screen where scrollTo returns a promise, as in WebView2 (v0.8's black window)", async () => {
+    vi.stubGlobal("scrollTo", () => Promise.resolve());
+    start("#/setup", { ...STATUS, setup_needed: true });
+    fireEvent.click(await screen.findByRole("button", { name: /Let's start/ }));  // a new step scrolls to the top
+    expect(await screen.findByText("Where do you fly from?", { selector: "h2" })).toBeTruthy();
+    window.location.hash = "#/deals";  // what a sidebar button does
+    expect(await screen.findByRole("heading", { name: /Unusually cheap today/ })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Monitor" })).toBeTruthy();
+    expect(screen.queryByText(/hit a problem/)).toBeNull();
   });
 });

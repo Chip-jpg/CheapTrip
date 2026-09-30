@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     close_to_tray: bool = Field(default=True)
     # The app's colours: "system" (follow Windows), "light" or "dark"
     theme: str = Field(default="system")
+    # The app's text (and everything sized with it): "standard", "large" or "largest"
+    text_size: str = Field(default="standard")
+    # WebView2's developer tools in the app's window (F12, right-click → Inspect), from its next start
+    devtools: bool = Field(default=False)
     # The app's first-run setup wizard has been finished (it opens at the first launch until then)
     setup_done: bool = Field(default=False)
 

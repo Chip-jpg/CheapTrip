@@ -454,13 +454,68 @@ async def test_the_screens_open_the_log_and_data_folders(api, monkeypatch):
 
 async def test_app_settings_theme_and_close_button(api, tmp_path):
     assert (await api.get("/settings"))["app"] == {
-        "close_to_tray": True, "setup_done": False, "theme": "system", "start_at_login": None}  # None: not the Windows app
+        "close_to_tray": True, "setup_done": False, "devtools": False, "theme": "system", "text_size": "standard",
+        "start_at_login": None}  # None: not the Windows app
     result = await api.call("PUT", "/settings", {"app": {"theme": "dark", "close_to_tray": False}})
 
     assert {k: result["settings"]["app"][k] for k in ("close_to_tray", "theme")} == {"close_to_tray": False, "theme": "dark"}
     assert result["applies"] == {"app.theme": "now", "app.close_to_tray": "now"}
     env = (tmp_path / ".env").read_text(encoding="utf-8")
     assert "THEME=dark" in env and "CLOSE_TO_TRAY=false" in env
+
+
+async def test_text_size_applies_now_and_the_page_opens_at_it(page, tmp_path):
+    result = await page.call("PUT", "/settings", {"app": {"text_size": "large"}})
+
+    assert result["applies"] == {"app.text_size": "now"} and result["settings"]["app"]["text_size"] == "large"
+    assert "TEXT_SIZE=large" in (tmp_path / ".env").read_text(encoding="utf-8")
+    assert '<html data-text-size="large" lang="en">' in await _html(page)
+    await page.call("PUT", "/settings", {"app": {"text_size": "standard"}})
+    assert '<html lang="en">' in await _html(page)
+    error = await page.call("PUT", "/settings", {"app": {"text_size": "huge"}}, status=400)
+    assert "text_size must be one of standard, large, largest" in error["error"]
+
+
+async def test_developer_tools_apply_at_the_next_start(api, tmp_path):
+    result = await api.call("PUT", "/settings", {"app": {"devtools": True}})
+
+    assert result["applies"] == {"app.devtools": "next start"} and result["settings"]["app"]["devtools"] is True
+    assert "DEVTOOLS=true" in (tmp_path / ".env").read_text(encoding="utf-8")
+    await api.call("PUT", "/settings", {"app": {"devtools": "yes"}}, status=400)
+
+
+class LogRecorder:
+    def __init__(self) -> None:
+        self.lines: list = []
+
+    def __getattr__(self, level: str):
+        return lambda event, **fields: self.lines.append((level, event, fields))
+
+
+async def test_a_screens_error_goes_to_the_log(api, monkeypatch):
+    log = LogRecorder()
+    monkeypatch.setattr("api.server.log", log)
+
+    assert await api.call("POST", "/ui/error", {
+        "kind": "screen", "message": "destroy is not a function", "route": "#/deals",
+        "stack": "TypeError: destroy is not a function\n at Setup" + "x" * 9000, "component": "at Setup"}) == {"logged": True}
+
+    [(level, event, fields)] = log.lines
+    assert (level, event) == ("error", "ui_error")
+    assert fields["kind"] == "screen" and fields["message"] == "destroy is not a function" and fields["route"] == "#/deals"
+    assert fields["stack"].startswith("TypeError") and len(fields["stack"]) == 4000  # a long stack is cut, not refused
+    await api.call("POST", "/ui/error", ["not", "an", "object"], status=400)
+    resp = await api.client.post("/api/v1/ui/error", json={"message": "x"})  # no token: other pages can't write the log
+    assert resp.status == 401
+
+
+async def test_a_folder_that_wont_open_says_why(api, monkeypatch):
+    def fails(target):
+        raise FileNotFoundError(2, "No such file or directory", "xdg-open")
+
+    monkeypatch.setattr("api.server.open_path", fails)
+    error = await api.call("POST", "/app/open", {"what": "logs"}, status=500)
+    assert error["error"].startswith("Couldn't open ") and error["error"].endswith(": No such file or directory")
 
 
 async def test_the_setup_wizard_runs_until_it_is_finished(api, tmp_path):

@@ -21,6 +21,8 @@ Routes (all under /api/v1):
   GET  /airports?q=                    autocomplete
   GET  /activity                       sources, alerts log, search history
   GET  /settings   PUT /settings
+  PUT  /ui                             the window's own state: {"sidebar": "collapsed"|"open"}
+  POST /ui/error                       a screen failed: its error, into the log
   GET  /setup/checks                   the doctor checks
   POST /setup/check   {"what": "telegram"|"anthropic"}  check one key (Settings, the setup wizard)
   POST /setup/test-telegram
@@ -56,7 +58,7 @@ from pydantic import ValidationError
 
 import control
 from api.records import deal_record, destination_rows, matches, place
-from api.settings_io import SOURCE_SWITCHES, apply_settings, read_settings, readable_error
+from api.settings_io import SOURCE_SWITCHES, apply_settings, read_settings, readable_error, text_size
 from config import get_settings
 from desktop.links import clean_route
 from desktop.windows import open_path
@@ -185,14 +187,17 @@ async def index(request: web.Request) -> web.StreamResponse:
 
 async def _page(static: Path) -> web.Response:
     """
-    index.html with the saved theme and sidebar on <html>, so the window opens as
-    it was left: no light flash before a dark theme, no sidebar jumping shut.
+    index.html with the saved theme, text size and sidebar on <html>, so the window
+    opens as it was left: no light flash before a dark theme, no text jumping in
+    size, no sidebar jumping shut.
     With THEME=system the page's own script follows Windows.
     """
     html = (static / "index.html").read_text(encoding="utf-8")
     marks, theme = [], get_settings().theme
     if theme in ("light", "dark"):
         marks.append(f'data-theme="{theme}"')
+    if text_size() != "standard":
+        marks.append(f'data-text-size="{text_size()}"')
     try:
         collapsed = await get_state(SIDEBAR_STATE) == "collapsed"
     except Exception as exc:  # the page opens anyway, with the sidebar open
@@ -223,6 +228,23 @@ async def ui_state_put(request: web.Request) -> web.Response:
         return _error("sidebar must be collapsed or open", 400)
     await set_state(SIDEBAR_STATE, sidebar)
     return _json({"sidebar": sidebar})
+
+
+async def ui_error(request: web.Request) -> web.Response:
+    """
+    A screen failed (caught by an error boundary, or uncaught): its error goes to the
+    log, so a window that shows the problem, or a blank one, leaves a trace to fix it by.
+    """
+    body = await request.json() if request.can_read_body else {}
+    if not isinstance(body, dict):
+        raise ValueError("expected the error as an object")
+
+    def text(name: str, limit: int) -> str:
+        return str(body.get(name) or "")[:limit]
+
+    log.error("ui_error", kind=text("kind", 40) or "error", message=text("message", 1000), route=text("route", 200),
+              stack=text("stack", 4000), component=text("component", 4000), version=text("version", 40))
+    return _json({"logged": True})
 
 
 # ── Status and deals ──────────────────────────────────────────────────────────
@@ -637,7 +659,11 @@ async def app_open(request: web.Request) -> web.Response:
     target = openable(str(body.get("what", "")))
     if target is None:
         raise ValueError('what must be "logs", "data" or (on Windows) "notification-settings"')
-    await asyncio.to_thread(open_path, target)
+    try:
+        await asyncio.to_thread(open_path, target)
+    except OSError as exc:
+        log.warning("open_failed", target=target, error=str(exc))
+        return _error(f"Couldn't open {target}: {exc.strerror or exc}", 500)
     return _json({"opened": target})
 
 
@@ -774,6 +800,7 @@ def create_app(engine: Any, token: str, static_dir: Optional[Path] = None, shell
     app.router.add_get(f"{API}/settings", settings_get)
     app.router.add_put(f"{API}/settings", settings_put)
     app.router.add_put(f"{API}/ui", ui_state_put)
+    app.router.add_post(f"{API}/ui/error", ui_error)
     app.router.add_get(f"{API}/setup/checks", setup_checks)
     app.router.add_post(f"{API}/setup/check", setup_check)
     app.router.add_post(f"{API}/setup/test-telegram", setup_test_telegram)

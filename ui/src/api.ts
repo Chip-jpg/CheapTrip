@@ -257,7 +257,10 @@ export interface Settings {
   };
   sources: Record<string, boolean>;
   notifications: NotificationSettings & { telegram_ready: boolean };
-  app: { close_to_tray: boolean; setup_done: boolean; theme: ThemeChoice; start_at_login: boolean | null };
+  app: {
+    close_to_tray: boolean; setup_done: boolean; theme: ThemeChoice; text_size: TextSize; devtools: boolean;
+    start_at_login: boolean | null;
+  };
   files: { settings: string; preferences: string };
 }
 
@@ -267,14 +270,26 @@ export interface SettingsUpdate {
   keys?: Record<string, string | null>; // "" clears a key; leave a key out to keep it
   sources?: Record<string, boolean>;
   notifications?: Partial<NotificationSettings>;
-  app?: { close_to_tray?: boolean; setup_done?: boolean; theme?: ThemeChoice; start_at_login?: boolean };
+  app?: {
+    close_to_tray?: boolean; setup_done?: boolean; theme?: ThemeChoice; text_size?: TextSize; devtools?: boolean;
+    start_at_login?: boolean;
+  };
+}
+
+export interface UiError {
+  kind: "screen" | "app" | "uncaught" | "rejection";
+  message: string;
+  stack?: string;
+  component?: string;
+  route: string;
 }
 
 export type ThemeChoice = "system" | "light" | "dark";
+export type TextSize = "standard" | "large" | "largest";
 
 export interface SaveResult {
   saved: string[];
-  applies: Record<string, "now" | "next search">;
+  applies: Record<string, "now" | "next search" | "next start">;
   settings: Settings;
 }
 
@@ -382,6 +397,8 @@ export const api = {
   saveSettings: (update: SettingsUpdate) => request<SaveResult>("PUT", "/settings", update),
   /** The window's own choices (the sidebar), which the engine keeps: the window forgets them when it closes */
   saveUi: (ui: { sidebar: "collapsed" | "open" }) => request<{ sidebar: string }>("PUT", "/ui", ui),
+  /** A screen failed: its error goes to the engine's log (the window has no console to read) */
+  reportError: (error: UiError) => request<{ logged: boolean }>("POST", "/ui/error", error),
 
   checks: () => request<{ checks: Check[] }>("GET", "/setup/checks"),
   checkKey: (what: "telegram" | "anthropic") => request<{ checks: Check[] }>("POST", "/setup/check", { what }),

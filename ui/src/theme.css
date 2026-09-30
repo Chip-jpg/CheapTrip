@@ -19,6 +19,7 @@
 @import "@fontsource/jetbrains-mono/latin-400.css";
 @import "@fontsource/jetbrains-mono/latin-500.css";
 @import "@fontsource/jetbrains-mono/latin-600.css";
+@import "material-symbols/outlined.css";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
@@ -231,15 +232,8 @@
   }
 }
 
-/* Icons: Material Symbols Outlined (the design's set), sized per use. The font holds only the
-   icons the app names (ui/scripts/trim_icons.py; run it after adding one): ~100 KB, not 4 MB */
-@font-face {
-  font-family: "Material Symbols Outlined";
-  font-style: normal;
-  font-weight: 100 700;
-  font-display: block;
-  src: url("./assets/icons.woff2") format("woff2");
-}
+/* Icons: Material Symbols Outlined (the design's set), sized per use: the whole font, as the
+   material-symbols package ships it (B47; ui/scripts/icon-names.txt lists its icons for the tests) */
 .icon {
   font-family: "Material Symbols Outlined";
   font-weight: normal;

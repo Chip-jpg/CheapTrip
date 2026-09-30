@@ -1,31 +1,38 @@
-"""The trimmed icon font (B46): every icon the app names is in it, drawn outlined and filled."""
+"""Every icon the app names is in its icon font (Material Symbols Outlined), so none shows as its name in text."""
 from __future__ import annotations
 
-import sys
+import re
 from pathlib import Path
-
-from fontTools.ttLib import TTFont
+from typing import Set
 
 UI = Path(__file__).resolve().parent.parent / "ui"
-sys.path.insert(0, str(UI / "scripts"))
+ICON_NAMES = UI / "scripts" / "icon-names.txt"  # every icon in the font (ui/scripts/icon_names.py)
 
-from trim_icons import ALL_NAMES, TRIMMED_FONT, alternates, ligatures, strings_in_ui  # noqa: E402
+# <Icon name="flight" />, <Icon name={on ? "check_box" : "check_box_outline_blank"} />, { icon: "map" }, icon="tune"
+NAME_ATTRIBUTE = re.compile(r"""<Icon\b[^>]*?\bname=(?:"([a-z0-9_]+)"|\{([^}]*)\})""", re.S)
+ICON_FIELD = re.compile(r"""\bicon(?::\s*|=)"([a-z0-9_]+)\"""")
+BRANCH = re.compile(r"""(?:^|[?:])\s*"([a-z0-9_]+)\"""")  # the names a condition picks from, not what it compares
+
+
+def icons_named_in_ui() -> Set[str]:
+    names: Set[str] = set()
+    for path in (UI / "src").rglob("*.tsx"):
+        if path.name.endswith(".test.tsx"):
+            continue
+        source = path.read_text(encoding="utf-8")
+        for literal, expression in NAME_ATTRIBUTE.findall(source):
+            names.update([literal] if literal else BRANCH.findall(expression.strip()))
+        names.update(ICON_FIELD.findall(source))
+    return names
 
 
 def test_every_icon_the_app_names_is_in_the_font():
-    icon_names = set(ALL_NAMES.read_text(encoding="utf-8").split())
-    used = strings_in_ui() & icon_names
-    in_font = set(ligatures(TTFont(TRIMMED_FONT)))
-
-    missing = sorted(used - in_font)
-    assert not missing, f"run `python ui/scripts/trim_icons.py` (after `npm ci` in ui/): {missing} are missing"
-    assert {"radar", "flight", "notifications_off", "check_box_outline_blank"} <= used  # the scan finds icons
+    in_font = set(ICON_NAMES.read_text(encoding="utf-8").split())
+    missing = sorted(icons_named_in_ui() - in_font)
+    assert not missing, f"not icons in Material Symbols (a typo?): {missing}"
 
 
-def test_the_font_keeps_its_filled_icons_and_axes():
-    font = TTFont(TRIMMED_FONT)
-    icons = set(ligatures(font).values())
-    assert [axis.axisTag for axis in font["fvar"].axes] == ["FILL", "GRAD", "opsz", "wght"]
-    assert font["GSUB"].table.FeatureVariations is not None  # FILL 1 swaps in the filled versions
-    assert len(alternates(font, icons)) > 50
-    assert TRIMMED_FONT.stat().st_size < 200_000
+def test_the_scan_finds_the_app_icons():
+    named = icons_named_in_ui()
+    assert {"radar", "flight", "local_offer", "check_box_outline_blank", "error", "refresh"} <= named
+    assert len(named) > 80

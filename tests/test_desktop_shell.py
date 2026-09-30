@@ -346,3 +346,82 @@ def test_notification_buttons_in_the_app(engine, tmp_path):
     assert asyncio.iscoroutine(mute)
     mute.close()
     assert shown == ["deals/abc", "activity"]
+
+
+# ── The window (B47) ──────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("screen,size", [(None, (1440, 900)), ((1920, 1080), (1440, 900)), ((2560, 1440), (1440, 900)),
+                                         ((1366, 768), (1286, 700)), ((1280, 720), (1200, 700)), ((800, 600), (1024, 700))])
+def test_the_window_opens_as_big_as_the_screen_allows(screen, size):
+    assert desktop_app.window_size(screen) == size
+
+
+def test_the_devtools_port_is_only_open_when_asked(monkeypatch):
+    monkeypatch.delenv(desktop_app.DEVTOOLS_PORT_ENV, raising=False)
+    assert desktop_app.devtools_port() is None
+    monkeypatch.setenv(desktop_app.DEVTOOLS_PORT_ENV, "9222")
+    assert desktop_app.devtools_port() == 9222
+    monkeypatch.setenv(desktop_app.DEVTOOLS_PORT_ENV, "nine")
+    assert desktop_app.devtools_port() is None
+
+
+class FakeDotnetEvent:
+    def __init__(self) -> None:
+        self.handlers: List[Any] = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+
+class FakeCore:
+    def __init__(self) -> None:
+        self.ProcessFailed = FakeDotnetEvent()
+        self.reloads = 0
+
+    def Reload(self) -> None:  # noqa: N802 (WebView2's name)
+        self.reloads += 1
+
+
+class Failure:
+    def __init__(self, kind: str) -> None:
+        self.ProcessFailedKind, self.Reason, self.ExitCode, self.ProcessDescription = kind, "Crashed", -1, ""
+
+
+def _window(core: Optional[FakeCore]) -> Any:
+    from types import SimpleNamespace
+
+    webview = SimpleNamespace(CoreWebView2=core)
+    return SimpleNamespace(native=SimpleNamespace(InvokeRequired=False, browser=SimpleNamespace(webview=webview)))
+
+
+def test_a_lost_page_is_reloaded_at_most_once_a_minute():
+    from desktop.webview_watch import ProcessWatch
+
+    now = {"t": 1000.0}
+    watch, core = ProcessWatch(clock=lambda: now["t"]), FakeCore()
+    assert watch.attach(_window(core)) and watch.attach(_window(core))  # once: a second page load changes nothing
+    [on_failed] = core.ProcessFailed.handlers
+
+    on_failed(core, Failure("GpuProcessExited"))  # WebView2 restarts its GPU process itself
+    assert core.reloads == 0
+    on_failed(core, Failure("RenderProcessExited"))
+    assert core.reloads == 1
+    now["t"] += 30
+    on_failed(core, Failure("RenderProcessUnresponsive"))  # failing again at once: no reload loop
+    assert core.reloads == 1
+    now["t"] += 31
+    on_failed(core, Failure("RenderProcessExited"))
+    assert core.reloads == 2
+
+
+def test_no_watch_without_webview2():
+    from types import SimpleNamespace
+
+    from desktop.webview_watch import ProcessWatch
+
+    assert not ProcessWatch().attach(SimpleNamespace(native=None))  # browser mode, or not Windows
+    watch = ProcessWatch()
+    assert not watch.attach(_window(None))  # WebView2 not initialised yet: the next page load tries again
+    core = FakeCore()
+    assert watch.attach(_window(core)) and len(core.ProcessFailed.handlers) == 1
