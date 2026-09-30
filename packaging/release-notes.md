@@ -1,6 +1,6 @@
 ## Install on Windows
 
-1. Download **`CheapTrip-Setup-0.8.2.exe`** below and run it. No administrator rights are needed.
+1. Download **`CheapTrip-Setup-0.8.3.exe`** below and run it. No administrator rights are needed.
 2. Windows SmartScreen may say *"Windows protected your PC"*, because the installer isn't code-signed. Click **More info → Run anyway**.
 3. Leave **Open CheapTrip and set it up** ticked. The app opens on its setup wizard, which asks for:
    - your home airports and the trips you like;
@@ -10,13 +10,37 @@
    It checks everything at the end.
 4. CheapTrip then runs in the tray, by the clock, and starts when you sign in. **Settings → App** turns that off.
 
-**Upgrading from 0.8.0 or 0.8.1:** run the new installer. Everything is kept, and the setup wizard doesn't open again. The first start tidies the database once, which can take a few seconds.
+**Upgrading from 0.8.0, 0.8.1 or 0.8.2:** run the new installer. Everything is kept, and the setup wizard doesn't open again (if you never finished it, it opens once more: this time the menu works from it). From 0.8.0 or 0.8.1, the first start tidies the database once, which can take a few seconds.
 
 **Upgrading from 0.6:** run the new installer. It keeps your settings, preferences and price history in `%APPDATA%\CheapTrip`. The setup wizard opens once, filled in with what you already have: check it, then click **Finish**.
 
 Step-by-step Telegram setup: [docs/telegram_setup.md](https://github.com/Chip-jpg/CheapTrip/blob/main/docs/telegram_setup.md).
 
-## What's faster in 0.8.2
+## What's new in 0.8.3
+
+**No more black window.** Pressing a button in the menu no longer turns CheapTrip's window black.
+- **The cause:** the setup wizard, which a new install opens on, handed Microsoft Edge WebView2 something it couldn't handle when you left it, and the whole screen disappeared.
+- **Tested in the real window:** every change is now checked in CheapTrip's own window on Windows, not only in a browser.
+- **If a screen ever fails:** it now shows what happened, with **Try this screen again** and **Open the log folder**, instead of going blank. The menu keeps working, and the error is saved in the log.
+
+**Bigger and easier to read.**
+- Everything is about a quarter larger: text, buttons, the menu and the cards. Secondary text has more contrast.
+- **Text size** in **Settings → App**: Standard, Large or Largest. **Ctrl +** and **Ctrl −** change it from anywhere, and **Ctrl 0** goes back to standard.
+- The screens rearrange themselves to fit the window and the text size, so nothing is cut short.
+- The window opens larger (1440×900) where the screen allows.
+
+**Every button checked.** An automatic test now presses every button on every screen. It found three things, now fixed:
+- **Pause alerts** during a search now shows **Resume** at once.
+- A test notification that Windows or Telegram refuses says why, instead of "HTTP 502".
+- **Hide this deal** has an **Undo**.
+
+**Also:**
+- **Settings → App → Advanced:** open the log folder, and turn on developer tools (F12) if you need to report a problem.
+- Source problems read "Google Flights isn't working".
+- The picture in a deal's notification no longer overlaps its caption.
+- The icons come from the full icon font again, so the installer is about 4 MB larger than 0.8.2's.
+
+## What got faster in 0.8.2
 
 Nothing new to learn: the same deals, the same alerts, and less work to find them. With a month of price history:
 
