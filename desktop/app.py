@@ -40,6 +40,14 @@ WINDOW_MIN_SIZE = (1100, 720)
 START_SCREEN = "deals"
 # The window's colour before the screens draw (the design's background), so opening it doesn't flash
 BACKGROUND = {"dark": "#131313", "light": "#F3F3F3"}
+# WebView2's debugging port: the window smoke test (ui/e2e/window-smoke.mjs) drives the real window through it
+DEVTOOLS_PORT_ENV = "CHEAPTRIP_DEVTOOLS_PORT"
+
+
+def devtools_port() -> Optional[int]:
+    """The port CHEAPTRIP_DEVTOOLS_PORT asks for, or None (the default: no port)."""
+    value = os.getenv(DEVTOOLS_PORT_ENV, "").strip()
+    return int(value) if value.isdigit() else None
 
 
 def window_background() -> str:
@@ -134,6 +142,10 @@ class DesktopApp:
             background_color=window_background(),
         )
         self.window.events.closing += self._on_closing
+        port = devtools_port()
+        if port is not None:
+            webview.settings["REMOTE_DEBUGGING_PORT"] = port
+            log.info("devtools_port_open", port=port)
         webview.start()  # returns when the window is destroyed
 
     def _on_closing(self) -> bool:

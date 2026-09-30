@@ -80,6 +80,80 @@ jobs:
       - name: Build
         run: npm run build
 
+  ui-windows:
+    # The screens in the app's real window (Edge WebView2), as a new install shows them: the setup wizard
+    # it opens on, every sidebar item, a deal, the sidebar and theme switches (ui/e2e/window-smoke.mjs)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install and build the screens
+        shell: pwsh
+        run: |
+          pip install -r requirements-dev.txt
+          npm ci --prefix ui --no-audit --no-fund
+          npm run build --prefix ui
+
+      - name: The WebView2 runtime the window needs
+        shell: pwsh
+        run: |
+          python -c "import sys; from desktop.windows import webview2_available; sys.exit(0 if webview2_available() else 1)"
+          if ($LASTEXITCODE -ne 0) {
+            Invoke-WebRequest "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile "$env:RUNNER_TEMP\webview2-setup.exe"
+            Start-Process "$env:RUNNER_TEMP\webview2-setup.exe" -ArgumentList "/silent", "/install" -Wait
+          }
+          python -c "from desktop.windows import webview2_available; print('WebView2 runtime:', webview2_available())"
+          $global:LASTEXITCODE = 0
+
+      - name: A few days of price history
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\home" | Out-Null
+          python scripts/bench.py --step seed --folder "$env:RUNNER_TEMP\home" --days 5
+
+      - name: Open the app and drive its window
+        shell: pwsh
+        env:
+          CHEAPTRIP_DEVTOOLS_PORT: "9222"
+          SETUP_DONE: "false"  # a new install: the app opens on the setup wizard
+        run: |
+          $folder = "$env:RUNNER_TEMP\home"
+          $env:CHEAPTRIP_HOME = $folder
+          $env:DATABASE_URL = "sqlite+aiosqlite:///$($folder -replace '\\', '/')/bench.db"
+          $env:CHEAPTRIP_PREFS_PATH = "$folder\prefs.yaml"
+          $app = Start-Process python -ArgumentList "main.py", "app" -PassThru `
+            -RedirectStandardOutput "$folder\app-out.txt" -RedirectStandardError "$folder\app-err.txt"
+          node ui/e2e/window-smoke.mjs --port 9222 --home $folder --out dist/window-smoke
+          $code = $LASTEXITCODE
+          Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+          exit $code
+
+      - name: Keep the pictures and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: window-smoke
+          path: |
+            dist/window-smoke
+            ${{ runner.temp }}/home/logs
+            ${{ runner.temp }}/home/app-*.txt
+          if-no-files-found: ignore
+
   windows-installer:
     # Builds the setup .exe, installs it silently and runs the installed app (packaging/build_windows.ps1)
     runs-on: windows-latest
