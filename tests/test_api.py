@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -307,6 +308,87 @@ async def test_destinations_tabs_and_toggles(api):
 
     await api.call("POST", "/destinations/XQZ/mute", status=400)
     await api.get("/destinations?tab=nope", status=400)
+
+
+async def test_destination_figures_are_worked_out_once_per_change(api, monkeypatch):
+    import api.server as server
+
+    calls, figures, utcnow = [], server.destination_figures, server.utcnow
+
+    async def counting(since):
+        calls.append(since)
+        return await figures(since)
+
+    monkeypatch.setattr(server, "destination_figures", counting)
+
+    await api.service.run_cycle()  # the search's end has them worked out in the background
+    for _ in range(100):
+        if calls:
+            break
+        await asyncio.sleep(0.02)
+    assert len(calls) == 1
+    await api.get("/destinations?tab=seen")
+    await api.get("/destinations?tab=priority")
+    assert len(calls) == 1  # opening the screen didn't wait for them
+
+    await api.call("POST", "/data/clear-price-history")
+    assert (await api.get("/destinations?tab=seen"))["destinations"] == []
+    assert len(calls) == 2  # the history changed
+
+    monkeypatch.setattr(server, "utcnow", lambda: utcnow() + timedelta(days=1))
+    await api.get("/destinations?tab=seen")
+    assert len(calls) == 3  # a new day moves the 30-day window
+
+
+async def test_destination_figures_match_adding_up_every_price(engine):
+    """B46: the database sums the Destinations figures up; they're the same as from every row."""
+    import random
+    import statistics
+    from datetime import datetime
+
+    from api.records import destination_rows
+    from storage.database import destination_figures
+
+    rng, now = random.Random(82), datetime.utcnow()
+    rows = []
+    for c in range(60):
+        at = now - timedelta(hours=11 * c)
+        stamp = (at if c % 6 else at.replace(microsecond=0)).isoformat()
+        for route in ("MXP-KRK", "BGY-KRK", "MXP-PRG", "LIN-BCN"):
+            for _ in range(rng.randint(0, 6)):
+                depart = datetime(2026, 11, 1) + timedelta(days=rng.randint(0, 20))
+                ret = (depart + timedelta(days=3)).date().isoformat() if rng.random() < 0.8 else None
+                rows.append((route, round(rng.uniform(20, 300), 2), "x", stamp, depart.date().isoformat(), ret))
+    await init_db()
+    async with aiosqlite.connect(await get_db_path()) as db:
+        await db.executemany("INSERT INTO price_history (route, price_eur, source, recorded_at, depart_date,"
+                             " return_date) VALUES (?, ?, ?, ?, ?, ?)", rows)
+        await db.commit()
+        since = now - timedelta(days=30)
+        cursor = await db.execute(
+            "SELECT route, depart_date, COALESCE(return_date, ''), price_eur, recorded_at FROM price_history"
+            " WHERE recorded_at >= ? AND depart_date IS NOT NULL ORDER BY recorded_at, id", (since.isoformat(),))
+        every_row = await cursor.fetchall()
+
+    # The reference: how v0.8.1 added them up from every row
+    latest, daily = {}, {}
+    for route, depart, ret, price, recorded_at in every_row:
+        dest = route.split("-", 1)[1]
+        latest.setdefault(dest, {})[f"{route} {depart} {ret}"] = (price, depart, recorded_at, route, ret)
+        days = daily.setdefault(dest, {})
+        days[recorded_at[:10]] = min(price, days.get(recorded_at[:10], price))
+
+    mine = destination_rows(*await destination_figures(since))
+
+    assert set(mine) == set(latest) == {"KRK", "PRG", "BCN"}
+    for dest, fares in latest.items():
+        best = min(fares.values())
+        assert (mine[dest]["best_price"], mine[dest]["best_depart"], mine[dest]["best_route"]) == \
+               (best[0], best[1], best[3])
+        assert mine[dest]["usual_price"] == round(statistics.median(f[0] for f in fares.values()), 2)
+        assert mine[dest]["fares"] == len(fares)
+        assert mine[dest]["last_seen"] == max(f[2] for f in fares.values())
+        assert mine[dest]["trend"] == [{"day": d, "price": p} for d, p in sorted(daily[dest].items())]
 
 
 async def test_airport_autocomplete(api):

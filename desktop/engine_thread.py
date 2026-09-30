@@ -14,7 +14,7 @@ import threading
 from typing import Any, Callable, Coroutine, Dict, Optional
 
 from api.server import ApiServer, full_status, ui_dir
-from storage.database import init_db
+from storage.database import close_connections, init_db
 from utils.events import get_event_bus
 from utils.logging_config import get_logger
 
@@ -83,6 +83,7 @@ class EngineThread:
             watcher.cancel()
             await self.server.stop()
             await self.engine.stop()
+            await close_connections()  # also when the engine never started
 
     async def _watch_status(self) -> None:
         if self._on_status is None:

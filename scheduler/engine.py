@@ -28,7 +28,7 @@ from notifier.commands import CommandBot
 from notifier.telegram import TelegramNotifier
 from preferences import get_preferences
 from scheduler import runner
-from storage.database import close_interrupted_cycles, count_cycles_since, init_db, recent_cycles
+from storage.database import close_connections, close_interrupted_cycles, count_cycles_since, init_db, recent_cycles
 from utils.events import get_event_bus
 from utils.logging_config import get_logger
 from utils.timeutil import utcnow
@@ -114,6 +114,7 @@ class Engine:
         for task in list(self._tasks):
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
+        await close_connections()  # the next use (a restart) opens it again
         self._bus.publish("engine_stopped")
         log.info("engine_stopped")
 

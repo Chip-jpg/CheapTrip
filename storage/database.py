@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import os
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
-from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
+from typing import AsyncIterator, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 import aiosqlite
 
@@ -145,7 +147,6 @@ _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_deals_created ON deals(created_at)",
     "CREATE INDEX IF NOT EXISTS idx_deals_alerted ON deals(is_alerted)",
     "CREATE INDEX IF NOT EXISTS idx_alerts_sent_at ON alerts_sent(sent_at)",
-    "CREATE INDEX IF NOT EXISTS idx_prices_route ON price_history(route)",
     "CREATE INDEX IF NOT EXISTS idx_prices_recorded ON price_history(recorded_at)",
     # fares_for_key: the "similar fares" behind each deal's usual price and charts
     "CREATE INDEX IF NOT EXISTS idx_prices_key"
@@ -169,6 +170,102 @@ async def get_db_path() -> str:
     return path
 
 
+# ── Connections ───────────────────────────────────────────────────────────────
+# Opening a connection costs ~2 ms (a thread and the file), a query on an open one ~0.2 ms, and a
+# search makes ~1,900 of them: every function here shares one connection instead (B46). A lock
+# gives each `async with connection()` block the connection to itself, and what a block leaves
+# uncommitted is rolled back, as closing its own connection did. Long reads (the price history
+# summary, the Destinations figures) take a short-lived connection of their own so the small
+# queries don't wait; in WAL mode they read while a search writes.
+
+class _Shared:
+    def __init__(self, path: str, loop: asyncio.AbstractEventLoop) -> None:
+        self.db: Optional[aiosqlite.Connection] = None  # set once opened, under the lock
+        self.path, self.loop = path, loop
+        self.lock = asyncio.Lock()
+        self.holder: Optional[asyncio.Task] = None
+
+
+_shared: Optional[_Shared] = None
+
+
+async def _open(path: str) -> aiosqlite.Connection:
+    db = aiosqlite.connect(path)
+    db._thread.daemon = True  # an idle connection never keeps the app from exiting (aiosqlite 0.22)
+    await db
+    await db.execute("PRAGMA journal_mode=WAL")  # readers and the writer don't wait for each other
+    await db.execute("PRAGMA synchronous=NORMAL")  # safe with WAL; commits don't wait for the disk
+    await db.execute("PRAGMA busy_timeout=5000")
+    await db.execute("PRAGMA journal_size_limit=16777216")  # the WAL file shrinks back to 16 MB after a big write
+    return db
+
+
+async def _current() -> _Shared:
+    """The shared connection, opened (again) for this event loop and database file."""
+    global _shared
+    path, loop = await get_db_path(), asyncio.get_running_loop()
+    if _shared is not None and (_shared.path != path or _shared.loop is not loop):
+        await close_connections()  # another database (tests) or event loop (one per CLI command)
+    if _shared is None:
+        shared = _shared = _Shared(path, loop)
+        async with shared.lock:  # whoever else asks meanwhile waits for it to open
+            try:
+                shared.db = await _open(path)
+            except BaseException:
+                _shared = None
+                raise
+    return _shared
+
+
+@asynccontextmanager
+async def connection(own: bool = False) -> AsyncIterator[aiosqlite.Connection]:
+    """
+    The database connection for one unit of work. `own=True` opens a short-lived
+    connection of its own, for a long read that shouldn't hold up everything else.
+    """
+    if own:
+        db = await _open(await get_db_path())
+        try:
+            yield db
+        finally:
+            await db.close()
+        return
+    shared = await _current()
+    task = asyncio.current_task()
+    if shared.holder is task:
+        raise RuntimeError("connection() used inside another connection() block: pass the connection along")
+    async with shared.lock:
+        if shared.db is None:
+            raise RuntimeError("the database connection failed to open")
+        shared.holder = task
+        db = shared.db
+        try:
+            yield db
+        finally:
+            shared.holder = None
+            try:
+                if db.in_transaction:
+                    await db.rollback()  # as closing its own connection discarded it
+            finally:
+                db.row_factory = None
+
+
+async def close_connections() -> None:
+    """Close the shared connection (the engine stopping); the next use opens it again."""
+    global _shared
+    shared, _shared = _shared, None
+    if shared is None or shared.db is None:
+        return
+    try:
+        if shared.loop is asyncio.get_running_loop():
+            async with shared.lock:  # a query in progress finishes first
+                await shared.db.close()
+        else:  # from an event loop that's gone (a CLI command, a test): nothing can be using it
+            await shared.db.close()
+    except Exception as exc:  # its thread is a daemon either way
+        log.debug("connection_close_failed", error=str(exc))
+
+
 async def _add_missing_columns(db: aiosqlite.Connection, table: str, columns: Sequence[str]) -> None:
     """Add columns missing from an older database; each is "name" (TEXT) or "name TYPE"."""
     cursor = await db.execute(f"PRAGMA table_info({table})")
@@ -180,8 +277,7 @@ async def _add_missing_columns(db: aiosqlite.Connection, table: str, columns: Se
 
 
 async def init_db() -> None:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         await db.execute(_CREATE_DEALS_TABLE)
         await _add_missing_columns(db, "deals", (*_DEALS_DEDUP_COLUMNS, "hidden"))
         await db.execute(_CREATE_ALERTS_TABLE)
@@ -197,15 +293,15 @@ async def init_db() -> None:
         await db.execute(_CREATE_PREF_OVERRIDES_TABLE)
         for idx_sql in _CREATE_INDEXES:
             await db.execute(idx_sql)
+        await db.execute("DROP INDEX IF EXISTS idx_prices_route")  # no query used it (B46)
         await db.commit()
 
 
 async def save_deal(trip: Trip, dedup_key: Optional[DedupKey] = None) -> bool:
     """Insert a deal; returns True if new, False if duplicate hash."""
-    path = await get_db_path()
     expires = utcnow() + timedelta(days=7)
     key = dedup_key or (None, None, None, None)
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         try:
             await db.execute(
                 """
@@ -247,8 +343,7 @@ class SimilarDeal(NamedTuple):
 
 async def find_similar_deals(key: DedupKey, since: datetime) -> List[SimilarDeal]:
     """Deals saved since `since` with the same dedup key."""
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             """
             SELECT hash, total_cost, depart_date, alert_tier, is_alerted FROM deals
@@ -273,8 +368,7 @@ async def promote_deal(trip: Trip) -> bool:
     instant queue sorts on (a cold-start deal was saved without a discount).
     """
     now = utcnow()
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             """
             UPDATE deals SET alert_tier = ?, created_at = ?, expires_at = ?, payload = ?,
@@ -292,9 +386,8 @@ async def archive_unsent(hashes: Sequence[str]) -> int:
     """Retire unsent deals superseded by a cheaper copy, so only the better price can alert."""
     if not hashes:
         return 0
-    path = await get_db_path()
     marks = ",".join("?" * len(hashes))
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             f"UPDATE deals SET alert_tier = ? WHERE is_alerted = 0 AND hash IN ({marks})",
             (AlertTier.ARCHIVE.value, *hashes),
@@ -304,8 +397,7 @@ async def archive_unsent(hashes: Sequence[str]) -> int:
 
 
 async def is_duplicate(trip_hash: str) -> bool:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             "SELECT 1 FROM deals WHERE hash = ? LIMIT 1", (trip_hash,)
         )
@@ -315,9 +407,8 @@ async def is_duplicate(trip_hash: str) -> bool:
 
 async def mark_alerted(trip_hash: str, tier: AlertTier, channel: str = "telegram") -> None:
     """Record a sent alert; `channel` names where it went ("telegram", "desktop" or "desktop,telegram")."""
-    path = await get_db_path()
     now = utcnow().isoformat()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         await db.execute(
             "UPDATE deals SET is_alerted = 1 WHERE hash = ?", (trip_hash,)
         )
@@ -330,17 +421,15 @@ async def mark_alerted(trip_hash: str, tier: AlertTier, channel: str = "telegram
 
 async def hide_deal(trip_hash: str) -> bool:
     """Hide a deal from the digest and the instant queue (the app's "Hide this deal")."""
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute("UPDATE deals SET hidden = '1' WHERE hash = ?", (trip_hash,))
         await db.commit()
     return bool(cursor.rowcount)
 
 
 async def count_alerts_sent_last_hour(tier: AlertTier) -> int:
-    path = await get_db_path()
     cutoff = (utcnow() - timedelta(hours=1)).isoformat()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             "SELECT COUNT(*) FROM alerts_sent WHERE alert_tier = ? AND sent_at >= ?",
             (AlertTier(tier).value, cutoff),
@@ -350,8 +439,7 @@ async def count_alerts_sent_last_hour(tier: AlertTier) -> int:
 
 
 async def get_pending_instant_alerts(limit: int = 10) -> List[Trip]:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             """
             SELECT payload FROM deals
@@ -377,9 +465,8 @@ async def downgrade_stale_instants(max_age_hours: float) -> int:
     suppression, failed send) and are older than `max_age_hours` to the
     digest tier. Returns the number of deals moved.
     """
-    path = await get_db_path()
     cutoff = (utcnow() - timedelta(hours=max_age_hours)).isoformat()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             """
             UPDATE deals
@@ -394,9 +481,8 @@ async def downgrade_stale_instants(max_age_hours: float) -> int:
 
 
 async def get_digest_deals(limit: int = 20) -> List[Trip]:
-    path = await get_db_path()
     cutoff = (utcnow() - timedelta(hours=24)).isoformat()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             """
             SELECT payload FROM deals
@@ -428,8 +514,7 @@ async def record_prices(rows: Sequence[PriceRow], cycle_id: str) -> None:
     if not rows:
         return
     now = utcnow().isoformat()
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         await db.executemany(
             """
             INSERT INTO price_history
@@ -442,56 +527,104 @@ async def record_prices(rows: Sequence[PriceRow], cycle_id: str) -> None:
         await db.commit()
 
 
-async def load_price_history(
+async def load_fare_summaries(
     since: datetime, exclude_cycle: str,
-) -> List[Tuple[str, str, str, str, str, float, str, str, str]]:
+) -> List[Tuple[str, str, str, str, str, str, float, str, str, int, str, str, int]]:
     """
-    Keyed observations recorded since `since`, excluding one cycle, oldest first:
-    (origin_city, dest_city, trip_type, nights_bucket, itinerary, price_eur, cycle_id, day, depart_date).
-    The itinerary ("MXP-KRK 2026-11-13 2026-11-16") identifies one fare however often it is
-    seen; day is the YYYY-MM-DD it was recorded on. Rows from before fares were keyed or
-    dated are ignored.
+    One row per fare recorded since `since`, excluding one cycle (B46: the database
+    sums up the history instead of handing over every row):
+    (origin_city, dest_city, trip_type, nights_bucket, itinerary, depart_date, latest price,
+     first cycle, last cycle, cycles, first day, last day, days).
+    The itinerary ("MXP-KRK 2026-11-13 2026-11-16") identifies one fare however often it
+    is seen; its latest price is from the row last recorded (then the highest id); days
+    are the YYYY-MM-DD it was recorded on. Rows from before fares were keyed or dated are
+    ignored. A connection of its own: a month of history takes a second or two.
     """
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection(own=True) as db:
         cursor = await db.execute(
             """
-            SELECT origin_city, dest_city, trip_type, nights_bucket,
-                   route || ' ' || depart_date || ' ' || COALESCE(return_date, ''),
-                   price_eur, cycle_id, substr(recorded_at, 1, 10), depart_date
-            FROM price_history
-            WHERE recorded_at >= ? AND cycle_id IS NOT NULL AND cycle_id != ?
-              AND origin_city IS NOT NULL AND depart_date IS NOT NULL
-            ORDER BY recorded_at, id
+            WITH fares AS (
+                SELECT origin_city, dest_city, trip_type, nights_bucket,
+                       route || ' ' || depart_date || ' ' || COALESCE(return_date, '') AS itinerary,
+                       depart_date,
+                       MAX(recorded_at || char(1) || printf('%020d', id)) AS latest,
+                       MIN(cycle_id) AS first_cycle, MAX(cycle_id) AS last_cycle,
+                       COUNT(DISTINCT cycle_id) AS cycles,
+                       MIN(substr(recorded_at, 1, 10)) AS first_day, MAX(substr(recorded_at, 1, 10)) AS last_day,
+                       COUNT(DISTINCT substr(recorded_at, 1, 10)) AS days
+                FROM price_history
+                WHERE recorded_at >= ? AND cycle_id IS NOT NULL AND cycle_id != ?
+                  AND origin_city IS NOT NULL AND depart_date IS NOT NULL
+                GROUP BY origin_city, dest_city, trip_type, nights_bucket, itinerary
+            )
+            SELECT f.origin_city, f.dest_city, f.trip_type, f.nights_bucket, f.itinerary, f.depart_date,
+                   p.price_eur, f.first_cycle, f.last_cycle, f.cycles, f.first_day, f.last_day, f.days
+            FROM fares f
+            JOIN price_history p ON p.id = CAST(substr(f.latest, instr(f.latest, char(1)) + 1) AS INTEGER)
             """,
             (since.isoformat(), exclude_cycle),
         )
         return list(await cursor.fetchall())
 
 
+# Price history kept: baselines, charts and Destinations look 30 days back (B46: was 120)
+HISTORY_DAYS = 45
+# Give the space freed by the purge back to the disk (VACUUM) when at least this much of the
+# file is free, at most once a day: the file otherwise never shrinks
+VACUUM_MIN_FREE_SHARE = 0.25
+VACUUM_MIN_FREE_MB = 20
+
+
 async def purge_old_rows(
-    history_days: int = 120, expired_grace_days: int = 7, alerts_days: int = 30,
+    history_days: int = HISTORY_DAYS, expired_grace_days: int = 7, alerts_days: int = 30,
+    vacuum_min_free_mb: float = VACUUM_MIN_FREE_MB,
 ) -> Dict[str, int]:
     """Retention: drop old price history, deals long past expiry and old alert records."""
     now = utcnow()
     history_cutoff = (now - timedelta(days=history_days)).isoformat()
     expired_cutoff = (now - timedelta(days=expired_grace_days)).isoformat()
     alerts_cutoff = (now - timedelta(days=alerts_days)).isoformat()
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         prices = await db.execute("DELETE FROM price_history WHERE recorded_at < ?", (history_cutoff,))
         deals = await db.execute("DELETE FROM deals WHERE expires_at < ?", (expired_cutoff,))
         alerts = await db.execute("DELETE FROM alerts_sent WHERE sent_at < ?", (alerts_cutoff,))
         await db.execute("DELETE FROM feed_extractions WHERE created_at < ?", (alerts_cutoff,))
         await db.execute("DELETE FROM cycles WHERE started_at < ?", (alerts_cutoff,))
         await db.commit()
-    return {"price_history": prices.rowcount, "deals": deals.rowcount, "alerts_sent": alerts.rowcount}
+    purged = {"price_history": prices.rowcount, "deals": deals.rowcount, "alerts_sent": alerts.rowcount}
+    freed = await _vacuum_if_worth_it(vacuum_min_free_mb)
+    if freed:
+        purged["vacuumed_mb"] = freed
+    return purged
+
+
+async def _vacuum_if_worth_it(min_free_mb: float) -> int:
+    """VACUUM when enough of the file is free space, at most once a day; returns the MB given back."""
+    today = utcnow().date().isoformat()
+    if await get_state("last_vacuum") == today:
+        return 0
+    async with connection() as db:
+        page_size, pages, free = [
+            (await (await db.execute(f"PRAGMA {name}")).fetchone())[0]
+            for name in ("page_size", "page_count", "freelist_count")
+        ]
+        if not pages or free / pages < VACUUM_MIN_FREE_SHARE or free * page_size < min_free_mb * 2**20:
+            return 0
+        try:
+            await db.execute("VACUUM")
+            await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception as exc:  # busy or out of disk: the purge still counts, and it's tried again tomorrow
+            log.warning("vacuum_failed", error=str(exc))
+            return 0
+    await set_state("last_vacuum", today)
+    freed = round(free * page_size / 2**20)
+    log.info("database_vacuumed", freed_mb=freed)
+    return freed
 
 
 async def clear_price_history() -> int:
     """Forget every price seen (Settings → danger zone): usual prices are learned again from scratch."""
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         deleted = await db.execute("DELETE FROM price_history")
         await db.commit()
     return deleted.rowcount
@@ -499,9 +632,8 @@ async def clear_price_history() -> int:
 
 async def get_recent_alert_timestamps(tier: AlertTier, within_hours: float) -> list:
     """Return UTC datetimes of alerts sent for this tier within the given window."""
-    path = await get_db_path()
     cutoff = (utcnow() - timedelta(hours=within_hours)).isoformat()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             "SELECT sent_at FROM alerts_sent WHERE alert_tier = ? AND sent_at >= ?",
             (AlertTier(tier).value, cutoff),
@@ -512,9 +644,8 @@ async def get_recent_alert_timestamps(tier: AlertTier, within_hours: float) -> l
 
 async def was_route_alerted_recently(route: str, within_hours: float = 6.0) -> bool:
     """True if any deal on this exact route was alerted within the window."""
-    path = await get_db_path()
     cutoff = (utcnow() - timedelta(hours=within_hours)).isoformat()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             """
             SELECT 1 FROM alerts_sent a
@@ -532,9 +663,8 @@ async def get_feed_extractions(urls: Sequence[str]) -> Dict[str, Tuple[str, Opti
     """Cached AI extractions of deal-site posts: url → (status, payload JSON)."""
     if not urls:
         return {}
-    path = await get_db_path()
     marks = ",".join("?" * len(urls))
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             f"SELECT url, status, payload FROM feed_extractions WHERE url IN ({marks})", tuple(urls)
         )
@@ -542,8 +672,7 @@ async def get_feed_extractions(urls: Sequence[str]) -> Dict[str, Tuple[str, Opti
 
 
 async def save_feed_extraction(url: str, source: str, status: str, payload: Optional[str] = None) -> None:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         await db.execute(
             """
             INSERT INTO feed_extractions (url, source, status, payload, created_at) VALUES (?, ?, ?, ?, ?)
@@ -556,16 +685,14 @@ async def save_feed_extraction(url: str, source: str, status: str, payload: Opti
 
 
 async def _get_kv(table: str, key: str) -> Optional[str]:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(f"SELECT value FROM {table} WHERE key = ?", (key,))
         row = await cursor.fetchone()
     return row[0] if row else None
 
 
 async def _set_kv(table: str, key: str, value: Optional[str]) -> None:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         if value is None:
             await db.execute(f"DELETE FROM {table} WHERE key = ?", (key,))
         else:
@@ -592,8 +719,7 @@ async def get_pref_overrides() -> Dict[str, object]:
     """Preference overrides set from Telegram: key → decoded JSON value."""
     import json
 
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         rows = await (await db.execute("SELECT key, value FROM pref_overrides")).fetchall()
     return {key: json.loads(value) for key, value in rows if value is not None}
 
@@ -606,24 +732,21 @@ async def set_pref_override(key: str, value: object) -> None:
 
 
 async def count_deals_since(since: datetime) -> int:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         row = await (await db.execute("SELECT COUNT(*) FROM deals WHERE created_at >= ?", (since.isoformat(),))).fetchone()
     return row[0]
 
 
 async def get_search_cursor(cursor_key: str) -> int:
     """Rotation position of the search planner for one source/universe."""
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute("SELECT position FROM search_cursor WHERE cursor_key = ?", (cursor_key,))
         row = await cursor.fetchone()
     return int(row[0]) if row else 0
 
 
 async def set_search_cursor(cursor_key: str, position: int) -> None:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         await db.execute(
             """
             INSERT INTO search_cursor (cursor_key, position, updated_at) VALUES (?, ?, ?)
@@ -638,8 +761,7 @@ async def set_search_cursor(cursor_key: str, position: int) -> None:
 
 async def start_cycle_record(trigger: str) -> int:
     """Record a cycle that is starting; returns its id."""
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             "INSERT INTO cycles (started_at, trigger, status) VALUES (?, ?, 'running')",
             (utcnow().isoformat(), trigger),
@@ -650,8 +772,7 @@ async def start_cycle_record(trigger: str) -> int:
 
 async def finish_cycle_record(cycle_id: int, stats: Dict[str, object]) -> None:
     """Store a finished cycle: status ("ok", "failed", "stopped"), error, duration_s and its counts."""
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         await db.execute(
             """
             UPDATE cycles SET finished_at = ?, duration_s = ?, fares = ?, trips = ?, new_instant = ?,
@@ -667,8 +788,7 @@ async def finish_cycle_record(cycle_id: int, stats: Dict[str, object]) -> None:
 
 async def close_interrupted_cycles() -> int:
     """Mark searches left 'running' by a crash or power cut as stopped (called when the engine starts)."""
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             "UPDATE cycles SET status = 'stopped', error = 'interrupted' WHERE status = 'running'"
         )
@@ -678,16 +798,14 @@ async def close_interrupted_cycles() -> int:
 
 async def recent_cycles(limit: int = 20) -> List[Dict[str, object]]:
     """The latest cycles, newest first, as dicts of the cycles table's columns."""
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM cycles ORDER BY id DESC LIMIT ?", (limit,))
         return [dict(row) for row in await cursor.fetchall()]
 
 
 async def count_cycles_since(since: datetime) -> int:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             "SELECT COUNT(*) FROM cycles WHERE started_at >= ? AND status != 'running'", (since.isoformat(),)
         )
@@ -716,8 +834,7 @@ def _deal_rows(rows) -> List[DealRow]:
 async def get_recent_deals(hours: float = 24) -> List[DealRow]:
     """Instant and digest deals saved in the last `hours`, not hidden, newest first."""
     cutoff = (utcnow() - timedelta(hours=hours)).isoformat()
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             """
             SELECT payload, alert_tier, is_alerted, created_at FROM deals
@@ -730,8 +847,7 @@ async def get_recent_deals(hours: float = 24) -> List[DealRow]:
 
 
 async def get_deal(trip_hash: str) -> Optional[DealRow]:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             "SELECT payload, alert_tier, is_alerted, created_at FROM deals WHERE hash = ?", (trip_hash,)
         )
@@ -744,8 +860,7 @@ async def latest_alerts_for(hashes: Sequence[str]) -> Dict[str, Tuple[str, str]]
     if not hashes:
         return {}
     marks = ",".join("?" * len(hashes))
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             f"SELECT hash, sent_at, COALESCE(channel, 'telegram') FROM alerts_sent WHERE hash IN ({marks}) "
             "ORDER BY id",
@@ -756,8 +871,7 @@ async def latest_alerts_for(hashes: Sequence[str]) -> Dict[str, Tuple[str, str]]
 
 async def alert_log(limit: int = 50) -> List[Dict[str, object]]:
     """Sent alerts, newest first, with the deal's route and price when it is still saved."""
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             """
@@ -772,8 +886,7 @@ async def alert_log(limit: int = 50) -> List[Dict[str, object]]:
 
 
 async def count_pending_instants() -> int:
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             "SELECT COUNT(*) FROM deals WHERE alert_tier = ? AND is_alerted = 0 AND hidden IS NULL",
             (AlertTier.INSTANT.value,),
@@ -785,8 +898,7 @@ async def fares_for_key(
     origin_city: str, dest_city: str, trip_type: str, nights_bucket: str, since: datetime,
 ) -> List[Tuple[str, str, str, float, str]]:
     """(route, depart_date, return_date, price, recorded_at) for one history key, oldest first."""
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+    async with connection() as db:
         cursor = await db.execute(
             """
             SELECT route, depart_date, COALESCE(return_date, ''), price_eur, recorded_at FROM price_history
@@ -799,16 +911,49 @@ async def fares_for_key(
         return list(await cursor.fetchall())
 
 
-async def seen_fares(since: datetime) -> List[Tuple[str, str, str, float, str]]:
-    """(route, depart_date, return_date, price, recorded_at) of every dated fare since `since`, oldest first."""
-    path = await get_db_path()
-    async with aiosqlite.connect(path) as db:
+async def destination_figures(
+    since: datetime,
+) -> Tuple[List[Tuple[str, str, str, float, str]], List[Tuple[str, str, float]]]:
+    """
+    The Destinations screen's figures, summed up by the database (B46): every fare
+    seen since `since` at its latest (route, depart_date, return_date, price,
+    recorded_at), and each destination's cheapest price per day (code, YYYY-MM-DD,
+    price). A connection of its own: a month of history takes a second.
+    """
+    async with connection(own=True) as db:
         cursor = await db.execute(
             """
-            SELECT route, depart_date, COALESCE(return_date, ''), price_eur, recorded_at FROM price_history
-             WHERE recorded_at >= ? AND depart_date IS NOT NULL
-             ORDER BY recorded_at, id
+            WITH fares AS (
+                SELECT MAX(recorded_at || char(1) || printf('%020d', id)) AS latest
+                FROM price_history
+                WHERE recorded_at >= ? AND depart_date IS NOT NULL
+                GROUP BY route, depart_date, COALESCE(return_date, '')
+            )
+            SELECT p.route, p.depart_date, COALESCE(p.return_date, ''), p.price_eur, p.recorded_at
+            FROM fares f
+            JOIN price_history p ON p.id = CAST(substr(f.latest, instr(f.latest, char(1)) + 1) AS INTEGER)
+            ORDER BY p.recorded_at, p.id
             """,
             (since.isoformat(),),
         )
-        return list(await cursor.fetchall())
+        fares = list(await cursor.fetchall())
+        cursor = await db.execute(
+            """
+            SELECT CASE WHEN instr(route, '-') > 0 THEN substr(route, instr(route, '-') + 1) ELSE route END,
+                   substr(recorded_at, 1, 10), MIN(price_eur)
+            FROM price_history
+            WHERE recorded_at >= ? AND depart_date IS NOT NULL
+            GROUP BY 1, 2
+            """,
+            (since.isoformat(),),
+        )
+        daily = list(await cursor.fetchall())
+    return fares, daily
+
+
+async def price_history_mark() -> Optional[int]:
+    """The newest saved price's id: it changes whenever prices are added or cleared (ids aren't reused)."""
+    async with connection() as db:
+        cursor = await db.execute("SELECT MAX(id) FROM price_history")
+        row = await cursor.fetchone()
+    return row[0] if row else None

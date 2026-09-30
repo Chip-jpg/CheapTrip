@@ -49,6 +49,10 @@ jobs:
       - name: Test
         run: pytest -q
 
+      - name: Benchmark on a month of history (reports only, in the job summary)
+        continue-on-error: true
+        run: python scripts/bench.py
+
   ui:
     # The desktop app's screens (ui/): type check, component tests, production build
     runs-on: ubuntu-latest

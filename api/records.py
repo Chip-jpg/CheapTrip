@@ -162,21 +162,22 @@ def matches(record: Dict[str, Any], filters: Dict[str, Any]) -> bool:
     return True
 
 
-def destination_rows(fares: Sequence[Tuple[str, str, str, float, str]]) -> Dict[str, Dict[str, Any]]:
+def destination_rows(
+    fares: Sequence[Tuple[str, str, str, float, str]], daily_lows: Sequence[Tuple[str, str, float]],
+) -> Dict[str, Dict[str, Any]]:
     """
-    The Destinations screen's "All seen": per destination airport, the best
-    fare (its route and dates), the usual price (median of each fare's latest
-    price), how many different fares, when it was last seen, and the trend:
-    the cheapest fare seen each day.
+    The Destinations screen's "All seen", from destination_figures: per
+    destination airport, the best fare (its route and dates), the usual price
+    (median of each fare's latest price), how many different fares, when it
+    was last seen, and the trend: the cheapest fare seen each day.
     """
     latest: Dict[str, Dict[str, Tuple[float, str, str, str, str]]] = {}
-    daily: Dict[str, Dict[str, float]] = {}
-    for route, depart, ret, price, recorded_at in fares:
+    for route, depart, ret, price, recorded_at in fares:  # each fare at its latest
         dest = route.split("-", 1)[1] if "-" in route else route
         latest.setdefault(dest, {})[f"{route} {depart} {ret}"] = (price, depart, recorded_at, route, ret)
-        day = str(recorded_at)[:10]
-        days = daily.setdefault(dest, {})
-        days[day] = min(price, days.get(day, price))
+    daily: Dict[str, Dict[str, float]] = {}
+    for dest, day, price in daily_lows:
+        daily.setdefault(dest, {})[day] = price
     rows = {}
     for dest, by_fare in latest.items():
         prices = [fare[0] for fare in by_fare.values()]

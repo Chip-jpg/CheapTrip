@@ -4,3 +4,6 @@ pytest==8.2.0
 pytest-asyncio==0.23.7
 respx==0.23.1
 ruff==0.16.9
+# ui/scripts/trim_icons.py and its test (tests/test_icons.py): the trimmed icon font
+fonttools==4.66.1
+brotli==1.2.0
