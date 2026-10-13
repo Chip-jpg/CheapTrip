@@ -19,6 +19,7 @@ from scrapers.google_hotels import GoogleHotelsScraper, dates_match, encode_stay
 from scrapers.holiday_pirates import HolidayPiratesHotelScraper
 from storage.database import get_state, init_db, set_state
 from storage.models import SearchTask
+from utils import airports
 from utils import protobuf as pb
 from utils.timeutil import utcnow
 
@@ -169,9 +170,27 @@ async def test_stay_searched_via_http(enabled_hotels):
         outcome = await GoogleHotelsScraper().safe_scrape([_task(NOV_13, 3, adults=2)])
     assert outcome.status == ScrapeStatus.OK and outcome.count == 3
     params = dict(route.calls[0].request.url.params)
-    assert params["q"] == "hotels in Krakow"
-    assert params["ts"] == encode_stay("Krakow", NOV_13, date(2026, 11, 16), adults=2)
-    assert outcome.results[0].booking_url == search_url("Krakow", NOV_13, date(2026, 11, 16), adults=2)
+    # With its country: Google reads plain "Naples", even "Naples, IT", as Naples, Florida (checked live)
+    assert params["q"] == "hotels in Krakow, Poland"
+    assert params["ts"] == encode_stay("Krakow, Poland", NOV_13, date(2026, 11, 16), adults=2)
+    assert outcome.results[0].booking_url == search_url("Krakow, Poland", NOV_13, date(2026, 11, 16), adults=2)
+    assert outcome.results[0].location == "Krakow"  # what the trip builder matches to the flight's airport
+
+
+def test_hotel_searches_name_the_country():
+    assert airports.city_and_country("NAP") == "Naples, Italy"
+    assert airports.city_and_country("STN") == "London, United Kingdom"
+    assert airports.city_and_country("JFK") == "New York, United States"
+    assert airports.country_name("XXX") is None and airports.city_and_country("XXX") == "XXX"
+
+
+def test_every_airport_country_has_a_name():
+    import csv
+
+    with (Path(__file__).parent.parent / "utils" / "data" / "airports.csv").open(encoding="utf-8") as f:
+        countries = {row["country"] for row in csv.DictReader(f)}
+    missing = sorted(c for c in countries if not airports._country_names().get(c))
+    assert not missing, f"no name in utils/data/countries.csv for {missing}"
 
 
 async def test_bot_check_page_cools_down_both_google_sources(enabled_hotels):

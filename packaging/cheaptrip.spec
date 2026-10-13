@@ -25,6 +25,7 @@ if not (UI / "index.html").exists():
 # Read-only files the app opens at run time (utils/paths.bundle_dir() finds them)
 datas = [
     (str(ROOT / "utils" / "data" / "airports.csv"), "utils/data"),
+    (str(ROOT / "utils" / "data" / "countries.csv"), "utils/data"),
     (str(ROOT / "config" / "user_preferences.yaml.example"), "config"),
     (str(ROOT / ".env.example"), "."),
     (str(UI), "ui/dist"),

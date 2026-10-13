@@ -3,7 +3,7 @@ name: Probe Google Hotels (temporary)
 on:
   push:
     branches: [claude/cheap-trip-tasks-6prz04]
-    paths: [".github/workflows/probe-hotels.yml", "scrapers/google_hotels.py", "scrapers/google_flights.py"]
+    paths: [".github/workflows/probe-hotels.yml", "scrapers/google_hotels.py", "utils/airports.py"]
 
 jobs:
   probe:
@@ -23,26 +23,28 @@ jobs:
           cat > /tmp/probe.py <<'EOF'
           import asyncio
           from datetime import date, timedelta
-          from scrapers.base import build_client, random_headers
-          from scrapers.google_hotels import _CONSENT_COOKIES, parse_cards, search_url
+          from scrapers.google_hotels import GoogleHotelsScraper
+          from storage.models import SearchTask
 
-          check_in = date.today() + timedelta(days=40)
-          check_out = check_in + timedelta(days=3)
-          QUERIES = ["Naples", "Naples, IT", "Naples, Italy", "Valencia, ES", "Valencia, Spain",
-                     "Córdoba, ES", "Córdoba, Spain", "Birmingham, GB", "Birmingham, United Kingdom",
-                     "London, GB", "Paris, FR", "Krakow, PL"]
+          today = date.today()
+          CASES = [("NAP", 38, 3, 1), ("VLC", 45, 2, 2), ("BHX", 30, 2, 1), ("KRK", 52, 3, 1)]
 
           async def main():
-              async with build_client(timeout=30.0) as client:
-                  client.cookies.update(_CONSENT_COOKIES)
-                  for i, q in enumerate(QUERIES):
-                      if i:
-                          await asyncio.sleep(4)
-                      resp = await client.get(search_url(q, check_in, check_out),
-                                              headers=random_headers({"Accept-Language": "en-US,en;q=0.9"}))
-                      cards = parse_cards(resp.text)
-                      print(f"{q!r:30} HTTP {resp.status_code} {len(cards):2} cards:",
-                            " | ".join(c.name[:32] for c in cards[:4]))
+              tasks = [SearchTask(destination=d, depart_from=today + timedelta(days=a),
+                                  depart_to=today + timedelta(days=a), nights_min=n, nights_max=n, adults=ad)
+                       for d, a, n, ad in CASES]
+              outcome = await GoogleHotelsScraper().safe_scrape(tasks)
+              print("\nstatus:", outcome.status.value, "count:", outcome.count, "error:", outcome.error,
+                    "ms:", outcome.duration_ms)
+              by_stay = {}
+              for r in outcome.results:
+                  by_stay.setdefault((r.location, r.check_in, r.check_out), []).append(r)
+              for (city, cin, cout), rows in by_stay.items():
+                  rows.sort(key=lambda r: r.price_per_night)
+                  print(f"\n{city} {cin} -> {cout}: {len(rows)} hotels")
+                  for r in rows[:5]:
+                      print(f"  - {r.name[:45]:45} €{r.price_per_night:7.2f}/night x{r.nights} rating {r.rating} ({r.review_count})")
+              print("\nurl:", outcome.results[0].booking_url if outcome.results else None)
 
           asyncio.run(main())
           EOF

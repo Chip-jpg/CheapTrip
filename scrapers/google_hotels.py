@@ -92,9 +92,10 @@ def encode_stay(city: str, check_in: date, check_out: date, adults: int = 1, cur
     return pb.to_url_param(message)
 
 
-def search_url(city: str, check_in: date, check_out: date, adults: int = 1) -> str:
+def search_url(place: str, check_in: date, check_out: date, adults: int = 1) -> str:
+    """`place` with its country ("Naples, Italy"): Google reads plain "Naples", even "Naples, IT", as Florida."""
     return f"{_BASE}?" + urlencode({
-        "q": f"hotels in {city}", "ts": encode_stay(city, check_in, check_out, adults),
+        "q": f"hotels in {place}", "ts": encode_stay(place, check_in, check_out, adults),
         "hl": "en", "curr": "EUR",
     })
 
@@ -218,7 +219,8 @@ class GoogleHotelsScraper(GoogleCooldown, BaseHotelScraper):
                 if i:
                     await _pause(_REQUEST_SPACING_S)
                 city = airports.city_of(task.destination)
-                url = search_url(city, task.depart_from, task.return_date, task.adults)
+                url = search_url(airports.city_and_country(task.destination), task.depart_from, task.return_date,
+                                 task.adults)
                 try:
                     resp = await client.get(url, headers=random_headers({"Accept-Language": "en-US,en;q=0.9"}))
                 except httpx.HTTPError as exc:
