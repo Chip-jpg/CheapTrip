@@ -1,0 +1,80 @@
+name: Probe Google Hotels (temporary)
+
+on:
+  push:
+    branches: [claude/cheap-trip-tasks-6prz04]
+    paths: [".github/workflows/probe-hotels.yml", "scrapers/google_hotels.py"]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Search a few stays with their dates
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          cat > /tmp/probe.py <<'EOF'
+          import asyncio, base64, gzip, re
+          from datetime import date, timedelta
+          from bs4 import BeautifulSoup
+          from scrapers.base import build_client, random_headers
+          from scrapers.google_hotels import _CONSENT_COOKIES, _card_container, _PRICE_LABEL_RE, dates_match, parse_cards, search_url
+
+          today = date.today()
+          def friday(weeks):
+              d = today + timedelta(weeks=weeks)
+              return d + timedelta(days=(4 - d.weekday()) % 7)
+          CASES = [("Krakow", friday(4), 3, 1), ("Lisbon", friday(6), 2, 1), ("Barcelona", friday(9), 4, 2),
+                   ("New York", friday(7), 5, 1)]
+
+          def trimmed(html):
+              soup = BeautifulSoup(html, "lxml")
+              keep = []
+              for el in soup.find_all(attrs={"aria-label": _PRICE_LABEL_RE})[:5]:
+                  card = _card_container(el)
+                  for bad in card.find_all(["script", "style", "svg", "img", "path", "g-img"]):
+                      bad.decompose()
+                  for node in [card, *card.find_all(True)]:
+                      node.attrs = {k: v for k, v in node.attrs.items() if k in ("aria-label", "role")}
+                  keep.append(str(card))
+              return "\n".join(keep)
+
+          async def main():
+              async with build_client(timeout=30.0) as client:
+                  client.cookies.update(_CONSENT_COOKIES)
+                  for i, (city, check_in, nights, adults) in enumerate(CASES):
+                      check_out = check_in + timedelta(days=nights)
+                      url = search_url(city, check_in, check_out, adults)
+                      if i:
+                          await asyncio.sleep(5)
+                      resp = await client.get(url, headers=random_headers({"Accept-Language": "en-US,en;q=0.9"}))
+                      html = resp.text
+                      print(f"\n=== {city} {check_in} -> {check_out} ({nights}n, {adults} adults)")
+                      print("url:", url)
+                      print("status:", resp.status_code, "final:", str(resp.url).split("?")[0], "bytes:", len(html))
+                      text = BeautifulSoup(html, "lxml").get_text(" ", strip=True)
+                      shown = re.findall(r"Prices shown for.{0,40}", text)
+                      print("prices shown for:", shown[:2])
+                      print("ds:0 present:", "key: 'ds:0'" in html)
+                      cards = parse_cards(html)
+                      print("cards:", len(cards), "matching dates:", sum(dates_match(c.dates_text, check_in, check_out) for c in cards))
+                      for c in cards[:6]:
+                          print("  -", c.name[:50], "| nightly", c.nightly_eur, "| total", c.total_eur, "| nights", c.nights,
+                                "| rating", c.rating_out_of_5, c.review_count, "| stars", c.stars, "| dates", repr(c.dates_text))
+                      if i == 0 or not cards:
+                          blob = base64.b64encode(gzip.compress((trimmed(html) if cards else html[:60000]).encode())).decode()
+                          print(f"--- BLOB {city} {len(blob)} ---")
+                          for k in range(0, len(blob), 2000):
+                              print("B|" + blob[k:k + 2000])
+                          print("--- END BLOB ---")
+
+          asyncio.run(main())
+          EOF
+          python /tmp/probe.py

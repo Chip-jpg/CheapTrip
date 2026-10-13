@@ -29,6 +29,7 @@ from config import get_settings
 from scrapers.base import BaseHotelScraper, ScrapeStatus, SearchCapability, build_client, random_headers
 from storage.models import RawHotelResult, SearchTask
 from utils import airports
+from utils import protobuf as pb
 from utils.iata_extract import parse_amount
 from utils.logging_config import get_logger
 
@@ -65,10 +66,29 @@ class HotelCard:
     dates_text: Optional[str]
 
 
-def search_url(city: str, check_in: date, check_out: date) -> str:
+def _day(day: date) -> bytes:
+    return pb.field_varint(1, day.year) + pb.field_varint(2, day.month) + pb.field_varint(3, day.day)
+
+
+def encode_stay(city: str, check_in: date, check_out: date, adults: int = 1, currency: str = "EUR") -> str:
+    """The `ts` URL parameter: the place, the stay's dates and nights, the guests and the currency."""
+    stay = (
+        pb.field_bytes(1, _day(check_in)) + pb.field_bytes(2, _day(check_out))
+        + pb.field_varint(3, (check_out - check_in).days)
+    )
+    search = pb.field_bytes(2, stay) + pb.field_bytes(6, pb.field_varint(1, max(1, adults)))
+    place = pb.field_bytes(1, pb.field_bytes(2, pb.field_str(7, city)))
+    message = (
+        pb.field_varint(1, 1)
+        + pb.field_bytes(3, place + pb.field_bytes(2, search))
+        + pb.field_bytes(5, pb.field_bytes(1, pb.field_str(7, currency)))
+    )
+    return pb.to_url_param(message)
+
+
+def search_url(city: str, check_in: date, check_out: date, adults: int = 1) -> str:
     return f"{_BASE}?" + urlencode({
-        "q": f"hotels in {city}",
-        "checkin": check_in.isoformat(), "checkout": check_out.isoformat(),
+        "q": f"hotels in {city}", "ts": encode_stay(city, check_in, check_out, adults),
         "hl": "en", "curr": "EUR",
     })
 
