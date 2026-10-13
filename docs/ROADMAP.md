@@ -1,8 +1,8 @@
 # CheapTrip — Status Report & Branch Roadmap
 
-## Where things stand (release v0.8.3)
+## Where things stand (release v0.8.4)
 
-Every card below (B01–B47) is merged into `main`, and v0.8.3 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45 (v0.8.1), the optimizations in B46 (v0.8.2), and B47: the window no longer goes black, a bigger UI with a text size setting, and every button tested. B48 adds real hotel prices, for the next release. The progress tracker at the end has the details. In short:
+Every card below (B01–B48) is merged into `main`, and v0.8.4 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45 (v0.8.1), the optimizations in B46 (v0.8.2), B47 (v0.8.3: the window no longer goes black, a bigger UI with a text size setting, and every button tested), and B48: real hotel prices from Google Hotels with every flight deal. The progress tracker at the end has the details. In short:
 
 - **The app (Windows):** one setup `.exe` from the [releases](https://github.com/Chip-jpg/CheapTrip/releases), with no admin rights needed.
   - It is a desktop app in the owner's design ("Fluent Deal Radar"), in light and dark. Its screens: Deals with a detail panel and charts, Destinations, Activity, Notifications & tray, Settings, and a setup wizard at the first launch.
@@ -470,7 +470,7 @@ The owner's design is built and released as v0.8.0:
 
 **Release v0.8.3:** version and notes; the merge publishes the installer.
 
-### B48: real hotel prices
+### v0.8.4: real hotel prices
 **B48 `claude/cheap-trip-tasks-6prz04`** (M): the owner's ask: "we NEED to fix hotel prices asap". Flight alerts only linked a Booking.com search: no hotel source worked (B14).
 - **The source:** Hotellook (Travelpayouts) closed on 20 Oct 2025, and Booking.com is behind AWS WAF. Google Hotels' cards already parsed (B14); the missing piece was choosing the dates.
   - The stay goes in the URL as a protobuf, `ts=`: the place, check-in and check-out dates, nights, adults and currency (`encode_stay`, on the `utils/protobuf.py` that Google Flights' `tfs=` uses).
@@ -487,6 +487,8 @@ The owner's design is built and released as v0.8.0:
 - **Google's limits:** one cooldown for both Google sources (`GoogleCooldown`): a 429 or bot-check page from either pauses both for `GOOGLE_FLIGHTS_COOLDOWN_HOURS`. A search adds about half a minute of hotel requests.
 - **Fixed on the way:** `test_pipeline_alert_says_the_price_is_cached` had failed on `main` since 13 Oct: its Travelpayouts fixture's fares left on 15 Oct, now outside the search window. The test moves them inside it, whatever the date. `scripts/bench.py` uses a fake hotel source, so CI's benchmark stays offline.
 - **Later, if wanted:** use Google's "% less than usual" badge for hotel deals of their own; flight + hotel deals judged on a usual hotel price, once hotel prices have a history.
+
+**Release v0.8.4:** version and notes; the merge publishes the installer.
 
 ---
 
@@ -556,3 +558,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B47 | `claude/tender-dirac-w84xw1` | done |
 | — | release v0.8.3 | done (released as v0.8.3) |
 | B48 | `claude/cheap-trip-tasks-6prz04` | done |
+| — | release v0.8.4 | done (released as v0.8.4) |
