@@ -12,6 +12,8 @@ const NOT_HERE = /^(Clear…|Delete|Hide to the tray)$/;
 async function pressEverything(page: Page, hash: string, go: (hash: string) => Promise<void>): Promise<string[]> {
   await go(hash);
   await expectAlive(page);
+  // The heading shows at once; a screen's buttons come with its data (Settings showed none while loading)
+  await expect(page.locator("main .skeleton")).toHaveCount(0);
   const pressed: string[] = [];
   const count = Math.min(await page.locator("main button").count(), 80);
   for (let i = 0; i < count; i++) {
