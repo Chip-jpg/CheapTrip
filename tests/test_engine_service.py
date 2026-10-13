@@ -70,7 +70,9 @@ async def test_every_cycle_is_recorded_and_announced(engine):
 
     types = [e["type"] for e in events]
     assert types[0] == "cycle_started" and types[1] == "cycle_planned" and types[-1] == "cycle_finished"
-    assert {e["source"] for e in events if e["type"] == "source_done"} == {"fake_flights", "fake_feed", "fake_hotels"}
+    done = {e["source"] for e in events if e["type"] == "source_done"}
+    assert done == {"fake_flights", "fake_feed", "fake_hotels", "fake_hotel_feed"}
+    assert set(events[1]["sources"]) == done  # "Searching… 4 of 4 sources": hotels are announced with the plan
     finished = events[-1]
     assert (finished["fares"], finished["trips"], finished["error"]) == (2, 2, None)
 
@@ -78,6 +80,16 @@ async def test_every_cycle_is_recorded_and_announced(engine):
     assert (cycle["status"], cycle["trigger"], cycle["fares"], cycle["new_digest"]) == ("ok", "scheduled", 2, 2)
     assert cycle["duration_s"] is not None and cycle["finished_at"]
     assert await count_cycles_since(utcnow() - timedelta(hours=1)) == 1
+
+
+async def test_hotels_with_no_stay_to_price_still_finish(engine):
+    with get_event_bus().subscribe() as queue:
+        aggregator = await engine.run_cycle(flights=[flight(destination="KRK", price=40.0, nights=None)])  # one way
+        events = _drain(queue)
+
+    assert aggregator._hotel_scrapers[0].calls == []  # nothing searched
+    [hotels] = [e for e in events if e["type"] == "source_done" and e["source"] == "fake_hotels"]
+    assert (hotels["status"], hotels["count"]) == ("empty", 0)
 
 
 async def test_a_failed_cycle_is_recorded_as_failed(engine, monkeypatch):

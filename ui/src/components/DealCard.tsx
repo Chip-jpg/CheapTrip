@@ -337,8 +337,10 @@ export function DealCard({ deal, onChange }: { deal: Deal; onChange?: () => void
           <BookButton deal={deal} />
           {deal.links.hotels && (
             <a className="btn-secondary px-space-sm" href={deal.links.hotels} target="_blank" rel="noreferrer"
-               title={`Hotels in ${cityOf(deal)} for these dates (Booking.com)`}>
-              <Icon name="hotel" size={16} />Hotels
+               title={deal.hotel_offer
+                 ? `Hotels in ${cityOf(deal)} from ${euros(deal.hotel_offer.price_per_night)} a night for these dates (Google Hotels)`
+                 : `Hotels in ${cityOf(deal)} for these dates (Booking.com)`}>
+              <Icon name="hotel" size={16} />Hotels{deal.hotel_offer ? ` ${euros(deal.hotel_offer.price_per_night)}` : ""}
             </a>
           )}
         </div>

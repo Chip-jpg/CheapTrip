@@ -1,17 +1,19 @@
 """
-Google Hotels (no key) — DISABLED BY DEFAULT.
+Google Hotels (no key).
 
-Result cards are server-rendered and parse cleanly: name, nightly and total
-price, stay length and dates, rating out of 5 with review count, hotel
-class. What does not work yet is choosing the dates: Google ignores
-`checkin`/`checkout` URL parameters and dates in the query text and shows
-tonight's prices, and the URL encoding it uses for dates (`ts=`) could not
-be recovered (see docs/ROADMAP.md, B14).
+The stay is encoded in the URL as a protobuf (`ts=`): the place, check-in
+and check-out dates, nights, guests and currency, so the server renders
+that stay's prices into the HTML (checked live in B48 on Krakow, Lisbon,
+Barcelona and New York stays). Result cards parse cleanly: name, nightly
+and total price, stay length and dates, rating out of 5 with review count,
+hotel class, and Google's own "29% less than usual" badge.
 
-So the scraper only keeps cards whose own dates match the requested stay.
-If Google ignores the dates, it returns nothing and reports BLOCKED
-("ignored the requested dates") instead of producing misleading prices.
-Enable with ENABLE_GOOGLE_HOTELS=true once dates can be set.
+Cards with a deal badge don't print their dates, so a page counts as the
+requested stay when the cards that do show dates all show its dates; if
+Google shows other dates (it ignored the request), the search returns
+nothing and reports BLOCKED ("ignored the requested dates") instead of
+producing misleading prices. A 429 or bot-check page starts the cooldown
+shared with Google Flights.
 """
 from __future__ import annotations
 
@@ -19,7 +21,7 @@ import asyncio
 import re
 from dataclasses import dataclass
 from datetime import date
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from urllib.parse import urlencode
 
 import httpx
@@ -27,6 +29,7 @@ from bs4 import BeautifulSoup, Tag
 
 from config import get_settings
 from scrapers.base import BaseHotelScraper, ScrapeStatus, SearchCapability, build_client, random_headers
+from scrapers.google_flights import GoogleCooldown, _is_consent_or_block_page
 from storage.models import RawHotelResult, SearchTask
 from utils import airports
 from utils import protobuf as pb
@@ -41,12 +44,14 @@ _REQUEST_SPACING_S = 3.0
 _CARD_LEVELS_UP = 4  # price label → card container in the current markup
 
 _PRICE_LABEL_RE = re.compile(r"^Prices starting from €([\d.,]+), (.+)$")
+# Google's badge, also appended to the price label's hotel name: "GREAT DEAL 29% less than usual"
+_DEAL_RE = re.compile(r"\s*\b(?:GREAT )?DEAL (\d+)% less than usual$")
 _RATING_RE = re.compile(r"([\d.]+) out of 5 stars from ([\d,]+) reviews?")
 _TOTAL_RE = re.compile(r"€([\d.,]+) total")
 _NIGHTS_RE = re.compile(r"(\d+) nights? with taxes")
 _CLASS_RE = re.compile(r"(\d)-star hotel")
 _MONTHS = "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec"
-# Google puts thin spaces (U+2009) around the dash: "Sep 28\u2009–\u200929"
+# Google puts thin spaces (U+2009) around the dash: "Sep 28 – 29"
 _DATES_RE = re.compile(rf"\b({_MONTHS})\s(\d{{1,2}})\s*[–-]\s*(?:({_MONTHS})\s)?(\d{{1,2}})\b")
 
 
@@ -64,6 +69,7 @@ class HotelCard:
     review_count: Optional[int]
     stars: Optional[int]
     dates_text: Optional[str]
+    below_usual_pct: Optional[int] = None  # Google's "29% less than usual"
 
 
 def _day(day: date) -> bytes:
@@ -102,13 +108,19 @@ def _card_container(element: Tag) -> Tag:
     return node
 
 
+def _split_deal(name: str) -> Tuple[str, Optional[int]]:
+    """'Antique Apartments GREAT DEAL 29% less than usual' → ('Antique Apartments', 29)."""
+    m = _DEAL_RE.search(name)
+    return (name[:m.start()].strip(), int(m.group(1))) if m else (name, None)
+
+
 def parse_cards(html: str) -> List[HotelCard]:
     soup = BeautifulSoup(html, "lxml")
     cards: List[HotelCard] = []
     seen = set()
     for element in soup.find_all(attrs={"aria-label": _PRICE_LABEL_RE}):
         m = _PRICE_LABEL_RE.match(element["aria-label"])
-        name = m.group(2).strip()
+        name, below_usual = _split_deal(m.group(2).strip())
         if name in seen:
             continue
         seen.add(name)
@@ -127,6 +139,7 @@ def parse_cards(html: str) -> List[HotelCard]:
             review_count=int(rating_m.group(2).replace(",", "")) if rating_m else None,
             stars=int(class_m.group(1)) if class_m else None,
             dates_text=dates_m.group(0) if dates_m else None,
+            below_usual_pct=below_usual,
         ))
     return cards
 
@@ -145,25 +158,38 @@ def dates_match(dates_text: Optional[str], check_in: date, check_out: date) -> b
     )
 
 
-class GoogleHotelsScraper(BaseHotelScraper):
+def shows_requested_stay(cards: List[HotelCard], check_in: date, check_out: date) -> bool:
+    """Every card that prints dates prints the requested ones (deal-badge cards print none)."""
+    dated = [c for c in cards if c.dates_text]
+    return bool(dated) and all(dates_match(c.dates_text, check_in, check_out) for c in dated)
+
+
+class GoogleHotelsScraper(GoogleCooldown, BaseHotelScraper):
     source_id = "google_hotels"
     capability = SearchCapability.CITY_DATES
 
     def __init__(self) -> None:
-        self.enabled = get_settings().enable_google_hotels
-        self.disabled_reason = None if self.enabled else "stay dates can't be set yet (ENABLE_GOOGLE_HOTELS=true to try)"
+        self._cooldown_until = None
+        self.enabled, self.disabled_reason = self._settings_state()
+
+    def _settings_state(self) -> Tuple[bool, Optional[str]]:
+        enabled = get_settings().enable_google_hotels
+        return enabled, None if enabled else "ENABLE_GOOGLE_HOTELS=false"
 
     def calls_per_cycle(self) -> int:
         return get_settings().google_hotels_calls_per_cycle
 
     def results_for(self, html: str, task: SearchTask, city: str, url: str) -> List[RawHotelResult]:
         check_in, check_out = task.depart_from, task.return_date
+        nights = (check_out - check_in).days
+        cards = parse_cards(html)
+        if not shows_requested_stay(cards, check_in, check_out):
+            return []
         results = []
-        for card in parse_cards(html):
-            if not dates_match(card.dates_text, check_in, check_out):
+        for card in cards:
+            if card.nights not in (None, nights):
                 continue
-            nights = card.nights or task.nights_min
-            per_night = round(card.total_eur / nights, 2) if card.total_eur and nights else card.nightly_eur
+            per_night = round(card.total_eur / nights, 2) if card.total_eur else card.nightly_eur
             results.append(RawHotelResult(
                 name=card.name,
                 location=city,
@@ -182,6 +208,8 @@ class GoogleHotelsScraper(BaseHotelScraper):
 
     async def scrape(self, tasks: List[SearchTask]) -> List[RawHotelResult]:
         results: List[RawHotelResult] = []
+        if await self._cooling_down():  # Google Flights was blocked earlier this cycle
+            return results
         async with build_client(timeout=25.0) as client:
             client.cookies.update(_CONSENT_COOKIES)
             for i, task in enumerate(tasks):
@@ -190,7 +218,7 @@ class GoogleHotelsScraper(BaseHotelScraper):
                 if i:
                     await _pause(_REQUEST_SPACING_S)
                 city = airports.city_of(task.destination)
-                url = search_url(city, task.depart_from, task.return_date)
+                url = search_url(city, task.depart_from, task.return_date, task.adults)
                 try:
                     resp = await client.get(url, headers=random_headers({"Accept-Language": "en-US,en;q=0.9"}))
                 except httpx.HTTPError as exc:
@@ -198,10 +226,15 @@ class GoogleHotelsScraper(BaseHotelScraper):
                     continue
                 if resp.status_code == 429:
                     self._report_status(ScrapeStatus.RATE_LIMITED, f"{city}: HTTP 429")
+                    await self._start_cooldown()
                     break
                 if resp.status_code != 200:
                     self._record_error(f"{city}: HTTP {resp.status_code}")
                     continue
+                if _is_consent_or_block_page(resp, resp.text):
+                    self._report_status(ScrapeStatus.BLOCKED, f"{city}: consent or bot-check page")
+                    await self._start_cooldown()
+                    break
                 found = self.results_for(resp.text, task, city, url)
                 if not found and parse_cards(resp.text):
                     self._report_status(ScrapeStatus.BLOCKED, "Google Hotels ignored the requested dates")

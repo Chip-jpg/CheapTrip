@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -13,6 +13,7 @@ from config import get_settings
 from scrapers.base import ScrapeStatus
 from scrapers.travelpayouts import TravelpayoutsScraper
 from storage.models import SearchTask
+from trip_builder.date_discovery import FIRST_DEPARTURE_OFFSET_DAYS
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "travelpayouts_prices_for_dates_mil.json").read_text(encoding="utf-8"))
 API = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates"
@@ -91,10 +92,20 @@ async def test_rate_limit_is_reported(token):
     assert outcome.status == ScrapeStatus.RATE_LIMITED
 
 
+def _moved(rows: list, days: int) -> list:
+    """The fixture's fares with every date moved by `days`."""
+    def move(value: str) -> str:
+        return (datetime.fromisoformat(value) + timedelta(days=days)).isoformat()
+    return [{**row, "departure_at": move(row["departure_at"]), "return_at": move(row["return_at"])} for row in rows]
+
+
 async def test_pipeline_alert_says_the_price_is_cached(engine, token):
     # Priority destination: without price history ordinary fares only reach the digest
     engine.set_prefs(priority_destinations=["KRK"])
-    engine.router.get(API).mock(return_value=httpx.Response(200, json=FIXTURE))
+    # The Krakow fare (15 Oct 2026) moved inside the search window, whenever the test runs
+    days = (date.today() + timedelta(days=FIRST_DEPARTURE_OFFSET_DAYS + 2) - date(2026, 10, 15)).days
+    fixture = {**FIXTURE, "data": _moved(FIXTURE["data"], days)}
+    engine.router.get(API).mock(return_value=httpx.Response(200, json=fixture))
     await engine.run_cycle(extra_flight_scrapers=[TravelpayoutsScraper()])
 
     krk = [t for t in engine.telegram.texts if "Milan → Krakow" in t and "FLIGHT DEAL" in t]

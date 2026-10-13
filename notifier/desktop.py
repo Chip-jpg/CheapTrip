@@ -122,7 +122,9 @@ def deal_toast(trip: Trip) -> Toast:
     else:
         title = f"{trip.route} · {price}"
         source = (trip.source_list or [None])[0]
-        parts = [_how_cheap(trip), when, (leg.airline if leg else None) or (source_name(source) if source else None)]
+        hotel = f"hotels from €{trip.hotel_offer.price_per_night_eur:.0f} a night" if trip.hotel_offer else None
+        parts = [_how_cheap(trip), when, hotel,
+                 (leg.airline if leg else None) or (source_name(source) if source else None)]
     if trip.is_error_fare:
         title = f"⚠ Possible error fare: {title}"
         parts.insert(0, "Book fast, verify after")

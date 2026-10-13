@@ -3,7 +3,7 @@ name: Probe Google Hotels (temporary)
 on:
   push:
     branches: [claude/cheap-trip-tasks-6prz04]
-    paths: [".github/workflows/probe-hotels.yml", "scrapers/google_hotels.py"]
+    paths: [".github/workflows/probe-hotels.yml", "scrapers/google_hotels.py", "scrapers/google_flights.py"]
 
 jobs:
   probe:
@@ -21,59 +21,33 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           cat > /tmp/probe.py <<'EOF'
-          import asyncio, base64, gzip, re
+          import asyncio
           from datetime import date, timedelta
-          from bs4 import BeautifulSoup
-          from scrapers.base import build_client, random_headers
-          from scrapers.google_hotels import _CONSENT_COOKIES, _card_container, _PRICE_LABEL_RE, dates_match, parse_cards, search_url
+          from scrapers.google_hotels import GoogleHotelsScraper
+          from storage.models import SearchTask
 
           today = date.today()
           def friday(weeks):
               d = today + timedelta(weeks=weeks)
               return d + timedelta(days=(4 - d.weekday()) % 7)
-          CASES = [("Krakow", friday(4), 3, 1), ("Lisbon", friday(6), 2, 1), ("Barcelona", friday(9), 4, 2),
-                   ("New York", friday(7), 5, 1)]
-
-          def trimmed(html):
-              soup = BeautifulSoup(html, "lxml")
-              keep = []
-              for el in soup.find_all(attrs={"aria-label": _PRICE_LABEL_RE})[:5]:
-                  card = _card_container(el)
-                  for bad in card.find_all(["script", "style", "svg", "img", "path", "g-img"]):
-                      bad.decompose()
-                  for node in [card, *card.find_all(True)]:
-                      node.attrs = {k: v for k, v in node.attrs.items() if k in ("aria-label", "role")}
-                  keep.append(str(card))
-              return "\n".join(keep)
+          CASES = [("KRK", friday(5), 3, 1), ("LIS", friday(6), 2, 1), ("BCN", friday(8), 4, 2), ("JFK", friday(7), 5, 1),
+                   ("STN", friday(4), 2, 1), ("NAP", friday(10), 3, 1)]
 
           async def main():
-              async with build_client(timeout=30.0) as client:
-                  client.cookies.update(_CONSENT_COOKIES)
-                  for i, (city, check_in, nights, adults) in enumerate(CASES):
-                      check_out = check_in + timedelta(days=nights)
-                      url = search_url(city, check_in, check_out, adults)
-                      if i:
-                          await asyncio.sleep(5)
-                      resp = await client.get(url, headers=random_headers({"Accept-Language": "en-US,en;q=0.9"}))
-                      html = resp.text
-                      print(f"\n=== {city} {check_in} -> {check_out} ({nights}n, {adults} adults)")
-                      print("url:", url)
-                      print("status:", resp.status_code, "final:", str(resp.url).split("?")[0], "bytes:", len(html))
-                      text = BeautifulSoup(html, "lxml").get_text(" ", strip=True)
-                      shown = re.findall(r"Prices shown for.{0,40}", text)
-                      print("prices shown for:", shown[:2])
-                      print("ds:0 present:", "key: 'ds:0'" in html)
-                      cards = parse_cards(html)
-                      print("cards:", len(cards), "matching dates:", sum(dates_match(c.dates_text, check_in, check_out) for c in cards))
-                      for c in cards[:6]:
-                          print("  -", c.name[:50], "| nightly", c.nightly_eur, "| total", c.total_eur, "| nights", c.nights,
-                                "| rating", c.rating_out_of_5, c.review_count, "| stars", c.stars, "| dates", repr(c.dates_text))
-                      if i == 0 or not cards:
-                          blob = base64.b64encode(gzip.compress((trimmed(html) if cards else html[:60000]).encode())).decode()
-                          print(f"--- BLOB {city} {len(blob)} ---")
-                          for k in range(0, len(blob), 2000):
-                              print("B|" + blob[k:k + 2000])
-                          print("--- END BLOB ---")
+              tasks = [SearchTask(destination=d, depart_from=c, depart_to=c, nights_min=n, nights_max=n, adults=a)
+                       for d, c, n, a in CASES]
+              outcome = await GoogleHotelsScraper().safe_scrape(tasks)
+              print("\nstatus:", outcome.status.value, "count:", outcome.count, "error:", outcome.error,
+                    "ms:", outcome.duration_ms)
+              by_stay = {}
+              for r in outcome.results:
+                  by_stay.setdefault((r.location, r.check_in, r.check_out), []).append(r)
+              for (city, cin, cout), rows in by_stay.items():
+                  rows.sort(key=lambda r: r.price_per_night)
+                  print(f"\n{city} {cin} -> {cout}: {len(rows)} hotels")
+                  for r in rows[:4]:
+                      print(f"  - {r.name[:45]:45} €{r.price_per_night:7.2f}/night x{r.nights} rating {r.rating} ({r.review_count})")
+              print("\nbooking_url:", outcome.results[0].booking_url if outcome.results else None)
 
           asyncio.run(main())
           EOF

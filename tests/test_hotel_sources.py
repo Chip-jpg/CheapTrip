@@ -1,8 +1,9 @@
-"""Hotel sources: Google Hotels parsing (live fixture) and date guard, Booking and HolidayPirates fixes."""
+"""Hotel sources: Google Hotels stays in ts= (live fixtures), date guard and cooldown; Booking and HolidayPirates."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -13,11 +14,20 @@ from config import get_settings
 from scrapers import google_hotels
 from scrapers.base import ScrapeStatus
 from scrapers.booking_com import BookingComScraper, is_waf_challenge, parse_price_text
-from scrapers.google_hotels import GoogleHotelsScraper, dates_match, parse_cards
+from scrapers.google_flights import COOLDOWN_STATE_KEY, GoogleFlightsScraper
+from scrapers.google_hotels import GoogleHotelsScraper, dates_match, encode_stay, parse_cards, search_url
 from scrapers.holiday_pirates import HolidayPiratesHotelScraper
+from storage.database import get_state, init_db, set_state
 from storage.models import SearchTask
+from utils import protobuf as pb
+from utils.timeutil import utcnow
 
-FIXTURE = (Path(__file__).parent / "fixtures" / "google_hotels_krakow.html").read_text(encoding="utf-8")
+FIXTURES = Path(__file__).parent / "fixtures"
+# Default dates (tonight, Sep 28 – 29): what Google showed before stays could be set
+FIXTURE = (FIXTURES / "google_hotels_krakow.html").read_text(encoding="utf-8")
+# Searched with ts= for Nov 13 – 16 2026; the third card has a deal badge and no dates
+DATED = (FIXTURES / "google_hotels_krakow_dated.html").read_text(encoding="utf-8")
+NOV_13 = date(2026, 11, 13)
 
 
 @pytest.fixture
@@ -33,16 +43,78 @@ def enabled_hotels(monkeypatch):
     get_settings.cache_clear()
 
 
-def _task(check_in: date, nights: int) -> SearchTask:
-    return SearchTask(destination="KRK", depart_from=check_in, depart_to=check_in, nights_min=nights, nights_max=nights)
+def _task(check_in: date, nights: int, adults: int = 1) -> SearchTask:
+    return SearchTask(destination="KRK", depart_from=check_in, depart_to=check_in, nights_min=nights,
+                      nights_max=nights, adults=adults)
 
 
 # ── Google Hotels ────────────────────────────────────────────────────────────
 
-def test_disabled_by_default():
+def test_google_hotels_on_and_booking_off_by_default():
     get_settings.cache_clear()
-    assert GoogleHotelsScraper().enabled is False
+    assert GoogleHotelsScraper().enabled is True
     assert BookingComScraper().enabled is False
+
+
+def test_turned_off_in_settings(monkeypatch):
+    monkeypatch.setenv("ENABLE_GOOGLE_HOTELS", "false")
+    get_settings.cache_clear()
+    scraper = GoogleHotelsScraper()
+    assert scraper.enabled is False and scraper.disabled_reason == "ENABLE_GOOGLE_HOTELS=false"
+    get_settings.cache_clear()
+
+
+def test_stay_is_the_url_checked_live():
+    # This exact URL returned Krakow prices for Nov 13 – 16 (3 nights) when B48 was checked live
+    assert encode_stay("Krakow", NOV_13, date(2026, 11, 16)) == \
+        "CAEaKAoKEgg6BktyYWtvdxIaEhQKBwjqDxALGA0SBwjqDxALGBAYAzICCAEqBwoFOgNFVVI"
+    q = {k: v[0] for k, v in parse_qs(urlparse(search_url("Krakow", NOV_13, date(2026, 11, 16))).query).items()}
+    assert q == {"q": "hotels in Krakow", "ts": encode_stay("Krakow", NOV_13, date(2026, 11, 16)),
+                 "hl": "en", "curr": "EUR"}
+
+
+def test_stay_encodes_place_dates_nights_guests_and_currency():
+    message = pb.decode(pb.from_url_param(encode_stay("New York", date(2026, 12, 30), date(2027, 1, 4), adults=2)))
+    place_and_search = pb.decode(message[3][0])
+    assert pb.decode(pb.decode(place_and_search[1][0])[2][0]) == {7: [b"New York"]}
+    search = pb.decode(place_and_search[2][0])
+    stay = pb.decode(search[2][0])
+    assert pb.decode(stay[1][0]) == {1: [2026], 2: [12], 3: [30]}
+    assert pb.decode(stay[2][0]) == {1: [2027], 2: [1], 3: [4]}
+    assert stay[3] == [5]                                     # nights
+    assert pb.decode(search[6][0]) == {1: [2]}                # adults
+    assert pb.decode(pb.decode(message[5][0])[1][0]) == {7: [b"EUR"]}
+
+
+def test_parse_dated_cards_and_the_deal_badge():
+    cards = parse_cards(DATED)
+    assert [c.name for c in cards] == [
+        "GoldStar Luxury Old Town Krakow Apartment", "Wyndham Grand Krakow Old Town", "Antique Apartments",
+    ]
+    goldstar, wyndham, antique = cards
+    assert (goldstar.total_eur, goldstar.nights, goldstar.dates_text) == (236.0, 3, "Nov 13\u2009–\u200916")
+    assert wyndham.stars == 5 and wyndham.review_count == 1078
+    # "Antique Apartments GREAT DEAL 29% less than usual" in the label; no dates on the card
+    assert (antique.below_usual_pct, antique.dates_text, antique.total_eur) == (29, None, 189.0)
+    assert goldstar.below_usual_pct is None
+
+
+def test_dated_page_keeps_the_cards_without_dates(enabled_hotels):
+    results = GoogleHotelsScraper().results_for(DATED, _task(NOV_13, 3), "Krakow", "https://x")
+
+    assert [r.name for r in results] == [
+        "GoldStar Luxury Old Town Krakow Apartment", "Wyndham Grand Krakow Old Town", "Antique Apartments",
+    ]
+    antique = results[2]
+    assert antique.price_per_night == 63.0 and antique.nights == 3     # €189 total incl. taxes / 3
+    assert (antique.check_in, antique.check_out) == (NOV_13, date(2026, 11, 16))
+    assert antique.rating == 9.0 and antique.review_count == 1049 and antique.location == "Krakow"
+
+
+def test_dated_page_for_other_dates_gives_nothing(enabled_hotels):
+    scraper = GoogleHotelsScraper()
+    assert scraper.results_for(DATED, _task(NOV_13, 2), "Krakow", "https://x") == []
+    assert scraper.results_for(DATED, _task(NOV_13 + timedelta(days=7), 3), "Krakow", "https://x") == []
 
 
 def test_parse_live_cards():
@@ -90,14 +162,53 @@ async def test_ignored_dates_are_reported_as_blocked(enabled_hotels):
     assert outcome.count == 0
 
 
-async def test_matching_dates_via_http(enabled_hotels):
+async def test_stay_searched_via_http(enabled_hotels):
     with respx.mock() as router:
         route = router.get(url__startswith="https://www.google.com/travel/search").mock(
-            return_value=httpx.Response(200, text=FIXTURE))
-        outcome = await GoogleHotelsScraper().safe_scrape([_task(date(2026, 9, 28), 1)])
-    assert outcome.status == ScrapeStatus.OK and outcome.count == 4
+            return_value=httpx.Response(200, text=DATED))
+        outcome = await GoogleHotelsScraper().safe_scrape([_task(NOV_13, 3, adults=2)])
+    assert outcome.status == ScrapeStatus.OK and outcome.count == 3
     params = dict(route.calls[0].request.url.params)
-    assert params["q"] == "hotels in Krakow" and params["checkin"] == "2026-09-28" and params["checkout"] == "2026-09-29"
+    assert params["q"] == "hotels in Krakow"
+    assert params["ts"] == encode_stay("Krakow", NOV_13, date(2026, 11, 16), adults=2)
+    assert outcome.results[0].booking_url == search_url("Krakow", NOV_13, date(2026, 11, 16), adults=2)
+
+
+async def test_bot_check_page_cools_down_both_google_sources(enabled_hotels):
+    await init_db()
+    with respx.mock() as router:
+        route = router.get(url__startswith="https://www.google.com/travel/search").mock(
+            return_value=httpx.Response(200, text="<html>Before you continue to Google</html>"))
+        outcome = await GoogleHotelsScraper().safe_scrape([_task(NOV_13, 3), _task(NOV_13, 4)])
+    assert outcome.status == ScrapeStatus.BLOCKED and route.call_count == 1
+
+    flights = GoogleFlightsScraper()
+    await flights.begin_cycle()  # the next cycle: Google Flights waits too
+    assert flights.enabled is False and "cooling down" in flights.disabled_reason
+    assert await get_state(COOLDOWN_STATE_KEY)
+
+
+async def test_hotels_skip_google_once_flights_were_blocked_this_cycle(enabled_hotels):
+    await init_db()
+    hotels = GoogleHotelsScraper()
+    await hotels.begin_cycle()
+    await set_state(COOLDOWN_STATE_KEY, (utcnow() + timedelta(hours=2)).isoformat())  # Google Flights, meanwhile
+    with respx.mock(assert_all_called=False) as router:
+        route = router.get(url__startswith="https://www.google.com/travel/search").mock(
+            return_value=httpx.Response(200, text=DATED))
+        outcome = await hotels.safe_scrape([_task(NOV_13, 3)])
+    assert route.call_count == 0 and outcome.count == 0 and hotels.enabled is False
+
+
+async def test_cooldown_end_keeps_hotels_turned_off_in_settings(monkeypatch):
+    monkeypatch.setenv("ENABLE_GOOGLE_HOTELS", "false")
+    get_settings.cache_clear()
+    await init_db()
+    await set_state(COOLDOWN_STATE_KEY, (utcnow() - timedelta(minutes=1)).isoformat())
+    hotels = GoogleHotelsScraper()
+    await hotels.begin_cycle()
+    assert hotels.enabled is False and hotels.disabled_reason == "ENABLE_GOOGLE_HOTELS=false"
+    get_settings.cache_clear()
 
 
 # ── Booking.com ──────────────────────────────────────────────────────────────

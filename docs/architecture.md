@@ -12,21 +12,31 @@ retention purge ─► price history > 45 days, deals expired > 7 days, old aler
         ▼
 SearchPlanner.plan ─► tasks per source (scheduler/planner.py)
         │   • each source declares a capability: ANYWHERE (Ryanair, Travelpayouts),
-        │     ROUTE_DATE (Google Flights, Skyscanner), CITY_DATES (hotels), FEED (posts)
+        │     ROUTE_DATE (Google Flights, Skyscanner), CITY_DATES (hotels: planned later, from the flights),
+        │     FEED (posts)
         │   • a per-source budget (calls_per_cycle) and a rotation cursor stored in the DB,
         │     so every destination and date slot is covered over successive cycles
         │   • priority destinations get up to half of a route source's budget
         │   • long-haul sources give 20% to searches from repositioning hubs
         ▼
-ScraperAggregator ─► feeds once, search sources with their tasks, hotels (concurrently)
+ScraperAggregator ─► feeds once (flight and hotel posts), search sources with their tasks (concurrently)
         │   every outcome (ok / empty / partial / error / rate_limited / blocked / disabled)
         │   is recorded in scraper_health; FAILING and recovered notices go to Telegram once
         ▼
-normalize_flights / normalize_hotels ─► EUR, confidence, grouping per itinerary / stay
+normalize_flights ─► EUR, confidence, grouping per itinerary
+        │
+        ▼
+SearchPlanner.plan_hotels ─► one hotel search per stay of the cycle's most promising fares
+        │   (priority destinations, then furthest below their usual price, then cheapest;
+        │   GOOGLE_HOTELS_CALLS_PER_CYCLE), then ScraperAggregator.collect_hotels
+        │   Google Hotels gets the stay in the URL (ts=) and shares Google Flights' cooldown
+        ▼
+normalize_hotels ─► EUR, confidence, grouping per stay
         │
         ▼
 build_trips (trip_builder/builder.py)
-        │   flight-only · package · hotel-only · complete (same dates) · repositioned
+        │   flight-only (+ the cheapest quality hotel for exactly its stay, shown, not priced in)
+        │   · package · hotel-only · repositioned
         │   stay length → trip profile → feasibility (travel hours vs trip length) → category
         │   PriceIndex: baseline per (origin city, destination city, round trip / one way,
         │   length profile), fares departing ±30 days, EARLIER cycles → normal price, discount, anomaly

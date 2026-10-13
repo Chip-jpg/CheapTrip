@@ -89,12 +89,12 @@ async def _seed(folder: Path, days: int) -> None:
     from scheduler.engine import Engine
     from scrapers.aggregator import ScraperAggregator
     from storage.database import get_db_path, init_db
-    from tests.harness import FakeFlightScraper, flight
+    from tests.harness import FakeFlightScraper, FakeHotelScraper, flight
 
     await init_db()
     fares = [flight(destination=code, price=40.0 + i, days_ahead=20 + i % 30, nights=3) for i, code in enumerate(codes)]
-    engine = Engine(await TelegramNotifier.create(), ScraperAggregator(flight_scrapers=[FakeFlightScraper(fares)]),
-                    telegram_commands=False)
+    aggregator = ScraperAggregator(flight_scrapers=[FakeFlightScraper(fares)], hotel_scrapers=[FakeHotelScraper()])
+    engine = Engine(await TelegramNotifier.create(), aggregator, telegram_commands=False)
     await engine.run_cycle()
     await engine.stop()
     try:
@@ -136,7 +136,7 @@ async def _measure(folder: Path) -> dict:
     from scrapers.aggregator import ScraperAggregator
     from storage.database import get_db_path, init_db
     from storage.price_analytics import PriceIndex
-    from tests.harness import FakeFlightScraper, flight
+    from tests.harness import FakeFlightScraper, FakeHotelScraper, flight
 
     result: dict = {}
     started = time.perf_counter()
@@ -157,8 +157,8 @@ async def _measure(folder: Path) -> dict:
     rng = random.Random(3)
     fares = [flight(destination=rng.choice(codes), price=rng.uniform(30, 150), days_ahead=rng.randint(5, 90),
                     nights=rng.choice([2, 3, 4, 6, 10])) for _ in range(SEARCH_FARES)]
-    engine = Engine(await TelegramNotifier.create(), ScraperAggregator(flight_scrapers=[FakeFlightScraper(fares)]),
-                    telegram_commands=False)
+    aggregator = ScraperAggregator(flight_scrapers=[FakeFlightScraper(fares)], hotel_scrapers=[FakeHotelScraper()])
+    engine = Engine(await TelegramNotifier.create(), aggregator, telegram_commands=False)
     client = TestClient(TestServer(create_app(engine, "bench")))  # the screens are open while it searches
     await client.start_server()
     opened = {"count": 0}
