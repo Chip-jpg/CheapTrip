@@ -78,8 +78,11 @@ def _legs(trip: Trip) -> List[Dict[str, Any]]:
 
 
 def _hotel_search(trip: Trip, city: Optional[str], adults: int) -> Optional[str]:
+    """Google Hotels for the stay when a hotel was priced (B48), else a Booking.com search for it."""
     if not (city and trip.departure_date and trip.return_date and trip.return_date > trip.departure_date):
         return None
+    if trip.hotel_offer and trip.hotel_offer.booking_url:
+        return trip.hotel_offer.booking_url
     return booking_search_url(city, trip.departure_date, trip.return_date, adults=adults)
 
 
@@ -117,6 +120,7 @@ def deal_record(
         "is_muted": bool(dest) and dest in prefs.excluded_destinations,
         "flight": None,
         "hotel": _hotel(trip.hotel) if trip.hotel else None,
+        "hotel_offer": _hotel(trip.hotel_offer) if trip.hotel_offer else None,
         "package_hotel": leg.package_hotel if leg and leg.is_package else None,
         "legs": _legs(trip) if DealType(trip.deal_type) == DealType.REPOSITIONED else [],
         "links": {

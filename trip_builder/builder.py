@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from typing import List, Optional
+from datetime import date
+from typing import Dict, List, Optional, Tuple
 
 from preferences import get_preferences
 from scheduler.planner import all_origins
@@ -15,13 +16,12 @@ from storage.price_analytics import AnomalyResult, PriceIndex, record_fares
 from trip_builder.categorizer import categorize_trip
 from trip_builder.cost_calculator import (
     assign_verdict,
-    calculate_trip_total,
     compute_discount_pct,
-    estimate_normal_price,
 )
 from trip_builder.feasibility import check_feasibility, get_trip_profile
 from trip_builder.repositioning import find_repositioning_opportunities
 from utils import airports
+from utils.airport_clusters import expand_to_cluster
 from utils.confidence import compute_booking_confidence, compute_trip_confidence
 from utils.logging_config import get_logger
 
@@ -48,6 +48,36 @@ def _hotel_airports(location: str) -> List[str]:
     if not codes and "," in location:
         codes = airports.airports_in_city(location.split(",")[0])
     return codes
+
+
+Stay = Tuple[str, date, int]  # (destination airport, check-in, nights)
+
+
+def _hotels_by_stay(hotel_deals: List[HotelDeal]) -> Dict[Stay, List[HotelDeal]]:
+    """Searched hotels that pass the quality bar, by each airport serving their city and their stay."""
+    min_reviews = get_preferences().min_hotel_review_count
+    stays: Dict[Stay, List[HotelDeal]] = {}
+    for hotel in hotel_deals:
+        if not hotel.meets_quality_threshold or hotel.is_feed_deal or not hotel.check_in:
+            continue  # deal-site hotel posts become hotel-only deals
+        if min_reviews and hotel.review_count is not None and hotel.review_count < min_reviews:
+            continue  # too few reviews to trust the rating (unknown counts are kept, as in the hard filters)
+        for airport in _hotel_airports(hotel.location):
+            stays.setdefault((airport, hotel.check_in, hotel.nights), []).append(hotel)
+    return stays
+
+
+def _cheapest_stay(stays: Dict[Stay, List[HotelDeal]], leg: FlightLeg) -> Optional[HotelDeal]:
+    """
+    The cheapest hotel at the flight's destination (or a cluster mate) for exactly
+    its dates. A hotel isn't a deal of its own: it's shown with the flight, so one
+    cheap fare stays one alert (pairing each hotel as a deal sent up to four).
+    """
+    nights = leg.stay_nights
+    if nights is None:
+        return None  # a hotel stay needs the flight's dates
+    found = [h for da in expand_to_cluster(leg.destination) for h in stays.get((da, leg.departure_date, nights), [])]
+    return min(found, key=lambda h: h.total_price_eur, default=None)
 
 
 def _apply_anomaly_to_trip(trip: Trip, anomaly: AnomalyResult) -> None:
@@ -98,73 +128,44 @@ async def build_trips(
     flight_legs: List[FlightLeg],
     hotel_deals: List[HotelDeal],
     cycle_id: Optional[str] = None,
+    price_index: Optional[PriceIndex] = None,
 ) -> List[Trip]:
     """
     Core trip assembly. Produces:
-    1. Flight-only deals (direct)
-    2. Complete trips (flight + hotel)
+    1. Flight-only deals (direct), each with the cheapest hotel for its stay
+    2. Hotel-only deals (deal-site hotel posts)
     3. Repositioned multi-leg trips
 
-    Fares are judged against baselines from earlier cycles only, then this
-    cycle's fares are added to the price history under `cycle_id`.
+    Fares are judged against baselines from earlier cycles only (`price_index`,
+    loaded here unless the caller already has it), then this cycle's fares are
+    added to the price history under `cycle_id`.
     """
     trips: List[Trip] = []
     cycle_id = cycle_id or uuid.uuid4().hex[:12]
-    price_index = await PriceIndex.load(exclude_cycle=cycle_id)
+    if price_index is None:
+        price_index = await PriceIndex.load(exclude_cycle=cycle_id)
 
     # Trips start from the user's home airports (and their cluster mates);
     # legs from other airports only feed repositioning.
     home_origins = set(all_origins(get_preferences()))
 
-    # ── 1. Direct flight-only deals ──────────────────────────────────────────
+    # ── 1. Direct flight-only deals, with a hotel for exactly their stay ─────
+    stays = _hotels_by_stay(hotel_deals)
     for leg in flight_legs:
         if leg.origin not in home_origins:
             continue
         trip = _build_package_trip(leg) if leg.is_package else _build_flight_only_trip(leg, price_index)
         if trip:
+            if not leg.is_package:
+                trip.hotel_offer = _cheapest_stay(stays, leg)
             trips.append(trip)
 
-    # ── 2. Complete trip (flight + hotel) ────────────────────────────────────
-    # Index quality hotels by destination airport (skip hotels below quality threshold)
-    hotel_by_dest: dict[str, List[HotelDeal]] = {}
-    for hotel in hotel_deals:
-        if not hotel.meets_quality_threshold or hotel.is_feed_deal:
-            continue  # deal-site hotel posts become hotel-only deals below
-        for airport in _hotel_airports(hotel.location):
-            hotel_by_dest.setdefault(airport, []).append(hotel)
-
-    from utils.airport_clusters import expand_to_cluster
-    for leg in flight_legs:
-        if leg.origin not in home_origins or leg.is_package:
-            continue
-        nights = leg.stay_nights
-        if nights is None:
-            continue  # a hotel stay needs the flight's dates
-        # Hotels at the destination or a cluster mate, for exactly the flight's stay
-        dest_hotels: List[HotelDeal] = []
-        seen_hotels = set()
-        for da in expand_to_cluster(leg.destination):
-            for h in hotel_by_dest.get(da, []):
-                if h.check_in != leg.departure_date or h.nights != nights:
-                    continue
-                key = f"{h.name}_{h.location}"
-                if key not in seen_hotels:
-                    seen_hotels.add(key)
-                    dest_hotels.append(h)
-
-        # Sort by price and take top 3
-        dest_hotels.sort(key=lambda h: h.total_price_eur)
-        for hotel in dest_hotels[:3]:
-            trip = _build_complete_trip(leg, hotel, price_index)
-            if trip:
-                trips.append(trip)
-
-    # ── 3. Hotel-only deals (deal-site hotel posts) ──────────────────────────
+    # ── 2. Hotel-only deals (deal-site hotel posts) ──────────────────────────
     for hotel in hotel_deals:
         if hotel.is_feed_deal:
             trips.append(_build_hotel_only_trip(hotel))
 
-    # ── 4. Repositioned trips ────────────────────────────────────────────────
+    # ── 3. Repositioned trips ────────────────────────────────────────────────
     prefs = get_preferences()
     repo_opportunities = find_repositioning_opportunities(
         flight_legs, primary_origins=sorted(home_origins), hub_airports=prefs.repositioning_hubs,
@@ -257,47 +258,6 @@ def _build_hotel_only_trip(hotel: HotelDeal) -> Trip:
         verdict="SEE THE OFFER",
     )
     trip.compute_totals()
-    _finalize_trip(trip)
-    return trip
-
-
-def _build_complete_trip(leg: FlightLeg, hotel: HotelDeal, price_index: PriceIndex) -> Optional[Trip]:
-    nights = hotel.nights
-    route = _make_route_string(leg.origin, leg.destination)
-
-    anomaly = price_index.check(leg)
-    total_cost = calculate_trip_total(leg, None, hotel, [])
-    normal = estimate_normal_price(route, anomaly.normal_price, None, nights)
-
-    discount = compute_discount_pct(total_cost, normal)
-    is_europe = _is_short_haul(leg.origin, leg.destination)
-    confidence = compute_trip_confidence([leg.data_confidence_score, hotel.data_confidence_score])
-    verdict = assign_verdict(total_cost, discount, confidence, is_europe)
-
-    trip = Trip(
-        trip_id=str(uuid.uuid4())[:8],
-        deal_type=DealType.COMPLETE_TRIP,
-        route=route,
-        outbound_flight=leg,
-        hotel=hotel,
-        flight_cost_eur=leg.price_eur,
-        hotel_cost_eur=hotel.total_price_eur,
-        total_cost_eur=total_cost,
-        normal_price_eur=normal,
-        avg_historical_price_eur=anomaly.normal_price,
-        discount_pct=discount,
-        departure_date=leg.departure_date,
-        return_date=leg.return_date,
-        nights=nights,
-        data_confidence_score=confidence,
-        source_list=list({leg.source, hotel.source}),
-        verdict=verdict,
-    )
-
-    # Historical anomaly on the flight leg
-    if anomaly.is_anomaly:
-        _apply_anomaly_to_trip(trip, anomaly)
-
     _finalize_trip(trip)
     return trip
 

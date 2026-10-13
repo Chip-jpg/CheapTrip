@@ -98,10 +98,11 @@ function Trip({ d }: { d: Detail }) {
 }
 
 function Hotel({ d }: { d: Detail }) {
-  const h = d.hotel;
+  const offer = d.hotel ? null : d.hotel_offer ?? null;  // the cheapest hotel found for this flight's stay
+  const h = d.hotel ?? offer;
   if (!h && !d.package_hotel) return null;
   return (
-    <Section title={d.type === "package" ? "The package" : "The hotel"}
+    <Section title={d.type === "package" ? "The package" : offer ? "A hotel for these dates" : "The hotel"}
              right={h ? `${euros(h.price_per_night, 2)} a night` : undefined}>
       <div className="flex items-start gap-space-md">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-surface-container-high text-primary">
@@ -122,7 +123,12 @@ function Hotel({ d }: { d: Detail }) {
           </span>
         </div>
       </div>
-      {h?.booking_url && <a className="btn-secondary self-start" href={h.booking_url} target="_blank" rel="noreferrer">Open the hotel</a>}
+      {offer && <span className="text-caption text-outline">The cheapest on Google Hotels for this stay. It isn't in the deal's price.</span>}
+      {h?.booking_url && (
+        <a className="btn-secondary self-start" href={h.booking_url} target="_blank" rel="noreferrer">
+          {offer ? "See hotels for these dates" : "Open the hotel"}
+        </a>
+      )}
     </Section>
   );
 }
@@ -202,7 +208,7 @@ export function DealDetail({ id }: { id: string }) {
                 )}
                 {d.links.hotels && (
                   <a className="btn-secondary h-9" href={d.links.hotels} target="_blank" rel="noreferrer">
-                    <Icon name="apartment" size={18} />Hotels
+                    <Icon name="apartment" size={18} />Hotels{d.hotel_offer ? ` from ${euros(d.hotel_offer.price_per_night)}` : ""}
                   </a>
                 )}
                 {d.destination && (

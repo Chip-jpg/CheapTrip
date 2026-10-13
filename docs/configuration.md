@@ -27,13 +27,14 @@ Start from `.env.example`. Names are case-insensitive environment variables.
 | `RYANAIR_MARKET` | empty | e.g. `it-it`, `en-gb`. Empty: the `market` preference, else your home country. |
 | `RYANAIR_CALLS_PER_CYCLE` | `30` | Searches per cycle. |
 | `GOOGLE_FLIGHTS_CALLS_PER_CYCLE` | `6` | Google throttles datacenter IPs; keep it small. |
-| `GOOGLE_FLIGHTS_COOLDOWN_HOURS` | `3` | Pause after a 429 or bot-check page. Stored in the database, so separate `main.py cycle` runs respect it too. |
+| `GOOGLE_FLIGHTS_COOLDOWN_HOURS` | `3` | Pause Google Flights and Google Hotels after a 429 or bot-check page from either. Stored in the database, so separate `main.py cycle` runs respect it too. |
 | `TRAVELPAYOUTS_CALLS_PER_CYCLE` | `30` | |
 | `ENABLE_PIRATINVIAGGIO` | `true` | Italian deal posts; runs when `ANTHROPIC_API_KEY` is set and a home airport is in Italy. |
 | `AI_EXTRACTION_MAX_POSTS_PER_CYCLE` | `30` | New posts sent to Claude per cycle (each post is read once). |
 | `ENABLE_SKYSCANNER` | `false` | `SKYSCANNER_MAX_CALLS_PER_CYCLE` (20) caps calls; a 429 pauses it until midnight UTC. |
 | `ENABLE_BOOKING_HTML` | `false` | Booking.com answers plain HTTP with a bot wall. |
-| `ENABLE_GOOGLE_HOTELS` | `false` | Stay dates can't be set yet. |
+| `ENABLE_GOOGLE_HOTELS` | `true` | After the flights, prices a hotel for the stays of the best fares; each flight deal shows the cheapest one. |
+| `GOOGLE_HOTELS_CALLS_PER_CYCLE` | `6` | Hotel searches per cycle (one per stay). Same Google limits as flights. |
 | `ENABLE_SECRET_FLYING` | `false` | Behind Cloudflare. |
 | `ENABLE_GOING` | `false` | JavaScript-only site. |
 | `ENABLE_HOLIDAY_PIRATES` | `false` | UK edition (GBP packages from UK airports). |

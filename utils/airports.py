@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 _DATA_PATH = Path(__file__).parent / "data" / "airports.csv"
+_COUNTRIES_PATH = Path(__file__).parent / "data" / "countries.csv"
 
 
 class Region(str, Enum):
@@ -295,6 +296,24 @@ def city_of(iata: str) -> str:
         return CLUSTER_OF[code]
     airport = get(code)
     return airport.city if airport else code
+
+
+@lru_cache(maxsize=1)
+def _country_names() -> Dict[str, str]:
+    with _COUNTRIES_PATH.open(encoding="utf-8", newline="") as f:
+        return {row["code"]: row["name"] for row in csv.DictReader(f)}
+
+
+def country_name(iata: str) -> Optional[str]:
+    """English name of an airport's country ("Italy"), or None when unknown."""
+    airport = get(iata)
+    return _country_names().get(airport.country) if airport else None
+
+
+def city_and_country(iata: str) -> str:
+    """'Naples, Italy': a city name searches can't confuse with another (plain 'Naples' is in Florida)."""
+    city, country = city_of(iata), country_name(iata)
+    return f"{city}, {country}" if country else city
 
 
 def region_of(iata: str) -> Region:

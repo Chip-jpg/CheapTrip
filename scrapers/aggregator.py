@@ -83,10 +83,26 @@ class ScraperAggregator:
         log.info("feed_flights_collected", total=len(results), sources=stats)
         return results, stats
 
+    async def collect_feed_hotels(self) -> Tuple[List[RawHotelResult], dict]:
+        """Deal-site hotel posts; called once per cycle. Returns (results, stats by source)."""
+        results, stats = await self._run([s for s in self._hotel_scrapers if s.is_feed], None)
+        log.info("feed_hotels_collected", total=len(results), sources=stats)
+        return results, stats
+
     async def collect_hotels(self, plan: CyclePlan) -> Tuple[List[RawHotelResult], dict]:
-        results, stats = await self._run(self._hotel_scrapers, plan)
+        """Search-based hotel sources with the stays planned from this cycle's flights."""
+        searches = [s for s in self._hotel_scrapers if not s.is_feed]
+        results, stats = await self._run(searches, plan)
+        for scraper in searches:  # planned with the cycle, but no fare had a stay to price
+            if scraper.enabled and scraper.source_id not in stats:
+                get_event_bus().publish("source_done", source=scraper.source_id, status="empty", count=0)
         log.info("hotels_collected", total=len(results), sources=stats)
         return results, stats
+
+    @property
+    def hotel_search_sources(self) -> list:
+        """Enabled hotel sources searched after the flights (announced with the cycle's plan)."""
+        return [s for s in self._hotel_scrapers if s.enabled and not s.is_feed]
 
     @staticmethod
     async def _scrape(scraper, tasks: list) -> ScrapeOutcome:

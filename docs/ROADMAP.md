@@ -2,7 +2,7 @@
 
 ## Where things stand (release v0.8.3)
 
-Every card below (B01–B47) is merged into `main`, and v0.8.3 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45 (v0.8.1), the optimizations in B46 (v0.8.2), and B47: the window no longer goes black, a bigger UI with a text size setting, and every button tested. The progress tracker at the end has the details. In short:
+Every card below (B01–B47) is merged into `main`, and v0.8.3 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45 (v0.8.1), the optimizations in B46 (v0.8.2), and B47: the window no longer goes black, a bigger UI with a text size setting, and every button tested. B48 adds real hotel prices, for the next release. The progress tracker at the end has the details. In short:
 
 - **The app (Windows):** one setup `.exe` from the [releases](https://github.com/Chip-jpg/CheapTrip/releases), with no admin rights needed.
   - It is a desktop app in the owner's design ("Fluent Deal Radar"), in light and dark. Its screens: Deals with a detail panel and charts, Destinations, Activity, Notifications & tray, Settings, and a setup wizard at the first launch.
@@ -10,7 +10,7 @@ Every card below (B01–B47) is merged into `main`, and v0.8.3 is published on G
   - It starts at sign-in; one instance at a time; `cheaptrip://` links.
   - CI builds the installer, installs it and drives the installed app through its API on every change. It also drives the app's real WebView2 window, and presses every button on every screen.
   - Elsewhere: Python (`main.py run`, or `main.py ui` for the screens in a browser) or Docker, as before.
-- **Data:** Ryanair's fare API is the backbone (about 700–780 fares per search). Google Flights adds exact-route searches and pauses itself after a block. Travelpayouts is ready once a token is set. PiratinViaggio posts (flights, packages, hotels) are read by Claude when an Anthropic key is set.
+- **Data:** Ryanair's fare API is the backbone (about 700–780 fares per search). Google Flights adds exact-route searches and pauses itself after a block. Google Hotels then prices a hotel for the stays of the best few fares (B48). Travelpayouts is ready once a token is set. PiratinViaggio posts (flights, packages, hotels) are read by Claude when an Anthropic key is set.
 - **Alerts:** a fare is instant in any of these cases:
   - it is well below the usual price for its route and trip length, among fares departing within 30 days either side;
   - it's for a priority destination;
@@ -20,7 +20,6 @@ Every card below (B01–B47) is merged into `main`, and v0.8.3 is published on G
   Alerts go to the desktop and/or Telegram, with one hourly limit for both.
 - **Control:** the app, the tray, and Telegram commands (`/deals`, `/mute`, `/priority`, `/budget`, `/pause`).
 - **Still open:**
-  - real hotel prices: flight alerts link a Booking.com search instead;
   - a code-signing certificate, so Windows SmartScreen stops warning about the installer;
   - how the tray and notifications look on real PCs: CI drives the real window, but can't display notifications.
 
@@ -471,6 +470,24 @@ The owner's design is built and released as v0.8.0:
 
 **Release v0.8.3:** version and notes; the merge publishes the installer.
 
+### B48: real hotel prices
+**B48 `claude/cheap-trip-tasks-6prz04`** (M): the owner's ask: "we NEED to fix hotel prices asap". Flight alerts only linked a Booking.com search: no hotel source worked (B14).
+- **The source:** Hotellook (Travelpayouts) closed on 20 Oct 2025, and Booking.com is behind AWS WAF. Google Hotels' cards already parsed (B14); the missing piece was choosing the dates.
+  - The stay goes in the URL as a protobuf, `ts=`: the place, check-in and check-out dates, nights, adults and currency (`encode_stay`, on the `utils/protobuf.py` that Google Flights' `tfs=` uses).
+  - **Checked live** (from a GitHub Actions runner, since this sandbox can't reach Google): Krakow 13–16 Nov, Lisbon 27–29 Nov, Barcelona 18–22 Dec for 2 adults, New York 4–9 Dec. Each gave 20 hotels priced for exactly those nights. The Krakow page is the new fixture.
+  - It found two things, now handled: cards with Google's "GREAT DEAL 29% less than usual" badge carried it in the hotel's name, and they print no dates. A page now counts as the requested stay when every card that shows dates shows those; a page for other dates still gives nothing and reports "ignored the requested dates".
+  - **Searches name the country:** live, "Naples" and even "Naples, IT" gave hotels in Naples, Florida; "Naples, Italy" gave Naples. Searches say "city, country" (`airports.city_and_country`, from `utils/data/countries.csv`: OurAirports' English names, written by `scripts/build_airports_csv.py` and bundled in the app). Checked live through the scraper itself on Naples, Valencia, Birmingham and Krakow.
+  - On by default (`ENABLE_GOOGLE_HOTELS`). Prices are the total with taxes, divided by the nights.
+- **Hotels follow the flights:** hotel searches used a rotation of their own, so their dates almost never matched a fare. Now they run after the flights, one per stay of the cycle's most promising fares: priority destinations, then the fares furthest below their usual price, then the cheapest (`SearchPlanner.plan_hotels`, `GOOGLE_HOTELS_CALLS_PER_CYCLE`, 6). Hotel posts (PiratinViaggio, HolidayPirates) still run alongside the flights.
+- **One alert per fare:** pairing hotels as "complete trip" deals would have alerted the same fare up to four times (once alone, once per hotel), each judged against the flight's usual price. Instead each flight deal carries the cheapest quality hotel for exactly its stay (`Trip.hotel_offer`), shown and not added to its price:
+  - Telegram: "🏨 Hotels in Krakow from €63 a night · €189 for 3 nights at Antique Apartments, 9/10", linking Google Hotels for those dates;
+  - Windows notifications: "hotels from €63 a night";
+  - the app: the card's **Hotels** button shows the price, and the deal panel has "A hotel for these dates";
+  - without a priced hotel, the Booking.com search link stays (B26).
+- **Google's limits:** one cooldown for both Google sources (`GoogleCooldown`): a 429 or bot-check page from either pauses both for `GOOGLE_FLIGHTS_COOLDOWN_HOURS`. A search adds about half a minute of hotel requests.
+- **Fixed on the way:** `test_pipeline_alert_says_the_price_is_cached` had failed on `main` since 13 Oct: its Travelpayouts fixture's fares left on 15 Oct, now outside the search window. The test moves them inside it, whatever the date. `scripts/bench.py` uses a fake hotel source, so CI's benchmark stays offline.
+- **Later, if wanted:** use Google's "% less than usual" badge for hotel deals of their own; flight + hotel deals judged on a usual hotel price, once hotel prices have a history.
+
 ---
 
 ## 4. Suggested order
@@ -538,3 +555,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | — | `release/v0.8.2` | done (released as v0.8.2) |
 | B47 | `claude/tender-dirac-w84xw1` | done |
 | — | release v0.8.3 | done (released as v0.8.3) |
+| B48 | `claude/cheap-trip-tasks-6prz04` | done |

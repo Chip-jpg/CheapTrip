@@ -103,11 +103,17 @@ def _per_person() -> str:
 
 
 def _hotel_search_link(trip: Trip) -> str:
-    """No hotel prices yet (B14): link a hotel search for the trip's city and dates instead."""
+    """The cheapest hotel found for the trip's stay (B48); without one, a hotel search for its city and dates."""
     leg = trip.outbound_flight
     if not (leg and trip.departure_date and trip.return_date and trip.return_date > trip.departure_date):
         return ""
     city = airports.city_of(leg.destination)
+    offer = trip.hotel_offer
+    if offer and offer.booking_url:
+        rating = f", {offer.rating:g}/10" if offer.rating else ""
+        nights = f"{offer.nights} night{'s' if offer.nights != 1 else ''}"
+        return (_link(offer.booking_url, f"🏨 Hotels in {city} from €{offer.price_per_night_eur:.0f} a night")
+                + f" · €{offer.total_price_eur:.0f} for {nights} at {_e(offer.name)}{rating}")
     url = booking_search_url(city, trip.departure_date, trip.return_date, adults=_adults())
     return _link(url, f"🏨 Hotels in {city} · {stay_label(trip.departure_date, trip.return_date)}")
 

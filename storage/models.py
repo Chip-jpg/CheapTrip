@@ -148,6 +148,8 @@ class Trip(BaseModel):
     return_flight: Optional[FlightLeg] = None
     repositioning_legs: List[RepositioningLeg] = Field(default_factory=list)
     hotel: Optional[HotelDeal] = None
+    # The cheapest hotel found for exactly this flight's stay (B48): shown with the deal, not in its price
+    hotel_offer: Optional[HotelDeal] = None
 
     # Cost breakdown (all EUR)
     flight_cost_eur: float = 0.0

@@ -110,8 +110,11 @@ export interface Deal {
     round_trip: boolean;
   } | null;
   hotel: HotelInfo | null;
+  /** The cheapest hotel found for exactly this flight's stay: shown with the deal, not in its price */
+  hotel_offer?: HotelInfo | null;
   package_hotel: string | null;
   legs: Leg[];
+  /** hotels: Google Hotels for the stay when hotel_offer is set, else a Booking.com search */
   links: { book: string | null; hotels: string | null };
   notified: { at: string; channels: string[] } | null;
   waiting: boolean;

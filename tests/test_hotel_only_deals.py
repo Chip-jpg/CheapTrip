@@ -107,7 +107,7 @@ async def test_hotel_reader_only_reads_hotel_posts(engine, monkeypatch):
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 async def test_hotel_only_deal_goes_to_the_digest(engine):
-    await engine.run_cycle(hotels=[_feed_hotel(location="Krakow", price_per_night=35.0)])
+    await engine.run_cycle(feed_hotels=[_feed_hotel(location="Krakow", price_per_night=35.0)])
     await engine.run_digest()
 
     assert _alerts(engine) == []
@@ -118,7 +118,7 @@ async def test_hotel_only_deal_goes_to_the_digest(engine):
 async def test_hotel_in_a_priority_city_alerts_instantly(engine):
     engine.set_prefs(priority_destinations=["NAP"])
 
-    await engine.run_cycle(hotels=[_feed_hotel(location="Naples", price_per_night=40.0, rating=9.1)])
+    await engine.run_cycle(feed_hotels=[_feed_hotel(location="Naples", price_per_night=40.0, rating=9.1)])
 
     [alert] = _alerts(engine)
     assert "€40/night</b> per person" in alert
@@ -129,7 +129,7 @@ async def test_hotel_in_a_priority_city_alerts_instantly(engine):
 async def test_min_review_count_filters_hotels(engine):
     engine.set_prefs(priority_destinations=["NAP"], min_hotel_review_count=1000)
 
-    await engine.run_cycle(hotels=[_feed_hotel(location="Naples")])
+    await engine.run_cycle(feed_hotels=[_feed_hotel(location="Naples")])
 
     assert _alerts(engine) == []
 
@@ -137,7 +137,7 @@ async def test_min_review_count_filters_hotels(engine):
 async def test_hotel_posts_are_not_paired_with_flights(engine):
     await engine.run_cycle(
         flights=[flight(destination="KRK", price=300.0, nights=3, days_ahead=14)],
-        hotels=[_feed_hotel(location="Krakow", days_ahead=14, nights=3)],
+        feed_hotels=[_feed_hotel(location="Krakow", days_ahead=14, nights=3)],
     )
 
     async with aiosqlite.connect(await get_db_path()) as db:

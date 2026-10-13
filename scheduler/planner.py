@@ -9,18 +9,22 @@ destination and date instead of re-searching the same few.
 
 Priority destinations are searched first every cycle, from their own
 rotation, using up to half of a source's budget.
+
+Hotel sources are planned after the flights, from them (plan_hotels): each
+search prices a hotel for exactly the stay of one of the cycle's most
+promising fares.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from typing import Dict, Iterable, List, Optional, Sequence
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence
 
 from config import POPULAR_DESTINATIONS
 from preferences import UserPreferences
 from scrapers.base import SearchCapability
 from storage.database import get_search_cursor, set_search_cursor
-from storage.models import SearchTask, TripLengthProfile
+from storage.models import FlightLeg, SearchTask
 from trip_builder.date_discovery import (
     date_chunks,
     departure_slots,
@@ -32,14 +36,15 @@ from utils import airports
 from utils.airport_clusters import expand_list_to_clusters, get_cluster_name
 from utils.logging_config import get_logger
 
+if TYPE_CHECKING:
+    from storage.price_analytics import PriceIndex
+
 log = get_logger(__name__)
 
 # Share of a source's budget reserved for priority destinations each cycle.
 PRIORITY_SHARE = 0.5
 # Share of a long-haul source's budget for searches from repositioning hubs (allow_repositioning)
 REPOSITIONING_SHARE = 0.2
-# Hotel searches use the shorter trip profiles (B15 will derive them from flight results).
-_HOTEL_PROFILES = (TripLengthProfile.WEEKEND, TripLengthProfile.SHORT)
 
 
 @dataclass
@@ -156,23 +161,6 @@ class SearchPlanner:
             return self._universe(capability, hub_prefs, long_haul)
         return []
 
-    def _hotel_universe(self, prefs: UserPreferences, dests: Sequence[str]) -> List[SearchTask]:
-        profiles = [p for p in profiles_from_prefs(prefs) if p in _HOTEL_PROFILES] or [TripLengthProfile.SHORT]
-        tasks = []
-        slots = {p: departure_slots(p, self.today, prefs.search_window_days) for p in profiles}
-        for i in range(max((len(v) for v in slots.values()), default=0)):
-            for profile in profiles:
-                if i >= len(slots[profile]):
-                    continue
-                check_in = slots[profile][i]
-                nights = nights_range(profile)[0]
-                for dest in dests:
-                    tasks.append(SearchTask(
-                        destination=dest, depart_from=check_in, depart_to=check_in,
-                        nights_min=nights, nights_max=nights, profile=profile,
-                    ))
-        return tasks
-
     def _universe(
         self, capability: SearchCapability, prefs: UserPreferences, dests: Sequence[str]
     ) -> List[SearchTask]:
@@ -182,8 +170,6 @@ class SearchPlanner:
             return self._route_month_universe(prefs, dests)
         if capability == SearchCapability.ANYWHERE:
             return self._anywhere_universe(prefs)
-        if capability == SearchCapability.CITY_DATES:
-            return self._hotel_universe(prefs, dests)
         return []
 
     # ── Rotation ──────────────────────────────────────────────────────────────
@@ -197,14 +183,14 @@ class SearchPlanner:
         return picked
 
     async def plan(self, prefs: UserPreferences, sources: Iterable) -> CyclePlan:
-        """Build this cycle's tasks for every enabled, non-feed source."""
+        """Build this cycle's tasks for every enabled flight source (hotels: plan_hotels, from the flights)."""
         plan = CyclePlan()
         all_dests = destinations(prefs)
         priority = [d for d in all_dests if d in {p.upper() for p in prefs.priority_destinations}]
         regular = [d for d in all_dests if d not in priority]
 
         for source in sources:
-            if not source.enabled or source.capability == SearchCapability.FEED:
+            if not source.enabled or source.capability in (SearchCapability.FEED, SearchCapability.CITY_DATES):
                 continue
             budget = max(0, source.calls_per_cycle())
             capability = source.capability
@@ -239,6 +225,51 @@ class SearchPlanner:
             for task in tasks:
                 task.adults = prefs.adults
         log.info("search_plan", tasks={k: len(v) for k, v in plan.tasks.items()})
+        return plan
+
+    def plan_hotels(
+        self,
+        prefs: UserPreferences,
+        legs: Iterable[FlightLeg],
+        sources: Iterable,
+        price_index: Optional["PriceIndex"] = None,
+    ) -> CyclePlan:
+        """
+        Hotel searches for this cycle's most promising fares, so a flight deal can
+        show what a hotel costs for exactly its stay: one search per destination
+        city and dates, priority destinations first, then the fares furthest below
+        their usual price, then the cheapest. Each hotel source gets its budget's worth.
+        """
+        home = set(all_origins(prefs))
+        priority = {c.upper() for c in prefs.priority_destinations}
+        excluded = {c.upper() for c in prefs.excluded_destinations}
+
+        def rank(leg: FlightLeg) -> tuple:
+            deviation = price_index.check(leg).deviation_pct if price_index else None
+            return leg.destination not in priority, deviation is None, deviation or 0.0, leg.price_eur
+
+        stays: List[SearchTask] = []
+        seen = set()
+        candidates = [
+            leg for leg in legs
+            if leg.origin in home and leg.stay_nights and not leg.is_package and leg.destination not in excluded
+        ]
+        for leg in sorted(candidates, key=rank):
+            key = (airports.city_of(leg.destination), leg.departure_date, leg.return_date)
+            if key in seen:
+                continue
+            seen.add(key)
+            stays.append(SearchTask(
+                destination=leg.destination, depart_from=leg.departure_date, depart_to=leg.departure_date,
+                nights_min=leg.stay_nights, nights_max=leg.stay_nights,
+                priority=leg.destination in priority, adults=prefs.adults,
+            ))
+
+        plan = CyclePlan()
+        for source in sources:
+            if source.enabled and source.capability == SearchCapability.CITY_DATES:
+                plan.tasks[source.source_id] = [t.model_copy() for t in stays[:max(0, source.calls_per_cycle())]]
+        log.info("hotel_plan", stays=len(stays), tasks={k: len(v) for k, v in plan.tasks.items()})
         return plan
 
     def plan_route(

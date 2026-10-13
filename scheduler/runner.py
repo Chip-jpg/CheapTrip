@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import uuid
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -32,6 +33,7 @@ from storage.database import (
     start_cycle_record,
 )
 from storage.models import Trip
+from storage.price_analytics import PriceIndex
 from trip_builder.builder import build_trips
 from utils.events import get_event_bus
 from utils.logging_config import get_logger
@@ -87,7 +89,7 @@ async def run_pipeline_cycle(
     """
     Full pipeline execution:
     1. Load user preferences + generate flexible date windows
-    2. Scrape flights + hotels (cluster-expanded airports)
+    2. Scrape flights (cluster-expanded airports), then hotels for their stays
     3. Normalize to EUR + confidence scores
     4. Build trips (direct, complete, repositioned)
     5. Apply hard filters (quality gate + feasibility gate)
@@ -130,15 +132,17 @@ async def run_pipeline_cycle(
 
         # Plan this cycle's searches (budgets + rotation) for every source
         plan = await _planner.plan(prefs, aggregator.sources)
+        hotel_searches = aggregator.hotel_search_sources  # planned below, from the flights
         bus.publish("cycle_planned", sources=[
-            s.source_id for s in aggregator.sources if s.enabled and (s.is_feed or plan.for_source(s.source_id))
+            s.source_id for s in aggregator.sources
+            if s.enabled and (s.is_feed or plan.for_source(s.source_id) or s in hotel_searches)
         ])
 
         # Deal feeds (no search params) run once; search sources run their planned tasks
-        feed_result, flight_result, hotel_result = await asyncio.gather(
+        feed_result, flight_result, feed_hotel_result = await asyncio.gather(
             aggregator.collect_feed_flights(),
             aggregator.collect_flights(plan),
-            aggregator.collect_hotels(plan),
+            aggregator.collect_feed_hotels(),
             return_exceptions=True,
         )
         all_raw_flights = []
@@ -146,12 +150,28 @@ async def run_pipeline_cycle(
         for name, result, bucket in (
             ("feed_flights", feed_result, all_raw_flights),
             ("flights", flight_result, all_raw_flights),
-            ("hotels", hotel_result, all_raw_hotels),
+            ("feed_hotels", feed_hotel_result, all_raw_hotels),
         ):
             if isinstance(result, Exception):
                 log.warning("collect_failed", kind=name, error=str(result))
             else:
                 bucket.extend(result[0])
+
+        # ── Normalize ─────────────────────────────────────────────────────────
+        try:
+            flight_legs = await normalize_flights(all_raw_flights)
+        except Exception as exc:
+            log.warning("normalize_flights_failed", error=str(exc))
+            flight_legs = []
+
+        # ── Hotels for the stays of the most promising fares ──────────────────
+        cycle_key = uuid.uuid4().hex[:12]
+        price_index = await PriceIndex.load(exclude_cycle=cycle_key)
+        hotel_plan = _planner.plan_hotels(prefs, flight_legs, aggregator.sources, price_index)
+        try:
+            all_raw_hotels.extend((await aggregator.collect_hotels(hotel_plan))[0])
+        except Exception as exc:
+            log.warning("collect_failed", kind="hotels", error=str(exc))
 
         log.info(
             "raw_collected",
@@ -159,22 +179,14 @@ async def run_pipeline_cycle(
             hotels=len(all_raw_hotels),
         )
         stats["fares"] = len(all_raw_flights) + len(all_raw_hotels)
-
-        # ── Normalize ─────────────────────────────────────────────────────────
-        normalize_result = await asyncio.gather(
-            normalize_flights(all_raw_flights),
-            normalize_hotels(all_raw_hotels),
-            return_exceptions=True,
-        )
-        flight_legs = normalize_result[0] if not isinstance(normalize_result[0], Exception) else []
-        hotel_deals = normalize_result[1] if not isinstance(normalize_result[1], Exception) else []
-        if isinstance(normalize_result[0], Exception):
-            log.warning("normalize_flights_failed", error=str(normalize_result[0]))
-        if isinstance(normalize_result[1], Exception):
-            log.warning("normalize_hotels_failed", error=str(normalize_result[1]))
+        try:
+            hotel_deals = await normalize_hotels(all_raw_hotels)
+        except Exception as exc:
+            log.warning("normalize_hotels_failed", error=str(exc))
+            hotel_deals = []
 
         # ── Build trips ───────────────────────────────────────────────────────
-        trips = collapse_similar(await build_trips(flight_legs, hotel_deals))
+        trips = collapse_similar(await build_trips(flight_legs, hotel_deals, cycle_key, price_index))
         stats["trips"] = len(trips)
         stats["with_usual_price"] = sum(1 for t in trips if t.normal_price_eur is not None)
         new_instant: List[Trip] = []

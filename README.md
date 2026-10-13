@@ -20,13 +20,13 @@ Sources (concurrent)
   ├── Google Flights .............. exact route + date searches (rate-limit aware)
   ├── Travelpayouts ............... cached prices "to anywhere" (needs a free token)
   ├── PiratinViaggio .............. Italian deal posts read by Claude (needs an Anthropic key)
-  └── Booking link ................ every flight alert links a hotel search for its dates
+  └── Google Hotels ............... then a hotel price for the stay of each of the best fares
         │
         ▼
 Normalize ── EUR prices, confidence per fare, unknown currencies dropped
         │
         ▼
-Build trips ── flight-only, packages, hotel-only, complete, repositioned (via a hub)
+Build trips ── flight-only (with the cheapest hotel for its dates), packages, hotel-only, repositioned (via a hub)
         │       stay length, trip profile, feasibility, category
         ▼
 Price history ── each fare is compared with the same route / length / month
@@ -61,10 +61,9 @@ Everything else goes to the **digest**. On a fresh start there is no price histo
 
 | Type | What it is |
 |---|---|
-| ✈️ Flight | A round trip from a home airport, with a Booking.com link for hotels on the same dates |
+| ✈️ Flight | A round trip from a home airport, with the cheapest Google Hotels price for exactly its dates ("Hotels in Krakow from €63 a night"), or a Booking.com search for them when none was priced. The hotel is shown, not added to the deal's price |
 | 📦 Package | Flight + hotel sold together, from a PiratinViaggio post (price per person) |
 | 🏨 Hotel | A hotel stay from a PiratinViaggio hotel post |
-| 🏨+✈️ Complete trip | A flight plus a hotel from a hotel source on exactly the same dates |
 | 🔀 Repositioned | Home → hub on one ticket, hub → destination on another, when it beats flying direct |
 
 ---
@@ -228,7 +227,8 @@ scrapers/
   aggregator.py             Runs sources concurrently, records health
   ryanair.py, google_flights.py, travelpayouts.py, skyscanner.py
   piratinviaggio.py         Deal posts (flights, packages, hotels) read by Claude
-  google_hotels.py, booking_com.py, secret_flying.py, going.py, holiday_pirates.py (off by default)
+  google_hotels.py          Hotel prices for the best fares' stays (the stay is encoded in ts=)
+  booking_com.py, secret_flying.py, going.py, holiday_pirates.py (off by default)
   health_monitor.py         Per-source outcomes, FAILING / recovered notices
 normalizers/                EUR conversion, confidence, grouping
 trip_builder/               Trip assembly, feasibility, categories, repositioning
@@ -265,7 +265,7 @@ Tests use temporary databases and mocked HTTP (respx); scrapers are tested on tr
 
 ## Source reliability
 
-Ryanair's fare API is the backbone. Google Flights throttles datacenter IPs, so its budget is small and it cools down for a few hours after a block. Booking.com (bot wall), Google Hotels (dates can't be set), Secret Flying (Cloudflare), Going (JavaScript) and the UK HolidayPirates site are off by default; `python main.py health` and `doctor` show why each source is off.
+Ryanair's fare API is the backbone. Google Flights throttles datacenter IPs, so its budget is small and it cools down for a few hours after a block. Google Hotels prices a hotel for the stays of the best few fares after each search, within the same limits: a block on either pauses both. Booking.com (bot wall), Secret Flying (Cloudflare), Going (JavaScript) and the UK HolidayPirates site are off by default; `python main.py health` and `doctor` show why each source is off.
 
 ## Docs
 

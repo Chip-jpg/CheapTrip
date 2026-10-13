@@ -37,7 +37,7 @@ const SOURCE_HELP: Record<string, string> = {
   enable_ryanair: "Ryanair's own fares: the backbone, about 700 a search.",
   enable_piratinviaggio: "Italian deal-site posts (flights, packages, hotels), read by Claude: needs the Anthropic key.",
   enable_skyscanner: "Skyscanner via RapidAPI: needs a RapidAPI key; its free quota is small.",
-  enable_google_hotels: "Google Hotels: can't be given dates yet, so its prices are rough.",
+  enable_google_hotels: "Google Hotels: the price of a hotel for the dates of each of the best fares.",
   enable_booking_html: "Booking.com pages: usually blocked for automated searches.",
   enable_secret_flying: "Secret Flying's error fares: behind Cloudflare, usually blocked.",
   enable_going: "Going's deals: a JavaScript-only site, usually empty.",

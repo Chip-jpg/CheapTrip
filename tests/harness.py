@@ -161,11 +161,22 @@ class FakeFeedScraper(BaseFeedScraper):
 
 
 class FakeHotelScraper(BaseHotelScraper):
-    """Returns canned hotel results once per cycle and records the planned tasks."""
+    """
+    Returns canned hotel results once per cycle and records the planned tasks.
+    A city-dates source only runs when the cycle's flights give it stays to
+    price; a FEED one (deal-site hotel posts) runs every cycle, with no tasks.
+    """
 
-    def __init__(self, results: ResultsSpec = (), source_id: str = "fake_hotels", budget: int = 1000) -> None:
+    def __init__(
+        self,
+        results: ResultsSpec = (),
+        source_id: str = "fake_hotels",
+        budget: int = 1000,
+        capability: SearchCapability = SearchCapability.CITY_DATES,
+    ) -> None:
         self.source_id = source_id
         self.enabled = True
+        self.capability = capability
         self._budget = budget
         self._results = results
         self.calls: List[List[SearchTask]] = []
@@ -231,12 +242,14 @@ class Engine:
         flights: ResultsSpec = (),
         hotels: ResultsSpec = (),
         feeds: Sequence[Any] = (),
+        feed_hotels: ResultsSpec = (),
         extra_flight_scrapers: Sequence[BaseFlightScraper] = (),
         notifier: Any = None,
     ) -> ScraperAggregator:
         """
         Run one full pipeline cycle; returns the aggregator. Its scrapers are
-        [FakeFlightScraper, FakeFeedScraper] and [FakeHotelScraper] — inspect their calls.
+        [FakeFlightScraper, FakeFeedScraper] and [FakeHotelScraper (searched hotels,
+        for the flights' stays), FakeHotelScraper (FEED: deal-site hotel posts)] — inspect their calls.
         `notifier` defaults to a TelegramNotifier (the mocked Bot API).
         """
         from scheduler.runner import run_pipeline_cycle
@@ -244,7 +257,10 @@ class Engine:
         await init_db()
         aggregator = ScraperAggregator(
             flight_scrapers=[FakeFlightScraper(flights), FakeFeedScraper(feeds), *extra_flight_scrapers],
-            hotel_scrapers=[FakeHotelScraper(hotels)],
+            hotel_scrapers=[
+                FakeHotelScraper(hotels),
+                FakeHotelScraper(feed_hotels, source_id="fake_hotel_feed", capability=SearchCapability.FEED),
+            ],
         )
         notifier = notifier or await TelegramNotifier.create()
         await run_pipeline_cycle(aggregator=aggregator, notifier=notifier)

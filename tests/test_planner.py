@@ -10,6 +10,8 @@ from preferences import UserPreferences
 from scheduler.planner import SearchPlanner, destinations, origin_representatives
 from scrapers.base import SearchCapability
 from storage.database import init_db
+from storage.models import FlightLeg
+from storage.price_analytics import AnomalyResult
 
 TODAY = date(2026, 9, 28)
 
@@ -107,11 +109,64 @@ async def test_month_tasks(db):
     assert task.depart_to == date(2026, 10, 31)
 
 
-async def test_hotel_tasks_have_no_origin(db):
+async def test_hotel_sources_get_no_rotation(db):
+    # Hotels are planned after the flights, from them (plan_hotels)
     plan = await SearchPlanner(TODAY).plan(_prefs(), [Source("gh", SearchCapability.CITY_DATES, 5)])
+    assert plan.for_source("gh") == []
+
+
+DEP = TODAY + timedelta(days=20)
+
+
+def _leg(dest="KRK", price=40.0, origin="MXP", dep=DEP, nights=3, **extra) -> FlightLeg:
+    return FlightLeg(origin=origin, destination=dest, price_eur=price, departure_date=dep,
+                     return_date=dep + timedelta(days=nights) if nights else None, source="ryanair", **extra)
+
+
+class Index:
+    """A price index stand-in: each destination's fare is this far from its usual price."""
+
+    def __init__(self, deviation):
+        self.deviation = deviation
+
+    def check(self, leg):
+        return AnomalyResult(deviation_pct=self.deviation.get(leg.destination))
+
+
+def test_hotels_price_the_stays_of_the_flights():
+    legs = [_leg("KRK", 40.0, nights=3), _leg("BCN", 30.0, nights=2)]
+    plan = SearchPlanner(TODAY).plan_hotels(_prefs(adults=2), legs, [Source("gh", SearchCapability.CITY_DATES, 5)])
+
     tasks = plan.for_source("gh")
-    assert len(tasks) == 5
-    assert all(t.origin is None and t.destination for t in tasks)
+    assert [(t.destination, t.depart_from, t.return_date) for t in tasks] == [
+        ("BCN", DEP, DEP + timedelta(days=2)), ("KRK", DEP, DEP + timedelta(days=3))]  # cheapest first
+    assert all(t.origin is None and t.adults == 2 for t in tasks)
+
+
+def test_hotels_go_first_to_priority_then_furthest_below_usual():
+    legs = [_leg("BCN", 20.0), _leg("KRK", 60.0), _leg("NAP", 50.0), _leg("LIS", 30.0)]
+    index = Index({"KRK": -45.0, "NAP": -10.0})
+    plan = SearchPlanner(TODAY).plan_hotels(
+        _prefs(priority_destinations=["LIS"]), legs, [Source("gh", SearchCapability.CITY_DATES, 3)], index)
+
+    assert [t.destination for t in plan.for_source("gh")] == ["LIS", "KRK", "NAP"]  # budget 3: BCN waits
+    assert plan.for_source("gh")[0].priority
+
+
+def test_hotels_search_each_city_and_stay_once():
+    legs = [_leg("STN", 30.0), _leg("LGW", 25.0), _leg("STN", 35.0, nights=4)]  # both London
+    plan = SearchPlanner(TODAY).plan_hotels(_prefs(), legs, [Source("gh", SearchCapability.CITY_DATES, 10)])
+
+    assert [(t.destination, t.nights_min) for t in plan.for_source("gh")] == [("LGW", 3), ("STN", 4)]
+
+
+def test_no_hotels_for_one_ways_packages_muted_or_other_origins():
+    legs = [_leg("KRK", nights=None), _leg("BCN", is_package=True), _leg("NAP", origin="FCO"), _leg("LIS")]
+    plan = SearchPlanner(TODAY).plan_hotels(
+        _prefs(excluded_destinations=["LIS"]), legs,
+        [Source("gh", SearchCapability.CITY_DATES, 10), Source("off", SearchCapability.CITY_DATES, 10, enabled=False)])
+
+    assert plan.for_source("gh") == [] and "off" not in plan.tasks
 
 
 async def test_excluded_and_home_airports_are_not_destinations(db):

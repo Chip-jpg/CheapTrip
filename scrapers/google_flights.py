@@ -22,7 +22,7 @@ import asyncio
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import httpx
 from bs4 import BeautifulSoup
@@ -177,15 +177,18 @@ async def _store_cooldown(until: Optional[datetime]) -> None:
         log.warning("gf_cooldown_unsaved", error=str(exc))
 
 
-class GoogleFlightsScraper(BaseFlightScraper):
-    source_id = "google_flights"
-    capability = SearchCapability.ROUTE_DATE
+class GoogleCooldown:
+    """
+    One cooldown for every Google Travel source: a block on google.com/travel
+    stops Google Flights and Google Hotels alike, so either one starting it
+    pauses both.
+    """
 
-    def __init__(self) -> None:
-        self._cooldown_until: Optional[datetime] = None
+    _cooldown_until: Optional[datetime] = None
 
-    def calls_per_cycle(self) -> int:
-        return get_settings().google_flights_calls_per_cycle
+    def _settings_state(self) -> Tuple[bool, Optional[str]]:
+        """(enabled, disabled_reason) once no cooldown applies: a source turned off in settings stays off."""
+        return True, None
 
     async def begin_cycle(self) -> None:
         known = [t for t in (await _stored_cooldown(), self._cooldown_until) if t]
@@ -196,8 +199,15 @@ class GoogleFlightsScraper(BaseFlightScraper):
             log.info("gf_cooldown_over")
             await _store_cooldown(None)
             self._cooldown_until = None
-            self.enabled = True
-            self.disabled_reason = None
+            self.enabled, self.disabled_reason = self._settings_state()
+
+    async def _cooling_down(self) -> bool:
+        """Whether the other Google source started a cooldown since this cycle began."""
+        until = await _stored_cooldown()
+        if until and utcnow() < until:
+            self._cool_down_until(until)
+            return True
+        return False
 
     def _cool_down_until(self, until: datetime) -> None:
         self._cooldown_until = until
@@ -209,6 +219,17 @@ class GoogleFlightsScraper(BaseFlightScraper):
         self._cool_down_until(until)
         await _store_cooldown(until)
         log.warning("gf_cooldown_started", until=until.isoformat())
+
+
+class GoogleFlightsScraper(GoogleCooldown, BaseFlightScraper):
+    source_id = "google_flights"
+    capability = SearchCapability.ROUTE_DATE
+
+    def __init__(self) -> None:
+        self._cooldown_until = None
+
+    def calls_per_cycle(self) -> int:
+        return get_settings().google_flights_calls_per_cycle
 
     def parse_results(self, html: str, task: SearchTask) -> List[RawFlightResult]:
         soup = BeautifulSoup(html, "lxml")

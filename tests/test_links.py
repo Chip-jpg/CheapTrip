@@ -1,13 +1,20 @@
-"""Hotel search link in flight alerts (B26)."""
+"""Hotels in flight alerts: a search link for the trip dates (B26), the cheapest hotel's price (B48)."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
 
 from ai_layer.formatter import format_flight_only
-from storage.models import DealType, FlightLeg, Trip
-from tests.harness import flight
+from api.records import deal_record
+from notifier.desktop import deal_toast
+from preferences import UserPreferences
+from storage.database import DealRow
+from storage.models import DealType, FlightLeg, HotelDeal, Trip
+from tests.harness import flight, hotel
+from utils import airports
 from utils.links import booking_search_url, stay_label
+
+GOOGLE = "https://www.google.com/travel/search?q=hotels+in+Krakow&ts=CAEa&hl=en&curr=EUR"
 
 
 def _trip(dep=date(2026, 11, 13), ret=date(2026, 11, 16), dest="KRK") -> Trip:
@@ -54,3 +61,45 @@ async def test_instant_alert_carries_the_hotel_link(engine):
 
     assert "booking.com/searchresults.html" in engine.telegram.texts[0]
     assert "Hotels in Krakow" in engine.telegram.texts[0]
+
+
+# ── The cheapest hotel for the stay (B48) ────────────────────────────────────
+
+def _offer() -> HotelDeal:
+    return HotelDeal(name="Antique Apartments", location="Krakow", price_per_night_eur=63.0, nights=3,
+                     total_price_eur=189.0, rating=9.0, source="google_hotels", booking_url=GOOGLE,
+                     check_in=date(2026, 11, 13), check_out=date(2026, 11, 16))
+
+
+def test_flight_alert_shows_the_cheapest_hotel_for_its_dates():
+    text = format_flight_only(_trip().model_copy(update={"hotel_offer": _offer()}))
+
+    assert '🏨 Hotels in Krakow from €63 a night</a> · €189 for 3 nights at Antique Apartments, 9/10' in text
+    assert 'href="https://www.google.com/travel/search?q=hotels+in+Krakow&amp;ts=CAEa' in text
+    assert "booking.com" not in text
+    assert "<b>€35</b>" in text  # the deal's price is still the fare's
+
+
+def test_toast_and_deal_record_carry_the_hotel_price():
+    trip = _trip().model_copy(update={"hotel_offer": _offer(), "hash": "deal-1"})
+
+    assert "hotels from €63 a night" in deal_toast(trip).message
+    record = deal_record(DealRow(trip, "instant", False, "2026-10-13T10:00:00"), UserPreferences(home_airports=["MXP"]))
+    assert record["links"]["hotels"] == GOOGLE
+    assert (record["hotel_offer"]["price_per_night"], record["hotel_offer"]["total"]) == (63.0, 189.0)
+    assert record["hotel"] is None and record["price"] == 35.0
+
+
+async def test_cycle_prices_a_hotel_for_the_alerted_flight(engine):
+    def for_each_stay(tasks):
+        return [hotel(name=f"Hotel {t.destination}", location=airports.city_of(t.destination), price_per_night=41.0,
+                      days_ahead=(t.depart_from - date.today()).days, nights=t.nights_min,
+                      booking_url="https://www.google.com/travel/search?q=x") for t in tasks]
+
+    aggregator = await engine.run_cycle(flights=[flight(destination="KRK", price=25.0, nights=3)], hotels=for_each_stay)
+
+    [tasks] = aggregator._hotel_scrapers[0].calls  # one search, for the flight's own stay
+    dep = date.today() + timedelta(days=14)
+    assert [(t.destination, t.depart_from, t.return_date) for t in tasks] == [("KRK", dep, dep + timedelta(days=3))]
+    [alert] = engine.telegram.texts  # one alert for the fare, its hotel inside
+    assert "Hotels in Krakow from €41 a night" in alert and "€123 for 3 nights at Hotel KRK" in alert

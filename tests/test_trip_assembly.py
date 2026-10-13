@@ -21,10 +21,11 @@ def _leg(origin: str = "MXP", dest: str = "KRK", nights: Optional[int] = 3, pric
     )
 
 
-def _hotel(check_in: date = DEP, nights: int = 3, location: str = "Krakow") -> HotelDeal:
+def _hotel(check_in: date = DEP, nights: int = 3, location: str = "Krakow", name: str = "Hotel Test",
+           per_night: float = 30.0) -> HotelDeal:
     return HotelDeal(
-        name="Hotel Test", location=location, price_per_night_eur=30.0, nights=nights,
-        total_price_eur=30.0 * nights, rating=8.5, source="fake_hotels",
+        name=name, location=location, price_per_night_eur=per_night, nights=nights,
+        total_price_eur=per_night * nights, rating=8.5, source="fake_hotels",
         check_in=check_in, check_out=check_in + timedelta(days=nights),
     )
 
@@ -63,24 +64,52 @@ async def test_non_home_origin_is_not_a_trip(engine):
     assert trips == []
 
 
-async def test_hotel_on_the_flight_dates_makes_a_complete_trip(engine):
+async def test_cheapest_hotel_for_the_flight_dates_is_shown_with_the_flight(engine):
+    # B48: one deal per fare, with its hotel; pairing every hotel as its own deal alerted up to four times
     await init_db()
-    trips = await build_trips([_leg(nights=3)], [_hotel(check_in=DEP, nights=3)])
+    cheap = _hotel(check_in=DEP, nights=3, name="Cheap", per_night=25.0)
+    trips = await build_trips([_leg(nights=3)], [_hotel(check_in=DEP, nights=3), cheap])
 
-    complete = [t for t in trips if t.deal_type == DealType.COMPLETE_TRIP]
-    assert len(complete) == 1
-    assert complete[0].nights == 3
-    assert complete[0].total_cost_eur == 40.0 + 90.0
+    [trip] = trips
+    assert trip.deal_type == DealType.FLIGHT_ONLY
+    assert trip.hotel_offer.name == "Cheap" and trip.hotel_offer.total_price_eur == 75.0
+    assert trip.total_cost_eur == 40.0  # judged on the fare alone
+    assert trip.hotel is None
 
 
-async def test_hotel_on_other_dates_is_not_paired(engine):
+async def test_hotel_on_other_dates_is_not_offered(engine):
     await init_db()
     trips = await build_trips(
         [_leg(nights=3)],
         [_hotel(check_in=DEP + timedelta(days=7), nights=3), _hotel(check_in=DEP, nights=5)],
     )
 
-    assert [t.deal_type for t in trips] == [DealType.FLIGHT_ONLY]
+    assert [(t.deal_type, t.hotel_offer) for t in trips] == [(DealType.FLIGHT_ONLY, None)]
+
+
+async def test_hotel_below_the_quality_bar_is_not_offered(engine):
+    await init_db()
+    poor = _hotel(check_in=DEP, nights=3).model_copy(update={"meets_quality_threshold": False})
+    [trip] = await build_trips([_leg(nights=3)], [poor])
+
+    assert trip.hotel_offer is None
+
+
+async def test_hotel_with_too_few_reviews_is_not_offered(engine):
+    engine.set_prefs(min_hotel_review_count=100)
+    await init_db()
+    few = _hotel(check_in=DEP, nights=3).model_copy(update={"review_count": 12})
+    [trip] = await build_trips([_leg(nights=3)], [few])
+
+    assert trip.hotel_offer is None
+
+
+async def test_hotel_in_a_cluster_mate_city_is_offered(engine):
+    # A Stansted fare gets a hotel "in London" (its city's airports include LGW, LHR...)
+    await init_db()
+    [trip] = await build_trips([_leg(dest="STN", nights=3)], [_hotel(check_in=DEP, nights=3, location="London")])
+
+    assert trip.hotel_offer is not None
 
 
 async def test_home_airports_come_from_preferences(engine):
