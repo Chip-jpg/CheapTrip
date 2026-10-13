@@ -1,6 +1,6 @@
 ## Install on Windows
 
-1. Download **`CheapTrip-Setup-0.8.3.exe`** below and run it. No administrator rights are needed.
+1. Download **`CheapTrip-Setup-0.8.4.exe`** below and run it. No administrator rights are needed.
 2. Windows SmartScreen may say *"Windows protected your PC"*, because the installer isn't code-signed. Click **More info → Run anyway**.
 3. Leave **Open CheapTrip and set it up** ticked. The app opens on its setup wizard, which asks for:
    - your home airports and the trips you like;
@@ -10,11 +10,27 @@
    It checks everything at the end.
 4. CheapTrip then runs in the tray, by the clock, and starts when you sign in. **Settings → App** turns that off.
 
-**Upgrading from 0.8.0, 0.8.1 or 0.8.2:** run the new installer. Everything is kept, and the setup wizard doesn't open again (if you never finished it, it opens once more: this time the menu works from it). From 0.8.0 or 0.8.1, the first start tidies the database once, which can take a few seconds.
+**Upgrading from 0.8.0, 0.8.1, 0.8.2 or 0.8.3:** run the new installer. Everything is kept, and the setup wizard doesn't open again (if you never finished it, it opens once more). From 0.8.0 or 0.8.1, the first start tidies the database once, which can take a few seconds.
 
 **Upgrading from 0.6:** run the new installer. It keeps your settings, preferences and price history in `%APPDATA%\CheapTrip`. The setup wizard opens once, filled in with what you already have: check it, then click **Finish**.
 
 Step-by-step Telegram setup: [docs/telegram_setup.md](https://github.com/Chip-jpg/CheapTrip/blob/main/docs/telegram_setup.md).
+
+## What's new in 0.8.4
+
+**Real hotel prices.** Every flight deal now shows what a hotel costs for exactly its dates, from Google Hotels.
+- **Telegram:** "🏨 Hotels in Krakow from €63 a night · €189 for 3 nights at Antique Apartments, 9/10". The link opens Google Hotels with the trip's dates already set.
+- **Windows notifications:** "hotels from €63 a night".
+- **The app:** a deal's **Hotels** button shows the price, and its details have **A hotel for these dates**.
+- It's the cheapest hotel that meets your minimum rating (**Settings → Deals & alerts → Hotels**). The price is for your travellers, with taxes and fees.
+- The hotel is shown with the deal, not added to its price, so you're alerted about the same deals as before, once each.
+- When no hotel was found for a deal, **Hotels** still opens a Booking.com search for its dates.
+
+**How it finds them.** After each search, CheapTrip looks up hotels for the stays of the best few fares: your priority destinations first, then the fares furthest below their usual price. That adds about half a minute to a search. Cities are searched with their country, so Naples means Naples, Italy, not Naples, Florida.
+
+**Gentle with Google.** If Google asks CheapTrip to slow down, Google Flights and Google Hotels both pause for a few hours, then carry on by themselves. **Settings → Sources** turns Google Hotels off.
+
+**Also:** two automatic checks that failed for reasons unrelated to the app (a test's sample fares had expired, and a test pressed Settings' buttons before they had loaded) now pass.
 
 ## What's new in 0.8.3
 
