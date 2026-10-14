@@ -52,7 +52,7 @@ The installer (`CheapTrip-Setup-<version>.exe`, attached to each [GitHub release
   - **CheapTrip** opens the app. It is a window with the screens (Edge WebView2), a tray icon and Windows notifications; see [the desktop app](../README.md#the-desktop-app).
   - **Check setup (console)** runs `doctor` in a console window, for when the app won't start.
   - **Open data folder** opens `%APPDATA%\CheapTrip`. The app's Settings screen changes the files there and applies most changes at once; after editing them by hand, quit CheapTrip from the tray and open it again.
-- **First run:** the app opens on its setup wizard. Its five steps are: welcome, home airports and trips, notifications (Windows, and Telegram with a Check button), optional keys, and the checks. It opens by itself until it's finished (`SETUP_DONE`), and the sidebar's **Setup wizard** runs it again. Up to 0.6 the installer asked these questions itself.
+- **First run:** the app opens on its setup wizard. Its five steps are: welcome, home airports and trips, notifications (Windows, and Telegram with a Check button), optional keys, and the checks. It opens by itself until it's finished (`SETUP_DONE`), and stays in the sidebar until then; after that, **Setup wizard** in Settings › App runs it again. Up to 0.6 the installer asked these questions itself.
 - **The tray:**
   - Closing the window keeps CheapTrip running in the tray (`CLOSE_TO_TRAY`).
   - **Quit** in the tray menu stops it; a running search is cancelled cleanly.

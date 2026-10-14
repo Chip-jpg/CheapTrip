@@ -4,7 +4,8 @@
  */
 import { test as base, expect, type Page, type Response } from "@playwright/test";
 
-export const SIDEBAR = ["Deals", "Destinations", "Activity", "Settings", "Setup wizard", "Notifications"] as const;
+/** The sidebar once setup is done (as the tests run): the setup wizard then opens from Settings › App */
+export const SIDEBAR = ["Deals", "Destinations", "Activity", "Settings", "Notifications"] as const;
 export const SETTINGS_SECTIONS = ["trips", "alerts", "notifications", "keys", "sources", "app"] as const;
 
 /**
