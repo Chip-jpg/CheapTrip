@@ -109,7 +109,7 @@ On Windows, CheapTrip is a desktop app (from v0.8.0), designed in light and dark
 - **Notifications & tray:** CheapTrip's notifications as Windows will show them, with today's deals. Each can be sent to your PC.
 - **Settings:** trips, deal rules, notifications, keys (with Check buttons), sources and the app. Changes save as you make them.
 - **Text size:** Settings → App, or Ctrl + and Ctrl − anywhere: standard, large or largest, and everything grows with it.
-- **Setup wizard:** opens at the first launch, and stays in the sidebar.
+- **Setup wizard:** opens at the first launch and stays in the sidebar until it's finished; after that, Settings › App runs it again.
 - **Windows notifications:**
   - each deal comes with a picture of its price and fare range, and **Book**, **Details** and **Mute Berlin** buttons;
   - Telegram too, when a bot is set up;

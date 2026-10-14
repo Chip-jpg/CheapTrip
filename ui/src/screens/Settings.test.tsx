@@ -23,18 +23,20 @@ const SETTINGS: Settings = {
 let fetch: ReturnType<typeof fakeFetch>;
 
 function start(hash: string, status = STATUS) {
-  fetch = fakeFetch({
+  const routes: Record<string, unknown> = {
     "/deals": DEALS, "/status": status, "/settings": SETTINGS,
     "/airports": [{ code: "MXP", name: "Malpensa", city: "Milan", country: "IT" }],
     "/setup/checks": { checks: [{ level: "ok", name: "Database", detail: "ready" }, { level: "warn", name: "Anthropic", detail: "no key" }] },
     "/setup/check": { checks: [{ level: "ok", name: "Telegram", detail: "bot @CheapTripBot, chat 4242" }] },
     "/app/update": { current: "0.6.0", latest: "0.8.0", newer: true, url: "https://github.com/x", download: "https://example.com/setup.exe" },
-  });
-  // saving answers with the settings, as the engine does
+  };
+  fetch = fakeFetch(routes);
+  // saving answers with the settings, and finishing the wizard ends setup_needed, as the engine does
   const answer = fetch.impl;
   vi.stubGlobal("fetch", async (url: string, init: RequestInit = {}) => {
     if (init.method === "PUT") {
       fetch.calls.push({ url, method: "PUT", body: init.body as string });
+      if (String(init.body).includes('"setup_done":true')) routes["/status"] = { ...status, setup_needed: false };
       return new Response(JSON.stringify({ saved: [], applies: { "x": "next search" }, settings: SETTINGS }), { status: 200 });
     }
     return answer(url, init);
@@ -45,6 +47,8 @@ function start(hash: string, status = STATUS) {
 }
 
 const puts = () => fetch.calls.filter((c) => c.method === "PUT").map((c) => c.body);
+const wizardTab = () => within(screen.getByRole("navigation", { name: "Configuration" }))
+  .queryByRole("link", { name: /Setup wizard/ });
 
 beforeEach(() => vi.useRealTimers());
 afterEach(() => {
@@ -153,9 +157,22 @@ describe("the setup wizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skip optional steps" }));
     const checks = await screen.findByRole("region", { name: "Everything ready?" });
     expect(await within(checks).findByText(/1 of 2 checks passed/)).toBeTruthy();
+    expect(wizardTab()).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Finish/ }));
     await waitFor(() => expect(puts()).toContain('{"app":{"setup_done":true}}'));
     await waitFor(() => expect(window.location.hash).toBe("#/deals"));
+    await waitFor(() => expect(wizardTab()).toBeNull());  // finished: it leaves the sidebar
+  });
+
+  it("is not in the sidebar once finished, but still opens from Settings › App", async () => {
+    start("#/settings/app");
+    expect(await screen.findByRole("navigation", { name: "Configuration" })).toBeTruthy();
+    expect(wizardTab()).toBeNull();
+    expect(within(screen.getByRole("navigation", { name: "Configuration" })).getAllByRole("link").map((a) => a.textContent))
+      .toEqual([expect.stringMatching(/Settings$/), expect.stringMatching(/Notifications$/)]);
+    await screen.findByText("Go through the first-run steps again.");
+    fireEvent.click(document.querySelector<HTMLAnchorElement>('main a[href="#/setup"]')!);
+    expect(await screen.findByText("Cheap flights, found for you")).toBeTruthy();
   });
 
   it("can be left for another screen where scrollTo returns a promise, as in WebView2 (v0.8's black window)", async () => {

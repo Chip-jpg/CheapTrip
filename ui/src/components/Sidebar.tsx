@@ -1,7 +1,7 @@
 /**
  * The navigation pane: Monitor (Deals, Destinations, Activity) and Configuration
- * (Settings, Setup wizard, Notifications), collapsible to icons; at the bottom
- * the engine's state, the version and "hide to tray".
+ * (Settings, Setup wizard until it's finished, Notifications), collapsible to
+ * icons; at the bottom the engine's state, the version and "hide to tray".
  */
 import { api } from "../api";
 import { useEngine } from "../engine";
@@ -75,7 +75,8 @@ export function Sidebar({ screen, collapsed }: { screen: Screen; collapsed: bool
     <aside className={`fixed top-16 bottom-0 left-0 z-30 flex flex-col justify-between overflow-y-auto border-r border-stroke bg-surface-container-lowest transition-[width] ${collapsed ? "w-18 p-space-sm" : "w-68 p-space-md"}`}>
       <div className="flex flex-col gap-space-lg">
         {section("Monitor", MONITOR)}
-        {section("Configuration", CONFIGURATION)}
+        {/* Once setup is finished, the wizard opens again from Settings › App */}
+        {section("Configuration", CONFIGURATION.filter((item) => item.screen !== "setup" || status?.setup_needed))}
       </div>
       {status && (
         <div className={`mt-space-md flex flex-col gap-space-xs rounded-xl border border-stroke bg-surface-container-low ${collapsed ? "items-center p-space-sm" : "p-space-md"}`}>

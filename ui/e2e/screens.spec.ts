@@ -13,8 +13,17 @@ for (const theme of ["dark", "light"] as const) {
   });
 }
 
+test("once setup is done, the setup wizard leaves the sidebar and opens from Settings › App", async ({ app }) => {
+  await expect(sidebarLink(app.page, "Setup wizard")).toHaveCount(0);
+  await app.go("#/settings/app");
+  await app.page.locator('main a[href="#/setup"]').click();
+  await expect(app.page.getByRole("heading", { name: "Setup wizard" })).toBeVisible();
+  await expectAlive(app.page);
+  expect(app.problems).toEqual([]);
+});
+
 test("leaving the setup wizard by any sidebar button keeps the app (v0.8's black window)", async ({ app }) => {
-  for (const label of SIDEBAR.filter((l) => l !== "Setup wizard")) {
+  for (const label of SIDEBAR) {
     await app.go("#/setup");
     await expect(app.page.getByRole("heading", { name: "Setup wizard" })).toBeVisible();
     await app.page.getByRole("button", { name: /Let's start|Next/ }).first().click();  // a new step scrolls to the top
