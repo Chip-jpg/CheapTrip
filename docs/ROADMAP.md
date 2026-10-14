@@ -1,8 +1,8 @@
 # CheapTrip — Status Report & Branch Roadmap
 
-## Where things stand (release v0.8.4)
+## Where things stand (release v0.8.5)
 
-Every card below (B01–B48) is merged into `main`, and v0.8.4 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45 (v0.8.1), the optimizations in B46 (v0.8.2), B47 (v0.8.3: the window no longer goes black, a bigger UI with a text size setting, and every button tested), and B48: real hotel prices from Google Hotels with every flight deal. B49 takes the setup wizard out of the sidebar once it's finished, for the next release. The progress tracker at the end has the details. In short:
+Every card below (B01–B49) is merged into `main`, and v0.8.5 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45 (v0.8.1), the optimizations in B46 (v0.8.2), B47 (v0.8.3: the window no longer goes black, a bigger UI with a text size setting, and every button tested), B48 (v0.8.4: real hotel prices from Google Hotels with every flight deal), and B49: the setup wizard leaves the sidebar once it's finished. The progress tracker at the end has the details. In short:
 
 - **The app (Windows):** one setup `.exe` from the [releases](https://github.com/Chip-jpg/CheapTrip/releases), with no admin rights needed.
   - It is a desktop app in the owner's design ("Fluent Deal Radar"), in light and dark. Its screens: Deals with a detail panel and charts, Destinations, Activity, Notifications & tray, Settings, and a setup wizard at the first launch.
@@ -490,10 +490,12 @@ The owner's design is built and released as v0.8.0:
 
 **Release v0.8.4:** version and notes; the merge publishes the installer.
 
-### B49: the setup wizard leaves the sidebar
+### v0.8.5: the setup wizard leaves the sidebar
 **B49 `claude/sharp-sagan-o2jzn7`** (S): the owner's ask: hide the setup wizard's tab once the first setup is done.
 - **The sidebar:** Configuration lists **Setup wizard** only while the engine reports `setup_needed` (`SETUP_DONE` not set), so it goes as soon as **Finish** saves it. **Settings → App → Setup wizard** still runs it again.
 - **Tests:** vitest checks the tab is there during setup, gone after Finish, and that the wizard opens from Settings › App. `ui/e2e` runs with setup done, so its sidebar has five items, and a test opens the wizard from Settings › App. `ui-windows` runs as a new install and still clicks the tab.
+
+**Release v0.8.5:** version and notes; the merge publishes the installer.
 
 ---
 
@@ -565,3 +567,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | B48 | `claude/cheap-trip-tasks-6prz04` | done |
 | — | release v0.8.4 | done (released as v0.8.4) |
 | B49 | `claude/sharp-sagan-o2jzn7` | done |
+| — | release v0.8.5 | done (released as v0.8.5) |

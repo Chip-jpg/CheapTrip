@@ -1,6 +1,6 @@
 ## Install on Windows
 
-1. Download **`CheapTrip-Setup-0.8.4.exe`** below and run it. No administrator rights are needed.
+1. Download **`CheapTrip-Setup-0.8.5.exe`** below and run it. No administrator rights are needed.
 2. Windows SmartScreen may say *"Windows protected your PC"*, because the installer isn't code-signed. Click **More info → Run anyway**.
 3. Leave **Open CheapTrip and set it up** ticked. The app opens on its setup wizard, which asks for:
    - your home airports and the trips you like;
@@ -10,11 +10,18 @@
    It checks everything at the end.
 4. CheapTrip then runs in the tray, by the clock, and starts when you sign in. **Settings → App** turns that off.
 
-**Upgrading from 0.8.0, 0.8.1, 0.8.2 or 0.8.3:** run the new installer. Everything is kept, and the setup wizard doesn't open again (if you never finished it, it opens once more). From 0.8.0 or 0.8.1, the first start tidies the database once, which can take a few seconds.
+**Upgrading from 0.8.0, 0.8.1, 0.8.2, 0.8.3 or 0.8.4:** run the new installer. Everything is kept, and the setup wizard doesn't open again (if you never finished it, it opens once more). From 0.8.0 or 0.8.1, the first start tidies the database once, which can take a few seconds.
 
 **Upgrading from 0.6:** run the new installer. It keeps your settings, preferences and price history in `%APPDATA%\CheapTrip`. The setup wizard opens once, filled in with what you already have: check it, then click **Finish**.
 
 Step-by-step Telegram setup: [docs/telegram_setup.md](https://github.com/Chip-jpg/CheapTrip/blob/main/docs/telegram_setup.md).
+
+## What's new in 0.8.5
+
+**The setup wizard steps aside.** Once you've finished it, **Setup wizard** is no longer in the menu.
+- Until it's finished, it stays in the menu, and CheapTrip opens on it at each start, as before.
+- It disappears as soon as you click **Finish**. If you finished it in an earlier version, it's gone from the first start of 0.8.5.
+- To go through it again, open **Settings → App → Setup wizard**.
 
 ## What's new in 0.8.4
 
