@@ -1,4 +1,6 @@
-# CheapTrip — Status Report & Branch Roadmap
+# CheapTrip — Development history
+
+How CheapTrip was built: where it stands now, then a review of the prototype (28 September 2026), the plan it led to, and every card (B01 onwards) as it was done. For what each release brought in short, see the [changelog](../CHANGELOG.md).
 
 ## Where things stand (release v0.8.6)
 
@@ -23,9 +25,7 @@ Every card below (B01–B50) is merged into `main`, and v0.8.6 is published on G
   - a code-signing certificate, so Windows SmartScreen stops warning about the installer;
   - how the tray and notifications look on real PCs: CI drives the real window, but can't display notifications.
 
-The rest of this document is the original review and plan; its "Status at a glance" section describes the code before Round 1.
-
-_Original review: 2026-09-28, at commit `85711de`._
+> **History from here on.** What follows was written on 28 September 2026, as a review of the prototype (commit `85711de`) and a plan to fix it. Every problem it lists has since been fixed, and every card is done: the tracker at the end has them all. It's kept as the record of how the project was built, in the present tense of the day each part was written.
 
 ## Context
 This is a full review of the codebase (~7.8k lines, 71 files): where things stand, plus a work plan that splits every missing or broken feature into its own branch. We work through them one at a time.
@@ -33,7 +33,7 @@ Findings marked **(confirmed)** were traced line by line in the code. File:line 
 
 ---
 
-## 1. Status at a glance
+## 1. Status at a glance (the prototype, 28 September 2026)
 
 ### What's solid
 - The pipeline is wired end to end: date windows → scrapers → normalize → build trips → hard filters → time decay → dedup → Telegram. Each scraper's failures are isolated, and the cycle never crashes the scheduler.
@@ -41,7 +41,7 @@ Findings marked **(confirmed)** were traced line by line in the code. File:line 
 - Confidence scoring, airport clusters, flexible date windows, the feasibility engine, the categorizer, the rate limiter (restored from the DB) and SQLite storage all work.
 - CLI commands: `run`, `cycle`, `digest`, `status`, `health`, `search`, `resolve-airports`. There's also Docker, docs, and 140 unit tests, all on pure logic.
 
-### What's broken or only exists on paper
+### What was broken or only existed on paper (all fixed since)
 | Area | Reality |
 |---|---|
 | **Real data** | Almost none reaches the pipeline. Skyscanner (RapidAPI) makes about 540 calls per cycle, which guarantees 429 rate-limit errors. The Google Flights regex scraper most likely returns nothing. Booking.com usually blocks plain httpx. Secret Flying and Going are disabled, and their enable flags don't even load from `.env`. HolidayPirates guesses airports from any 3-letter word. |
