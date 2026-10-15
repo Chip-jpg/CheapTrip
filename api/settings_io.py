@@ -26,11 +26,11 @@ from utils import airports
 from utils.envfile import update_env_file
 from utils.events import get_event_bus
 
-SECRET_KEYS = ("telegram_bot_token", "anthropic_api_key", "travelpayouts_token", "rapidapi_key")
+SECRET_KEYS = ("telegram_bot_token", "anthropic_api_key", "travelpayouts_token")
 PLAIN_KEYS = ("telegram_chat_id",)
 TELEGRAM_KEYS = ("telegram_bot_token", "telegram_chat_id")
 SOURCE_SWITCHES = (
-    "enable_ryanair", "enable_piratinviaggio", "enable_skyscanner", "enable_google_hotels",
+    "enable_ryanair", "enable_piratinviaggio", "enable_google_hotels",
     "enable_booking_html", "enable_secret_flying", "enable_going", "enable_holiday_pirates",
 )
 # Settings → Notifications: NOTIFY_<NAME> in .env

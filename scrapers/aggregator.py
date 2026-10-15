@@ -14,7 +14,6 @@ from scrapers.holiday_pirates import HolidayPiratesFlightScraper, HolidayPirates
 from scrapers.piratinviaggio import PiratinViaggioHotelScraper, PiratinViaggioScraper
 from scrapers.ryanair import RyanairScraper
 from scrapers.secret_flying import SecretFlyingScraper
-from scrapers.skyscanner import SkyscannerScraper
 from scrapers.travelpayouts import TravelpayoutsScraper
 from storage.models import RawFlightResult, RawHotelResult
 from utils.events import get_event_bus
@@ -27,7 +26,6 @@ def build_flight_scrapers() -> List[BaseFlightScraper]:
     return [
         RyanairScraper(),
         TravelpayoutsScraper(),
-        SkyscannerScraper(),
         GoogleFlightsScraper(),
         SecretFlyingScraper(),
         HolidayPiratesFlightScraper(),

@@ -12,7 +12,7 @@ retention purge ─► price history > 45 days, deals expired > 7 days, old aler
         ▼
 SearchPlanner.plan ─► tasks per source (scheduler/planner.py)
         │   • each source declares a capability: ANYWHERE (Ryanair, Travelpayouts),
-        │     ROUTE_DATE (Google Flights, Skyscanner), CITY_DATES (hotels: planned later, from the flights),
+        │     ROUTE_DATE (Google Flights), CITY_DATES (hotels: planned later, from the flights),
         │     FEED (posts)
         │   • a per-source budget (calls_per_cycle) and a rotation cursor stored in the DB,
         │     so every destination and date slot is covered over successive cycles

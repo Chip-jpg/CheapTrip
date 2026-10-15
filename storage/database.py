@@ -294,6 +294,7 @@ async def init_db() -> None:
         for idx_sql in _CREATE_INDEXES:
             await db.execute(idx_sql)
         await db.execute("DROP INDEX IF EXISTS idx_prices_route")  # no query used it (B46)
+        await db.execute("DELETE FROM scraper_health WHERE source_id = 'skyscanner_api'")  # source removed (B51)
         await db.commit()
 
 

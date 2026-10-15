@@ -255,7 +255,6 @@ export interface Settings {
     telegram_bot_token: SecretKey;
     anthropic_api_key: SecretKey;
     travelpayouts_token: SecretKey;
-    rapidapi_key: SecretKey;
     telegram_chat_id: string;
   };
   sources: Record<string, boolean>;

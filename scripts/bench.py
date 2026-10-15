@@ -69,7 +69,7 @@ def _environment(folder: Path) -> None:
             stream.reconfigure(encoding="utf-8", errors="replace")
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{folder / 'bench.db'}"
     os.environ["CHEAPTRIP_PREFS_PATH"] = str(folder / "prefs.yaml")
-    for key in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "ANTHROPIC_API_KEY", "RAPIDAPI_KEY", "TRAVELPAYOUTS_TOKEN"):
+    for key in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "ANTHROPIC_API_KEY", "TRAVELPAYOUTS_TOKEN"):
         os.environ[key] = ""
     sys.path.insert(0, str(ROOT))
 

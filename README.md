@@ -225,7 +225,7 @@ scheduler/
   runner.py                 The pipeline cycle, digest, scheduler, graceful shutdown
 scrapers/
   aggregator.py             Runs sources concurrently, records health
-  ryanair.py, google_flights.py, travelpayouts.py, skyscanner.py
+  ryanair.py, google_flights.py, travelpayouts.py
   piratinviaggio.py         Deal posts (flights, packages, hotels) read by Claude
   google_hotels.py          Hotel prices for the best fares' stays (the stay is encoded in ts=)
   booking_com.py, secret_flying.py, going.py, holiday_pirates.py (off by default)

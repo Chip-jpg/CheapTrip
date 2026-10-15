@@ -17,7 +17,6 @@ Start from `.env.example`. Names are case-insensitive environment variables.
 | `AI_TIMEOUT_SECONDS` | `15` | Timeout for the alert polish (post reading uses at least 30s). |
 | `TRAVELPAYOUTS_TOKEN` | — | Enables Travelpayouts. `TRAVELPAYOUTS_MARKER` adds affiliate tracking to its links. |
 | `EXCHANGE_RATE_API_KEY` | — | Live currency rates (static fallback rates otherwise). |
-| `RAPIDAPI_KEY` | — | Skyscanner via RapidAPI, also needs `ENABLE_SKYSCANNER=true`. |
 
 ### Sources
 
@@ -31,7 +30,6 @@ Start from `.env.example`. Names are case-insensitive environment variables.
 | `TRAVELPAYOUTS_CALLS_PER_CYCLE` | `30` | |
 | `ENABLE_PIRATINVIAGGIO` | `true` | Italian deal posts; runs when `ANTHROPIC_API_KEY` is set and a home airport is in Italy. |
 | `AI_EXTRACTION_MAX_POSTS_PER_CYCLE` | `30` | New posts sent to Claude per cycle (each post is read once). |
-| `ENABLE_SKYSCANNER` | `false` | `SKYSCANNER_MAX_CALLS_PER_CYCLE` (20) caps calls; a 429 pauses it until midnight UTC. |
 | `ENABLE_BOOKING_HTML` | `false` | Booking.com answers plain HTTP with a bot wall. |
 | `ENABLE_GOOGLE_HOTELS` | `true` | After the flights, prices a hotel for the stays of the best fares; each flight deal shows the cheapest one. |
 | `GOOGLE_HOTELS_CALLS_PER_CYCLE` | `6` | Hotel searches per cycle (one per stay). Same Google limits as flights. |

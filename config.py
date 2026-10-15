@@ -43,16 +43,6 @@ class Settings(BaseSettings):
     ai_model: str = Field(default="claude-haiku-4-5")
     ai_timeout_seconds: float = Field(default=15.0)
 
-    # Skyscanner via RapidAPI
-    rapidapi_key: str = Field(default="")
-    rapidapi_skyscanner_host: str = Field(default="skyscanner50.p.rapidapi.com")
-    # Endpoint path — check the "Endpoints" tab in your RapidAPI console if you get 404s
-    rapidapi_skyscanner_endpoint: str = Field(default="/api/v1/searchFlights")
-    # Opt-in: RapidAPI Skyscanner quotas are small. Calls are capped per scrape cycle,
-    # and a 429 pauses the source until the next UTC midnight.
-    enable_skyscanner: bool = Field(default=False)
-    skyscanner_max_calls_per_cycle: int = Field(default=20)
-
     # Search budgets: tasks per scrape cycle for each source (see scheduler/planner.py)
     # Google throttles datacenter IPs after a handful of searches; keep this modest.
     google_flights_calls_per_cycle: int = Field(default=6)

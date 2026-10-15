@@ -13,7 +13,7 @@ const SETTINGS: Settings = {
   alerts: { europe_trip_max_eur: 25, longhaul_trip_max_eur: 250, price_anomaly_min_drop_pct: 35, instant_alerts_per_hour: 5,
             digest_time: "08:00", scrape_interval_minutes: 90 },
   keys: { telegram_bot_token: { set: true, hint: "…OKEN" }, anthropic_api_key: { set: false, hint: "" },
-          travelpayouts_token: { set: false, hint: "" }, rapidapi_key: { set: false, hint: "" }, telegram_chat_id: "4242" },
+          travelpayouts_token: { set: false, hint: "" }, telegram_chat_id: "4242" },
   sources: { enable_ryanair: true, enable_going: false },
   notifications: { desktop: true, telegram: true, instant: true, digest: true, source_problems: true, sound: true, telegram_ready: true },
   app: { close_to_tray: true, setup_done: false, theme: "system", text_size: "standard", devtools: false, start_at_login: null },
