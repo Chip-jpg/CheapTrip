@@ -13,7 +13,8 @@ and the UI's end-to-end tests (ui/e2e):
 
     python scripts/demo_data.py --folder <dir>
 
-Then run the app on it (SEARCH_ON_START=false keeps it from searching the real sources):
+Then run the app on it, with <dir> as an absolute path (SEARCH_ON_START=false keeps it from
+searching the real sources):
 
     CHEAPTRIP_HOME=<dir> DATABASE_URL=sqlite+aiosqlite:///<dir>/demo.db \\
     CHEAPTRIP_PREFS_PATH=<dir>/prefs.yaml SETUP_DONE=true SEARCH_ON_START=false python main.py app
