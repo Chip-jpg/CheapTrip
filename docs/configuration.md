@@ -73,6 +73,7 @@ Settings → Notifications and Settings → App in the app change these; they ap
 | Variable | Default | Description |
 |---|---|---|
 | `SCRAPE_INTERVAL_MINUTES` | `90` | Cycle interval. The healthcheck fails after 3 intervals without a cycle. |
+| `SEARCH_ON_START` | `true` | Search as soon as CheapTrip starts; `false` waits for the first scheduled search. |
 | `DIGEST_HOUR` / `DIGEST_MINUTE` | `8` / `0` | Daily digest time, in `TIMEZONE`. |
 | `TIMEZONE` | `Europe/Rome` | IANA time zone for the digest schedule. |
 | `DATABASE_URL` | `sqlite+aiosqlite:///./data/travel_deals.db` | SQLite file (WAL journal). Prices are kept 45 days, 15 more than anything looks back. |

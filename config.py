@@ -87,6 +87,8 @@ class Settings(BaseSettings):
 
     # Scheduler
     scrape_interval_minutes: int = Field(default=90)
+    # Search as soon as the engine starts; false waits for the first scheduled search
+    search_on_start: bool = Field(default=True)
     digest_hour: int = Field(default=8)
     digest_minute: int = Field(default=0)
     # IANA time zone for the daily digest schedule (DIGEST_HOUR/DIGEST_MINUTE are local to it)

@@ -81,7 +81,7 @@ jobs:
         run: npm run build
 
   ui-e2e:
-    # Every screen and every control on the real engine and API, with a few days of seeded history,
+    # Every screen and every control on the real engine and API, on a month of demo searches (no network),
     # in both themes and at every text size (ui/e2e, Playwright in Chromium); screenshots in the report
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -169,21 +169,20 @@ jobs:
           python -c "from desktop.windows import webview2_available; print('WebView2 runtime:', webview2_available())"
           $global:LASTEXITCODE = 0
 
-      - name: A few days of price history
+      - name: A month of demo searches
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\home" | Out-Null
-          python scripts/bench.py --step seed --folder "$env:RUNNER_TEMP\home" --days 5
+        run: python scripts/demo_data.py --folder "$env:RUNNER_TEMP\home"
 
       - name: Open the app and drive its window
         shell: pwsh
         env:
           CHEAPTRIP_DEVTOOLS_PORT: "9222"
           SETUP_DONE: "false"  # a new install: the app opens on the setup wizard
+          SEARCH_ON_START: "false"  # the demo's search is today's: nothing reaches the real sources
         run: |
           $folder = "$env:RUNNER_TEMP\home"
           $env:CHEAPTRIP_HOME = $folder
-          $env:DATABASE_URL = "sqlite+aiosqlite:///$($folder -replace '\\', '/')/bench.db"
+          $env:DATABASE_URL = "sqlite+aiosqlite:///$($folder -replace '\\', '/')/demo.db"
           $env:CHEAPTRIP_PREFS_PATH = "$folder\prefs.yaml"
           $app = Start-Process python -ArgumentList "main.py", "app" -PassThru `
             -RedirectStandardOutput "$folder\app-out.txt" -RedirectStandardError "$folder\app-err.txt"

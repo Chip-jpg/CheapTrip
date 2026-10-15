@@ -73,7 +73,7 @@ class Engine:
         return self._cycle_lock.locked()
 
     async def start(self, first_search: bool = True) -> None:
-        """Start the scheduler and the command bot; by default search right away."""
+        """Start the scheduler and the command bot; by default search right away (SEARCH_ON_START)."""
         await init_db()
         await close_interrupted_cycles()
         if self._notifier is None:
@@ -99,7 +99,7 @@ class Engine:
             # Telegram commands (/deals, /mute, /pause, ...) are polled alongside the scheduler
             self._start_command_bot()
         self._bus.publish("engine_started")
-        if first_search:
+        if first_search and get_settings().search_on_start:
             await self.search_now(trigger="startup")
 
     async def stop(self) -> None:
