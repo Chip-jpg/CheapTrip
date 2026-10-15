@@ -25,8 +25,6 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from utils.timeutil import utcnow
-
 ROOT = Path(__file__).resolve().parent.parent
 DESTINATIONS = """LHR MAN EDI DUB AMS EIN BRU CDG NCE MRS LYS BOD TLS NTE FRA MUC BER HAM DUS CGN STR VIE ZRH GVA BSL
 PRG BUD WAW KRK GDN WRO KTW CPH ARN GOT OSL BGO HEL TLL RIX VNO MAD BCN AGP PMI VLC SVQ ALC IBZ LIS OPO FAO
@@ -92,6 +90,7 @@ async def _seed(folder: Path, days: int) -> None:
     from scrapers.aggregator import ScraperAggregator
     from storage.database import get_db_path, init_db
     from tests.harness import FakeFlightScraper, FakeHotelScraper, flight
+    from utils.timeutil import utcnow
 
     await init_db()
     fares = [flight(destination=code, price=40.0 + i, days_ahead=20 + i % 30, nights=3) for i, code in enumerate(codes)]
