@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import random
 from dataclasses import astuple
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Optional
 
 import aiosqlite
@@ -30,6 +30,7 @@ from storage.price_analytics import (
     record_fares,
 )
 from trip_builder.builder import build_trips
+from utils.timeutil import utcnow
 
 DEP = date(2026, 11, 13)
 
@@ -278,7 +279,7 @@ async def _record_jfk_history(days_apart: int) -> None:
                             for j, p in enumerate(prices)], f"c{i}")
     async with aiosqlite.connect(await get_db_path()) as db:
         for i in range(len(JFK_HISTORY)):
-            day = (datetime.utcnow() - timedelta(days=(len(JFK_HISTORY) - i) * days_apart)).isoformat()
+            day = (utcnow() - timedelta(days=(len(JFK_HISTORY) - i) * days_apart)).isoformat()
             await db.execute("UPDATE price_history SET recorded_at = ? WHERE cycle_id = ?", (day, f"c{i}"))
         await db.commit()
 
@@ -346,7 +347,7 @@ async def test_rows_from_before_fares_were_dated_are_ignored(engine):
             await db.execute(
                 "INSERT INTO price_history (route, price_eur, source, recorded_at, origin_city, dest_city, "
                 "trip_type, nights_bucket, depart_month, cycle_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                ("MXP-KRK", 60.0 + i, "old", datetime.utcnow().isoformat(), *astuple(KEY), "2026-11", f"c{i % 2}"),
+                ("MXP-KRK", 60.0 + i, "old", utcnow().isoformat(), *astuple(KEY), "2026-11", f"c{i % 2}"),
             )
         await db.commit()
 
@@ -361,7 +362,7 @@ async def test_rows_from_before_the_keyed_schema_are_ignored(engine):
         for i in range(10):
             await db.execute(
                 "INSERT INTO price_history (route, price_eur, source, recorded_at) VALUES (?, ?, ?, ?)",
-                ("MXP-KRK", 60.0, "old", datetime.utcnow().isoformat()),
+                ("MXP-KRK", 60.0, "old", utcnow().isoformat()),
             )
         await db.commit()
 
@@ -402,7 +403,7 @@ async def test_summaries_judge_exactly_like_every_observation(engine):
     """B46: the database sums each fare's history up; every baseline and judgement stays the same."""
     rng = random.Random(46)
     await init_db()
-    now = datetime.utcnow()
+    now = utcnow()
     routes = {("MXP", "KRK"): 3, ("MXP", "PRG"): 6, ("MXP", "BCN"): None}  # weekend, short, one-way
     rows = []
     for c in range(48):  # 48 searches over 12 days (and a few 35 days ago, outside the lookback)
@@ -432,7 +433,7 @@ async def test_summaries_judge_exactly_like_every_observation(engine):
             WHERE recorded_at >= ? AND cycle_id IS NOT NULL AND cycle_id != ?
               AND origin_city IS NOT NULL AND depart_date IS NOT NULL
             ORDER BY recorded_at, id
-            """, ((datetime.utcnow() - timedelta(days=30)).isoformat(), "cycle7"))
+            """, ((utcnow() - timedelta(days=30)).isoformat(), "cycle7"))
         reference = PriceIndex(Observation(PriceKey(*r[:4]), *r[4:8], date.fromisoformat(r[8]))
                                for r in await cursor.fetchall())
 
@@ -459,7 +460,7 @@ async def test_summaries_judge_exactly_like_every_observation(engine):
 
 async def test_retention_purges_old_rows(engine):
     await init_db()
-    old = (datetime.utcnow() - timedelta(days=200)).isoformat()
+    old = (utcnow() - timedelta(days=200)).isoformat()
     await record_fares([_leg()], "fresh")
     await save_deal(_trip("keep", 10.0))
     await save_deal(_trip("gone", 10.0))
@@ -481,7 +482,7 @@ async def test_retention_purges_old_rows(engine):
 async def test_history_is_kept_45_days_and_the_space_given_back(engine):
     await init_db()
     path = await get_db_path()
-    now = datetime.utcnow()
+    now = utcnow()
     rows = [("MXP-KRK", 50.0 + i % 40, "x", (now - timedelta(days=50 if i % 4 else 40)).isoformat())
             for i in range(40_000)]
     async with aiosqlite.connect(path) as db:

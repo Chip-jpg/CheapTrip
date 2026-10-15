@@ -3,7 +3,6 @@ export const SOURCE_NAMES: Record<string, string> = {
   ryanair: "Ryanair",
   google_flights: "Google Flights",
   travelpayouts: "Travelpayouts",
-  skyscanner_api: "Skyscanner",
   piratinviaggio: "PiratinViaggio",
   piratinviaggio_hotels: "PiratinViaggio hotels",
   secret_flying: "Secret Flying",

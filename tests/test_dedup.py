@@ -10,6 +10,7 @@ from filters.deduplication import collapse_similar, deduplicate_trips, fingerpri
 from storage.database import get_db_path, init_db
 from storage.models import AlertTier, BookingConfidence, DealType, FlightLeg, HotelDeal, Trip
 from tests.harness import flight
+from utils.timeutil import utcnow
 
 DEP = date(2026, 11, 13)
 
@@ -102,7 +103,7 @@ async def test_real_price_drop_is_a_new_deal_and_retires_the_old_copy(engine):
 async def test_deal_older_than_the_window_does_not_block(engine):
     await init_db()
     await deduplicate_trips([_trip(40.0)])
-    old = (datetime.utcnow() - timedelta(days=8)).isoformat()
+    old = (utcnow() - timedelta(days=8)).isoformat()
     async with aiosqlite.connect(await get_db_path()) as db:
         await db.execute("UPDATE deals SET created_at = ?", (old,))
         await db.commit()
@@ -147,7 +148,7 @@ async def test_saved_digest_fare_that_becomes_instant_is_offered_once(engine):
     async with aiosqlite.connect(await get_db_path()) as db:
         rows = await (await db.execute("SELECT alert_tier, created_at FROM deals")).fetchall()
     assert len(rows) == 1 and rows[0][0] == "instant"
-    assert datetime.fromisoformat(rows[0][1]) > datetime.utcnow() - timedelta(minutes=1)
+    assert datetime.fromisoformat(rows[0][1]) > utcnow() - timedelta(minutes=1)
 
     # Once it has been instant, the same fare is a duplicate again
     new, dupes = await deduplicate_trips([_trip(40.0, tier=AlertTier.INSTANT)])

@@ -61,7 +61,7 @@ def flight(
     currency: str = "EUR",
     days_ahead: int = 14,
     nights: Optional[int] = 3,
-    source: str = "skyscanner_api",
+    source: str = "ryanair",
     airline: Optional[str] = "Ryanair",
     booking_url: Optional[str] = "https://example.com/book",
     **extra: Any,

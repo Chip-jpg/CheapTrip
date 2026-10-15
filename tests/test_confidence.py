@@ -1,14 +1,15 @@
 """Tests for confidence score calculations."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from storage.models import RawFlightResult, RawHotelResult
 from utils.confidence import compute_flight_confidence, compute_hotel_confidence
+from utils.timeutil import utcnow
 
 
 def _raw_flight(
-    source: str = "skyscanner_api",
+    source: str = "ryanair",
     price: float = 100.0,
     age_hours: float = 0.5,
     airline: str = "Test Air",
@@ -24,20 +25,20 @@ def _raw_flight(
         airline=airline,
         booking_url=booking_url,
         source=source,
-        scraped_at=datetime.utcnow() - timedelta(hours=age_hours),
+        scraped_at=utcnow() - timedelta(hours=age_hours),
     )
 
 
 class TestFlightConfidence:
     def test_single_fresh_high_reliability_source(self):
-        results = [_raw_flight("skyscanner_api", age_hours=0.5)]
+        results = [_raw_flight("ryanair", age_hours=0.5)]
         score = compute_flight_confidence(results)
         assert 0.7 <= score <= 1.0
 
     def test_multiple_sources_boosts_score(self):
-        single = compute_flight_confidence([_raw_flight("skyscanner_api")])
+        single = compute_flight_confidence([_raw_flight("ryanair")])
         multi = compute_flight_confidence([
-            _raw_flight("skyscanner_api"),
+            _raw_flight("ryanair"),
             _raw_flight("google_flights"),
             _raw_flight("kayak"),
         ])

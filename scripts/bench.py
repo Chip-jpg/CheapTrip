@@ -69,7 +69,7 @@ def _environment(folder: Path) -> None:
             stream.reconfigure(encoding="utf-8", errors="replace")
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{folder / 'bench.db'}"
     os.environ["CHEAPTRIP_PREFS_PATH"] = str(folder / "prefs.yaml")
-    for key in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "ANTHROPIC_API_KEY", "RAPIDAPI_KEY", "TRAVELPAYOUTS_TOKEN"):
+    for key in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "ANTHROPIC_API_KEY", "TRAVELPAYOUTS_TOKEN"):
         os.environ[key] = ""
     sys.path.insert(0, str(ROOT))
 
@@ -90,6 +90,7 @@ async def _seed(folder: Path, days: int) -> None:
     from scrapers.aggregator import ScraperAggregator
     from storage.database import get_db_path, init_db
     from tests.harness import FakeFlightScraper, FakeHotelScraper, flight
+    from utils.timeutil import utcnow
 
     await init_db()
     fares = [flight(destination=code, price=40.0 + i, days_ahead=20 + i % 30, nights=3) for i, code in enumerate(codes)]
@@ -108,7 +109,7 @@ async def _seed(folder: Path, days: int) -> None:
     con = sqlite3.connect(path)
     keys = con.execute("SELECT route, source, origin_city, dest_city, trip_type, nights_bucket, depart_date"
                        " FROM price_history").fetchall()
-    rng, now = random.Random(7), datetime.utcnow()
+    rng, now = random.Random(7), utcnow()
 
     def rows():
         for k in range(1, days * SEARCHES_PER_DAY + 1):

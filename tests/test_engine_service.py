@@ -8,6 +8,7 @@ import aiosqlite
 import pytest
 
 import control
+from config import get_settings
 from notifier.telegram import TelegramNotifier
 from preferences import get_preferences
 from scheduler.engine import Engine
@@ -134,6 +135,19 @@ async def test_starting_the_engine_searches_right_away(engine):
 
     assert (await recent_cycles())[0]["trigger"] == "startup"
     assert any("Engine started" in t for t in engine.telegram.texts)
+
+
+async def test_search_on_start_false_waits_for_the_schedule(engine, monkeypatch):
+    monkeypatch.setenv("SEARCH_ON_START", "false")
+    get_settings.cache_clear()
+    await init_db()
+    service = Engine(await TelegramNotifier.create(), _aggregator(), telegram_commands=False)
+    await service.start()
+    await asyncio.sleep(0.2)
+    searched = service.is_searching or bool(await recent_cycles())
+    await service.stop()
+
+    assert not searched
 
 
 async def test_stop_cancels_a_running_search_quickly(engine):

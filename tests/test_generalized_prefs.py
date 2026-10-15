@@ -10,7 +10,6 @@ from preferences import UserPreferences
 from scrapers.google_flights import GoogleFlightsScraper
 from scrapers.piratinviaggio import PiratinViaggioScraper
 from scrapers.ryanair import RyanairScraper
-from scrapers.skyscanner import _skyscanner_market
 from storage.models import SearchTask
 from tests.harness import flight
 from utils.markets import first_home_airport, home_country, market_for
@@ -48,7 +47,6 @@ def test_london_user_gets_uk_markets_and_no_italian_feed(engine, monkeypatch):
     get_settings.cache_clear()
 
     assert RyanairScraper()._request_params(_task())["market"] == "en-gb"
-    assert _skyscanner_market() == "UK"
     reader = PiratinViaggioScraper()
     assert reader.enabled is False and reader.disabled_reason == "home airports are not in Italy"
 

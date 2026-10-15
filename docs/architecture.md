@@ -12,7 +12,7 @@ retention purge ─► price history > 45 days, deals expired > 7 days, old aler
         ▼
 SearchPlanner.plan ─► tasks per source (scheduler/planner.py)
         │   • each source declares a capability: ANYWHERE (Ryanair, Travelpayouts),
-        │     ROUTE_DATE (Google Flights, Skyscanner), CITY_DATES (hotels: planned later, from the flights),
+        │     ROUTE_DATE (Google Flights), CITY_DATES (hotels: planned later, from the flights),
         │     FEED (posts)
         │   • a per-source budget (calls_per_cycle) and a rotation cursor stored in the DB,
         │     so every destination and date slot is covered over successive cycles
@@ -130,7 +130,7 @@ The screens (`ui/`, React + Vite + TypeScript + Tailwind) follow the owner's des
 - `ui/src/api.ts` is the typed client for every route and the live events, which all screens share over one connection. `ui/src/engine.tsx` shares the engine's status and search progress with the top bar, the sidebar and the screens.
 - Routes are hashes (`#/deals/<id>`, `#/destinations/<airport>`, `#/settings/<section>`), so the engine's links and notifications can open any screen.
 - `npm run build` writes `ui/dist`, which the API serves and the Windows build bundles.
-- Tests: `npm test` (components, vitest); `npm run e2e` (`ui/e2e`, Playwright: every screen and control on the real engine with seeded history); `ui/e2e/window-smoke.mjs` drives the real WebView2 window on Windows (CI's `ui-windows`).
+- Tests: `npm test` (components, vitest); `npm run e2e` (`ui/e2e`, Playwright: every screen and control on the real engine, on a month of demo searches from `scripts/demo_data.py`, with no network); `ui/e2e/window-smoke.mjs` drives the real WebView2 window on Windows (CI's `ui-windows`).
 
 ## Key design decisions
 

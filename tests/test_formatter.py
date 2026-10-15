@@ -17,7 +17,7 @@ def _make_complete_trip() -> Trip:
         return_date=date(2025, 8, 4),
         airline="Ryanair",
         booking_url="https://ryanair.com",
-        source="skyscanner_api",
+        source="ryanair",
         data_confidence_score=0.87,
     )
     hotel = HotelDeal(
@@ -45,7 +45,7 @@ def _make_complete_trip() -> Trip:
         return_date=date(2025, 8, 4),
         nights=3,
         data_confidence_score=0.87,
-        source_list=["skyscanner_api", "booking_com_api"],
+        source_list=["ryanair", "booking_com_api"],
         verdict="BOOK NOW",
     )
     trip.hash = trip.compute_hash()

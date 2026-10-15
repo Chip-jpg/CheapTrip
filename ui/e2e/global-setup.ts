@@ -1,7 +1,8 @@
 /**
- * Starts the engine with the app's screens on a throwaway folder: a few days of seeded
- * price history (scripts/bench.py), setup done, run as the desktop app (on Linux its
- * "window" is the browser, which the tests open). Returns the teardown.
+ * Starts the engine with the app's screens on a throwaway folder: a month of demo searches
+ * (scripts/demo_data.py), setup done, run as the desktop app (on Linux its "window" is the
+ * browser, which the tests open). It doesn't search at start, so nothing reaches the real
+ * sources. Returns the teardown.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -14,16 +15,16 @@ const PYTHON = process.env.PYTHON ?? (process.platform === "win32" ? "python" : 
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
   const home = mkdtempSync(join(tmpdir(), "cheaptrip-e2e-"));
-  const seed = spawnSync(PYTHON, [join(ROOT, "scripts", "bench.py"), "--step", "seed", "--folder", home, "--days", "3"],
-    { cwd: home, encoding: "utf-8" });
+  const seed = spawnSync(PYTHON, [join(ROOT, "scripts", "demo_data.py"), "--folder", home], { cwd: home, encoding: "utf-8" });
   if (seed.status !== 0) throw new Error(`seeding failed:\n${seed.stdout.slice(-3000)}\n${seed.stderr.slice(-3000)}`);
 
   const env = {
     ...process.env,
     CHEAPTRIP_HOME: home,
-    DATABASE_URL: `sqlite+aiosqlite:///${home.replace(/\\/g, "/")}/bench.db`,
+    DATABASE_URL: `sqlite+aiosqlite:///${home.replace(/\\/g, "/")}/demo.db`,
     CHEAPTRIP_PREFS_PATH: join(home, "prefs.yaml"),
     SETUP_DONE: "true",
+    SEARCH_ON_START: "false",  // the demo's search is today's: the tests never reach Ryanair or Google
     BROWSER: "true",  // the app would open a browser: `true` is a do-nothing command
   };
   const app = spawn(PYTHON, [join(ROOT, "main.py"), "app"], { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] });

@@ -25,6 +25,7 @@ from storage.database import get_state, init_db, set_state
 from storage.models import SearchTask
 from tests.harness import reset_caches
 from utils import protobuf as pb
+from utils.timeutil import utcnow
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -151,7 +152,7 @@ async def test_block_starts_a_cooldown_then_the_source_comes_back():
     assert route.call_count == 1, "no requests while cooling down"
     assert cooling.status == ScrapeStatus.DISABLED and "cooling down until" in cooling.error
 
-    scraper._cooldown_until = datetime.utcnow() - timedelta(minutes=1)
+    scraper._cooldown_until = utcnow() - timedelta(minutes=1)
     await set_state(COOLDOWN_STATE_KEY, scraper._cooldown_until.isoformat())
     await scraper.begin_cycle()
     html = (FIXTURES / "google_flights_mxp_krk_rt.html").read_text(encoding="utf-8")
@@ -181,7 +182,7 @@ async def test_cooldown_carries_over_to_the_next_process(block):
 
 
 async def test_expired_stored_cooldown_lets_the_next_process_search():
-    await set_state(COOLDOWN_STATE_KEY, (datetime.utcnow() - timedelta(minutes=1)).isoformat())
+    await set_state(COOLDOWN_STATE_KEY, (utcnow() - timedelta(minutes=1)).isoformat())
 
     scraper = GoogleFlightsScraper()
     await scraper.begin_cycle()

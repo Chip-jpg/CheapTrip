@@ -352,8 +352,9 @@ async def test_destination_figures_match_adding_up_every_price(engine):
 
     from api.records import destination_rows
     from storage.database import destination_figures
+    from utils.timeutil import utcnow
 
-    rng, now = random.Random(82), datetime.utcnow()
+    rng, now = random.Random(82), utcnow()
     rows = []
     for c in range(60):
         at = now - timedelta(hours=11 * c)

@@ -108,8 +108,8 @@ PROBLEM_STATUSES = ("FAILING", "STALE", "DEGRADED")
 # Which Settings switch turns each source on or off (None: always on, or on when its key is set)
 SWITCH_OF = {
     "ryanair": "enable_ryanair", "piratinviaggio": "enable_piratinviaggio",
-    "piratinviaggio_hotels": "enable_piratinviaggio", "skyscanner_api": "enable_skyscanner",
-    "google_hotels": "enable_google_hotels", "booking_com_api": "enable_booking_html",
+    "piratinviaggio_hotels": "enable_piratinviaggio", "google_hotels": "enable_google_hotels",
+    "booking_com_api": "enable_booking_html",
     "secret_flying": "enable_secret_flying", "going": "enable_going",
     "holiday_pirates": "enable_holiday_pirates", "holiday_pirates_hotels": "enable_holiday_pirates",
 }

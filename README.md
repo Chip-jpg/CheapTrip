@@ -1,8 +1,34 @@
-# CheapTrip — Travel Deal Intelligence Engine
+# CheapTrip
 
-Your own travel-deal radar: a Windows desktop app (or a self-hosted service) that searches cheap flights (and flight + hotel deals) from your home airports around the clock, learns what each route usually costs, and tells you, with a Windows notification and/or on Telegram, when something is genuinely cheap.
+[![CI](https://github.com/Chip-jpg/CheapTrip/actions/workflows/ci.yml/badge.svg)](https://github.com/Chip-jpg/CheapTrip/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Chip-jpg/CheapTrip)](https://github.com/Chip-jpg/CheapTrip/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-You set your home airports, trip lengths and budget once in its setup wizard. It searches every 90 minutes from the tray and sends a daily digest. You can steer it from the app, or from Telegram (`/deals`, `/mute KRK`, `/priority JFK`, `/pause`).
+**A travel-deal radar for Windows.** CheapTrip searches flights from your home airports around the clock, learns what each route usually costs, and tells you, with a Windows notification or on Telegram, when a fare is genuinely cheap.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/deals-dark.png">
+  <img alt="The Deals screen: today's unusually cheap fares, each with how far below its usual price it is" src="docs/images/deals-light.png">
+</picture>
+
+## What it does
+
+<img align="right" width="300" alt="A deal's details: why it's here, how it compares with similar fares, and its price over time" src="docs/images/deal-details.png">
+
+- **Searches by itself:** Ryanair's fare API, Google Flights and Travelpayouts every 90 minutes, from the tray, within each source's limits.
+- **Knows what's cheap:** every fare is compared with similar fares (same route and trip length, departing within 30 days either side) seen over the last month. Fares far below the usual price, new lows and possible error fares stand out; everything else waits for the daily digest.
+- **Explains each deal:** why it's here, a chart of how it compares, the fare's price over time, and a hotel priced for exactly its dates.
+- **Tells you once:** a Windows notification with **Book**, **Details** and **Mute** buttons, and Telegram if you like, within one hourly limit. A deal alerts again only if its price drops further.
+- **Yours to steer:** priority destinations always alert, muted ones never do, from the app or from Telegram (`/deals`, `/mute KRK`, `/priority JFK`, `/pause`).
+- **Also headless:** the same engine runs as a service in Docker, with Telegram only.
+
+## Built with
+
+- **Engine:** Python 3.11, asyncio, httpx and aiohttp, SQLite (aiosqlite), APScheduler, pydantic.
+- **App:** React 19 and TypeScript (Vite, Tailwind CSS), in an Edge WebView2 window (pywebview), with a tray icon and Windows notifications, served by a local token-protected API.
+- **AI, where it helps:** Claude Haiku reads Italian deal-site posts into fares, each checked against the post's own text. Prices are never computed by AI.
+- **Delivery:** a PyInstaller + Inno Setup installer. Merging a version bump publishes a release, and the app checks for updates.
+- **Tested:** 700+ Python tests, UI unit tests (vitest), and Playwright end-to-end tests that press every control on every screen. CI also drives the app's real window on Windows, and builds, installs and checks the installer on every change.
 
 ---
 
@@ -41,7 +67,8 @@ Alert policy ── INSTANT or DIGEST, with the reasons
 Dedup ── a known deal alerts again only after a ≥5% price drop
         │
         ▼
-Telegram ── instant alerts (5/hour, best discount first) + daily digest at 08:00
+Notify ── Windows notifications and/or Telegram: instant alerts (5/hour, best discount first)
+          + a daily digest at 08:00
 ```
 
 ### When is a deal instant?
@@ -72,12 +99,12 @@ Everything else goes to the **digest**. On a fresh start there is no price histo
 
 | Credential | Needed | Where to get it |
 |---|---|---|
-| Telegram bot token + chat ID | **Yes** | [@BotFather](https://t.me/BotFather); see [Telegram setup](docs/telegram_setup.md) |
+| Telegram bot token + chat ID | For the headless service; optional in the Windows app | [@BotFather](https://t.me/BotFather); see [Telegram setup](docs/telegram_setup.md) |
 | Anthropic API key | Recommended | [console.anthropic.com](https://console.anthropic.com): reads PiratinViaggio posts (Claude Haiku) and polishes alert wording. Prices are never computed by AI. |
 | Travelpayouts token | Optional | [travelpayouts.com](https://www.travelpayouts.com): a second "search everywhere" flight source |
 | ExchangeRate API key | Optional | Live currency rates (static fallback rates are built in) |
 
-Ryanair and Google Flights need no key.
+Ryanair and Google Flights need no key. The Windows app works with none of these: it notifies you on your PC.
 
 ---
 
@@ -116,6 +143,8 @@ On Windows, CheapTrip is a desktop app (from v0.8.0), designed in light and dark
   - one hourly limit covers both.
 - **The tray icon** shows whether CheapTrip is running, searching, paused or needs attention. Its menu has **Search now**, **Pause alerts**, **Settings** and **Quit**. Closing the window keeps CheapTrip searching; Settings → App changes that.
 - **One at a time:** only one CheapTrip runs. Opening it again, or a `cheaptrip://deal/<id>` link, brings the running one forward.
+
+![The Destinations screen: priority destinations with their usual price and 30-day trend](docs/images/destinations.png)
 
 The window uses Microsoft Edge WebView2, which Windows 10 and 11 already have. Without it, the screens open in your web browser. The same screens run anywhere with `python main.py ui`.
 
@@ -215,17 +244,21 @@ Only the chat in `TELEGRAM_CHAT_ID` is answered.
 ## Project structure
 
 ```
-main.py                     CLI (run, cycle, digest, doctor, test-alert, read-feed, health, healthcheck, status, search)
+main.py                     CLI (app, ui, run, cycle, digest, doctor, test-alert, read-feed, health, healthcheck, status, search)
 config.py                   Settings (.env) and constants
 preferences.py              Preferences YAML + Telegram overrides
 config/user_preferences.yaml(.example)
+
+desktop/                    The Windows app: window (WebView2), tray, single instance, cheaptrip:// links
+api/                        The local API the screens use (aiohttp, token-protected, 127.0.0.1 only)
+ui/                         The screens: React + TypeScript (Vite, Tailwind); ui/e2e: Playwright tests
 
 scheduler/
   planner.py                Search tasks per source: budgets, rotation, priorities, hubs
   runner.py                 The pipeline cycle, digest, scheduler, graceful shutdown
 scrapers/
   aggregator.py             Runs sources concurrently, records health
-  ryanair.py, google_flights.py, travelpayouts.py, skyscanner.py
+  ryanair.py, google_flights.py, travelpayouts.py
   piratinviaggio.py         Deal posts (flights, packages, hotels) read by Claude
   google_hotels.py          Hotel prices for the best fares' stays (the stay is encoded in ts=)
   booking_com.py, secret_flying.py, going.py, holiday_pirates.py (off by default)
@@ -235,9 +268,11 @@ trip_builder/               Trip assembly, feasibility, categories, repositionin
 filters/                    Alert policy, hard filters, time decay, fuzzy dedup
 storage/                    Models, SQLite, price history and baselines
 ai_layer/                   Alert formatting (+ optional polish), post extraction
-notifier/                   Telegram delivery, rate limiter, commands
+notifier/                   Windows notifications, Telegram delivery, rate limiter, commands
 utils/                      Airport registry, markets, links, doctor, time
-tests/                      ~480 tests; no network, temporary databases
+packaging/                  The Windows installer (PyInstaller, Inno Setup) and release notes
+scripts/                    demo_data.py (a month of demo searches, no network), bench.py (benchmark)
+tests/                      Python tests; no network, temporary databases
 docs/                       Architecture, configuration, deployment, Telegram, roadmap
 ```
 
@@ -259,6 +294,15 @@ npm test                          # components
 npm run build && npm run e2e      # every screen and control on the real engine (npx playwright install chromium first)
 ```
 
+The end-to-end tests run on `scripts/demo_data.py`: a month of demo searches from Milan, with no network. The same data makes the screenshots above (`README_SCREENSHOTS=1 npx playwright test readme-screenshots`), and you can open the app on it:
+
+```bash
+python scripts/demo_data.py --folder demo
+DEMO="$PWD/demo"   # absolute paths: the app reads its files from CHEAPTRIP_HOME
+CHEAPTRIP_HOME="$DEMO" DATABASE_URL="sqlite+aiosqlite:///$DEMO/demo.db" CHEAPTRIP_PREFS_PATH="$DEMO/prefs.yaml" \
+  SETUP_DONE=true SEARCH_ON_START=false python main.py ui
+```
+
 Tests use temporary databases and mocked HTTP (respx); scrapers are tested on trimmed pages recorded from the live sites. CI runs the same on every push and pull request to `main`, and on Windows it also drives the app's real window (`ui/e2e/window-smoke.mjs`).
 
 ---
@@ -273,4 +317,9 @@ Ryanair's fare API is the backbone. Google Flights throttles datacenter IPs, so 
 - [Configuration reference](docs/configuration.md)
 - [Deployment (Docker / systemd)](docs/deployment.md)
 - [Telegram setup and commands](docs/telegram_setup.md)
-- [Roadmap and progress](docs/ROADMAP.md)
+- [Changelog](CHANGELOG.md)
+- [Development history: the original review and every card](docs/ROADMAP.md)
+
+## License
+
+[MIT](LICENSE) © 2026 Samuele Carne

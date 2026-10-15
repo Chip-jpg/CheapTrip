@@ -1,7 +1,7 @@
 /**
- * End-to-end: the built screens on the real engine and API (B47), with a few days
- * of seeded history in a throwaway folder. Every screen from the sidebar, every
- * control on it, in both themes and at every text size.
+ * End-to-end: the built screens on the real engine and API (B47), on a month of demo
+ * searches in a throwaway folder (scripts/demo_data.py; no network). Every screen from
+ * the sidebar, every control on it, in both themes and at every text size.
  *
  *   npm run build && npx playwright test          (Python and requirements-dev.txt installed)
  *

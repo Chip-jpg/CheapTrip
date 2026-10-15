@@ -17,6 +17,11 @@ const DEPENDS_ON_THE_PC = [
   "POST /api/v1/setup/check", "GET /api/v1/app/update",
 ];
 
+/** The engine's settings, read (GET) or saved (PUT): /api/v1/settings itself, not its checks */
+function settingsCall(method: "GET" | "PUT") {
+  return (resp: Response) => new URL(resp.url()).pathname === "/api/v1/settings" && resp.request().method() === method;
+}
+
 export interface App {
   page: Page;
   problems: string[];
@@ -50,17 +55,28 @@ export const test = base.extend<{ app: App }>({
     });
     page.on("popup", (popup) => { void popup.close(); });  // Book, Hotels: the booking sites
 
+    // The saved theme and text size are on the page (theme.ts) before a test reads or changes them:
+    // a save still on its way from the last test's page could otherwise turn them back afterwards
+    const loaded = page.waitForResponse(settingsCall("GET"));
     await page.goto(`http://127.0.0.1:${port}/?token=${token}#/deals`);
     await expect(page.getByRole("navigation", { name: "Monitor" })).toBeVisible();
-    await page.keyboard.press("Control+0");  // every test at the standard text size, whatever the last one left
+    await loaded;
+    if (await page.locator("html").getAttribute("data-text-size")) {  // every test at the standard text size
+      const saved = page.waitForResponse(settingsCall("PUT"));
+      await page.keyboard.press("Control+0");
+      await saved;
+    }
     await expect(page.locator("html")).not.toHaveAttribute("data-text-size");
     const go = async (hash: string) => {
       await page.evaluate((h) => { window.location.hash = h; }, hash);
       await expect(page.locator("main")).not.toBeEmpty();
     };
     const theme = async (name: "light" | "dark") => {
-      const toggle = page.getByLabel(/Switch to the (light|dark) theme/);
-      if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== name) await toggle.click();
+      if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== name) {
+        const saved = page.waitForResponse(settingsCall("PUT"));  // saved before the next test opens its page
+        await page.getByLabel(`Switch to the ${name} theme`).click();  // never the other way, whatever it says now
+        await saved;
+      }
       await expect(page.locator("html")).toHaveAttribute("data-theme", name);
     };
     await use({ page, problems, excused, go, theme });

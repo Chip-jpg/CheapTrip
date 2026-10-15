@@ -36,7 +36,6 @@ export const LENGTHS: { value: TripLength; label: string; nights: string }[] = [
 const SOURCE_HELP: Record<string, string> = {
   enable_ryanair: "Ryanair's own fares: the backbone, about 700 a search.",
   enable_piratinviaggio: "Italian deal-site posts (flights, packages, hotels), read by Claude: needs the Anthropic key.",
-  enable_skyscanner: "Skyscanner via RapidAPI: needs a RapidAPI key; its free quota is small.",
   enable_google_hotels: "Google Hotels: the price of a hotel for the dates of each of the best fares.",
   enable_booking_html: "Booking.com pages: usually blocked for automated searches.",
   enable_secret_flying: "Secret Flying's error fares: behind Cloudflare, usually blocked.",
@@ -266,9 +265,6 @@ function Keys({ s, save }: { s: SettingsData; save: ReturnType<typeof useSave> }
         <Row label="Travelpayouts token" help="Free from travelpayouts.com: 'search everywhere' fares.">
           <SecretField label="Travelpayouts token" secret={k.travelpayouts_token} onSave={(v) => saveKey("travelpayouts_token", v)} />
         </Row>
-        <Row label="RapidAPI key" help="For Skyscanner (switch it on in Sources).">
-          <SecretField label="RapidAPI key" secret={k.rapidapi_key} onSave={(v) => saveKey("rapidapi_key", v)} />
-        </Row>
       </Section>
     </>
   );
@@ -278,7 +274,7 @@ function Sources({ s, save }: { s: SettingsData; save: ReturnType<typeof useSave
   return (
     <Section title="Sources" icon="hub" description="Where fares come from. Changes apply from the next search; Activity shows how each one is doing.">
       {Object.entries(s.sources).map(([name, on]) => {
-        const id = name.replace(/^enable_/, "").replace("booking_html", "booking_com_api").replace("skyscanner", "skyscanner_api");
+        const id = name.replace(/^enable_/, "").replace("booking_html", "booking_com_api");
         return (
           <Row key={name} label={sourceName(id)} help={SOURCE_HELP[name]}>
             <Switch label={sourceName(id)} on={on} onChange={(next) => save({ sources: { [name]: next } })} />

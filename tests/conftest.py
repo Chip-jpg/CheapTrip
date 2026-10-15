@@ -39,7 +39,7 @@ def engine(tmp_path, monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TEST_BOT_TOKEN)
     monkeypatch.setenv("TELEGRAM_CHAT_ID", TEST_CHAT_ID)
     # Never reach real external services from tests, even if a local .env sets keys.
-    for key in ("ANTHROPIC_API_KEY", "RAPIDAPI_KEY", "EXCHANGE_RATE_API_KEY"):
+    for key in ("ANTHROPIC_API_KEY", "EXCHANGE_RATE_API_KEY"):
         monkeypatch.setenv(key, "")
     reset_caches()
 

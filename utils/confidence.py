@@ -10,7 +10,6 @@ from utils.timeutil import utcnow
 SOURCE_RELIABILITY: dict[str, float] = {
     "ryanair": 0.95,          # airline's own fare API
     "travelpayouts": 0.70,    # cached prices from recent searches
-    "skyscanner_api": 0.95,
     "google_flights": 0.90,
     "booking_com_api": 0.90,
     "google_hotels": 0.85,

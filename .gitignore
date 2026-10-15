@@ -12,3 +12,6 @@ venv/
 dist/
 build/
 .ruff_cache/
+
+# scripts/demo_data.py --folder demo
+demo/

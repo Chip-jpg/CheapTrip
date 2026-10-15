@@ -1,6 +1,6 @@
 ## Install on Windows
 
-1. Download **`CheapTrip-Setup-0.8.6.exe`** below and run it. No administrator rights are needed.
+1. Download **`CheapTrip-Setup-0.8.7.exe`** below and run it. No administrator rights are needed.
 2. Windows SmartScreen may say *"Windows protected your PC"*, because the installer isn't code-signed. Click **More info → Run anyway**.
 3. Leave **Open CheapTrip and set it up** ticked. The app opens on its setup wizard, which asks for:
    - your home airports and the trips you like;
@@ -15,6 +15,13 @@
 **Upgrading from 0.6:** run the new installer. It keeps your settings, preferences and price history in `%APPDATA%\CheapTrip`. The setup wizard opens once, filled in with what you already have: check it, then click **Finish**.
 
 Step-by-step Telegram setup: [docs/telegram_setup.md](https://github.com/Chip-jpg/CheapTrip/blob/main/docs/telegram_setup.md).
+
+## What's new in 0.8.7
+
+**Getting ready for 1.0.** Nothing new to learn: this version tidies up.
+- **Skyscanner is gone.** It was off unless you switched it on, and its free quota was too small to be useful. A RapidAPI key you had set is simply ignored.
+- **A new setting, `SEARCH_ON_START`**, on by default. Set it to `false` in `%APPDATA%\CheapTrip\.env` and CheapTrip waits for its first scheduled search instead of searching the moment it starts.
+- **Behind the scenes:** the automatic tests no longer need the internet. The project now has screenshots, a license (MIT) and a [changelog](https://github.com/Chip-jpg/CheapTrip/blob/main/CHANGELOG.md).
 
 ## What's new in 0.8.6
 
@@ -112,4 +119,4 @@ Nothing new to learn: the same deals, the same alerts, and less work to find the
 
 **Also:** only one CheapTrip runs at a time, and `cheaptrip://` links open a deal. The console commands are now `cheaptrip-cli.exe`. The engine's local API only answers this PC, with a new password each launch.
 
-The full list of changes is in [docs/ROADMAP.md](https://github.com/Chip-jpg/CheapTrip/blob/main/docs/ROADMAP.md).
+Every release in short: [CHANGELOG.md](https://github.com/Chip-jpg/CheapTrip/blob/main/CHANGELOG.md). Every change, card by card: [docs/ROADMAP.md](https://github.com/Chip-jpg/CheapTrip/blob/main/docs/ROADMAP.md).

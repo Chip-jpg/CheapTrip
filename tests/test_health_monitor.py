@@ -89,6 +89,17 @@ async def test_disabled_sources_are_reported_separately(engine):
     assert "1/1 active sources healthy (1 disabled)" in summary
 
 
+async def test_the_removed_skyscanner_source_leaves_no_health_behind(engine):
+    """Skyscanner is gone (B51): a row it left can't keep the app asking for attention."""
+    await init_db()
+    monitor = ScraperHealthMonitor()
+    for _ in range(3):
+        await _record(monitor, ScrapeStatus.ERROR, source="skyscanner_api", error="HTTP 429")
+    await _record(monitor, ScrapeStatus.OK, 5, source="ryanair")
+    await init_db()  # the next start
+    assert [h.source_id for h in await monitor.get_health_report()] == ["ryanair"]
+
+
 async def test_health_cli_reads_the_database_from_another_process(engine, tmp_path):
     await init_db()
     monitor = ScraperHealthMonitor()
