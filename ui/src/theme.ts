@@ -6,7 +6,7 @@
  * whole app is sized in rem, so everything grows with it. Ctrl + / Ctrl − / Ctrl 0
  * change it from anywhere.
  */
-import { createContext, createElement, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, type TextSize, type ThemeChoice } from "./api";
 
 export type Theme = "light" | "dark";
@@ -68,12 +68,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return marked === "light" || marked === "dark" ? marked : applyTheme("system");
   });
   const [textSize, setTextSize] = useState<TextSize>(markedTextSize);
+  // What was chosen here while the saved settings were on their way: those settings are older
+  const chosen = useRef({ theme: false, textSize: false });
 
   useEffect(() => {
     api.settings().then((s) => {
-      setChoice(s.app.theme);
-      setTheme(applyTheme(s.app.theme));
-      if (s.app.text_size) {
+      if (!chosen.current.theme) {
+        setChoice(s.app.theme);
+        setTheme(applyTheme(s.app.theme));
+      }
+      if (s.app.text_size && !chosen.current.textSize) {
         setTextSize(s.app.text_size);
         applyTextSize(s.app.text_size);
       }
@@ -89,12 +93,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [choice]);
 
   const choose = useCallback((next: ThemeChoice) => {
+    chosen.current.theme = true;
     setChoice(next);
     setTheme(applyTheme(next));
     api.saveSettings({ app: { theme: next } }).catch(() => {});
   }, []);
 
   const chooseTextSize = useCallback((next: TextSize) => {
+    chosen.current.textSize = true;
     setTextSize(next);
     applyTextSize(next);
     api.saveSettings({ app: { text_size: next } }).catch(() => {});

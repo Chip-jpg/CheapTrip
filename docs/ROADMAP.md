@@ -497,6 +497,12 @@ The owner's design is built and released as v0.8.0:
 
 **Release v0.8.5:** version and notes; the merge publishes the installer.
 
+### After v0.8.5
+**B50 `claude/elegant-goodall-4jh6pg`** (S): `ui-e2e` failed on `main` after B49's merge (`every sidebar button opens its screen (light)`: the page stayed dark), and passed on its PR.
+- **The cause, in the app:** at start the window asks the engine for the saved settings, and applied the answer whenever it came. A theme or text size chosen before it came (the top bar's switch, Ctrl + / −) was put back to the saved one. The test switched to light right after the page opened. Now a choice made in the window wins over the older settings it was waiting for (`ThemeProvider`).
+- **Tests:** vitest holds the settings back, chooses light and a larger text, then lets them arrive: the choice stays. Without the fix it fails as CI did.
+- **Also:** `npm audit fix`: `source-map-js` 1.2.1 → 1.2.2 (GHSA-68fv-2mgg-jv7q, high), used only to build the screens.
+
 ---
 
 ## 4. Suggested order
@@ -568,3 +574,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | — | release v0.8.4 | done (released as v0.8.4) |
 | B49 | `claude/sharp-sagan-o2jzn7` | done |
 | — | release v0.8.5 | done (released as v0.8.5) |
+| B50 | `claude/elegant-goodall-4jh6pg` | in review |
