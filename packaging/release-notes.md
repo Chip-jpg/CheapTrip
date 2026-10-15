@@ -1,6 +1,6 @@
 ## Install on Windows
 
-1. Download **`CheapTrip-Setup-0.8.5.exe`** below and run it. No administrator rights are needed.
+1. Download **`CheapTrip-Setup-0.8.6.exe`** below and run it. No administrator rights are needed.
 2. Windows SmartScreen may say *"Windows protected your PC"*, because the installer isn't code-signed. Click **More info → Run anyway**.
 3. Leave **Open CheapTrip and set it up** ticked. The app opens on its setup wizard, which asks for:
    - your home airports and the trips you like;
@@ -10,11 +10,17 @@
    It checks everything at the end.
 4. CheapTrip then runs in the tray, by the clock, and starts when you sign in. **Settings → App** turns that off.
 
-**Upgrading from 0.8.0, 0.8.1, 0.8.2, 0.8.3 or 0.8.4:** run the new installer. Everything is kept, and the setup wizard doesn't open again (if you never finished it, it opens once more). From 0.8.0 or 0.8.1, the first start tidies the database once, which can take a few seconds.
+**Upgrading from 0.8.0 or later:** run the new installer. Everything is kept, and the setup wizard doesn't open again (if you never finished it, it opens once more). From 0.8.0 or 0.8.1, the first start tidies the database once, which can take a few seconds.
 
 **Upgrading from 0.6:** run the new installer. It keeps your settings, preferences and price history in `%APPDATA%\CheapTrip`. The setup wizard opens once, filled in with what you already have: check it, then click **Finish**.
 
 Step-by-step Telegram setup: [docs/telegram_setup.md](https://github.com/Chip-jpg/CheapTrip/blob/main/docs/telegram_setup.md).
+
+## What's new in 0.8.6
+
+**Light or dark stays as you set it.** If you switched the theme, or changed the text size with **Ctrl +** or **Ctrl −**, just as CheapTrip's window opened, it could switch back to what was set before a moment later. Now your choice stays.
+
+**Also:** a tool used only to build the app has a security update. Nothing changes in CheapTrip itself.
 
 ## What's new in 0.8.5
 

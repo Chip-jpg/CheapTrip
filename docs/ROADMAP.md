@@ -1,8 +1,8 @@
 # CheapTrip — Status Report & Branch Roadmap
 
-## Where things stand (release v0.8.5)
+## Where things stand (release v0.8.6)
 
-Every card below (B01–B49) is merged into `main`, and v0.8.5 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45 (v0.8.1), the optimizations in B46 (v0.8.2), B47 (v0.8.3: the window no longer goes black, a bigger UI with a text size setting, and every button tested), B48 (v0.8.4: real hotel prices from Google Hotels with every flight deal), and B49: the setup wizard leaves the sidebar once it's finished. The progress tracker at the end has the details. In short:
+Every card below (B01–B50) is merged into `main`, and v0.8.6 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45 (v0.8.1), the optimizations in B46 (v0.8.2), B47 (v0.8.3: the window no longer goes black, a bigger UI with a text size setting, and every button tested), B48 (v0.8.4: real hotel prices from Google Hotels with every flight deal), B49 (v0.8.5: the setup wizard leaves the sidebar once it's finished), and B50: a theme or text size chosen as the window opens is no longer undone. The progress tracker at the end has the details. In short:
 
 - **The app (Windows):** one setup `.exe` from the [releases](https://github.com/Chip-jpg/CheapTrip/releases), with no admin rights needed.
   - It is a desktop app in the owner's design ("Fluent Deal Radar"), in light and dark. Its screens: Deals with a detail panel and charts, Destinations, Activity, Notifications & tray, Settings, and a setup wizard at the first launch.
@@ -497,11 +497,13 @@ The owner's design is built and released as v0.8.0:
 
 **Release v0.8.5:** version and notes; the merge publishes the installer.
 
-### After v0.8.5
+### v0.8.6: a theme chosen as the window opens stays
 **B50 `claude/elegant-goodall-4jh6pg`** (S): `ui-e2e` failed on `main` after B49's merge (`every sidebar button opens its screen (light)`: the page stayed dark), and passed on its PR.
 - **The cause, in the app:** at start the window asks the engine for the saved settings, and applied the answer whenever it came. A theme or text size chosen before it came (the top bar's switch, Ctrl + / −) was put back to the saved one. The test switched to light right after the page opened. Now a choice made in the window wins over the older settings it was waiting for (`ThemeProvider`).
 - **Tests:** vitest holds the settings back, chooses light and a larger text, then lets them arrive: the choice stays. Without the fix it fails as CI did.
 - **Also:** `npm audit fix`: `source-map-js` 1.2.1 → 1.2.2 (GHSA-68fv-2mgg-jv7q, high), used only to build the screens.
+
+**Release v0.8.6:** version and notes; the merge publishes the installer.
 
 ---
 
@@ -574,4 +576,5 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | — | release v0.8.4 | done (released as v0.8.4) |
 | B49 | `claude/sharp-sagan-o2jzn7` | done |
 | — | release v0.8.5 | done (released as v0.8.5) |
-| B50 | `claude/elegant-goodall-4jh6pg` | in review |
+| B50 | `claude/elegant-goodall-4jh6pg` | done |
+| — | release v0.8.6 | done (released as v0.8.6) |
