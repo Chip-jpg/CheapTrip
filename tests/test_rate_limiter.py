@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
 from notifier.rate_limiter import RateLimiter
+from utils.timeutil import utcnow
 
 
 @pytest.fixture
@@ -38,7 +39,7 @@ class TestInstantSlots:
 
     def test_old_entries_pruned_from_window(self, limiter):
         # Backfill timestamps that are just over 1 hour old
-        old = datetime.utcnow() - timedelta(hours=1, minutes=1)
+        old = utcnow() - timedelta(hours=1, minutes=1)
         for _ in range(limiter._instant_max):
             limiter._instant_sent.append(old)
         # All old entries pruned → slot should be available again
@@ -57,7 +58,7 @@ class TestDigestSlots:
         assert result is False
 
     def test_old_digest_entry_pruned(self, limiter):
-        old = datetime.utcnow() - timedelta(hours=25)
+        old = utcnow() - timedelta(hours=25)
         limiter._digest_sent.append(old)
         result = asyncio.run(limiter.try_send_digest())
         assert result is True

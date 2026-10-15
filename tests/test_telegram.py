@@ -1,7 +1,7 @@
 """Telegram delivery: HTML escaping, retries, slot release, pending queue, AI polish."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 import aiosqlite
@@ -13,6 +13,7 @@ from notifier.telegram import TelegramNotifier
 from storage.database import get_db_path, init_db, save_deal
 from storage.models import AlertTier, BookingConfidence, DealType, FlightLeg, HotelDeal, Trip
 from tests.harness import flight
+from utils.timeutil import utcnow
 
 
 @pytest.fixture(autouse=True)
@@ -146,7 +147,7 @@ async def test_over_long_message_is_cut_at_a_line_boundary(engine):
 
 async def _age_alerts(hours: float) -> None:
     async with aiosqlite.connect(await get_db_path()) as db:
-        old = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+        old = (utcnow() - timedelta(hours=hours)).isoformat()
         await db.execute("UPDATE alerts_sent SET sent_at = ?", (old,))
         await db.execute("UPDATE deals SET created_at = ? WHERE is_alerted = 1", (old,))
         await db.commit()
@@ -177,7 +178,7 @@ async def test_stale_pending_instant_moves_to_digest(engine, monkeypatch):
     assert engine.telegram.texts == []
 
     async with aiosqlite.connect(await get_db_path()) as db:
-        old = (datetime.utcnow() - timedelta(hours=7)).isoformat()
+        old = (utcnow() - timedelta(hours=7)).isoformat()
         await db.execute("UPDATE deals SET created_at = ?", (old,))
         await db.commit()
 

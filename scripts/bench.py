@@ -25,6 +25,8 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from utils.timeutil import utcnow
+
 ROOT = Path(__file__).resolve().parent.parent
 DESTINATIONS = """LHR MAN EDI DUB AMS EIN BRU CDG NCE MRS LYS BOD TLS NTE FRA MUC BER HAM DUS CGN STR VIE ZRH GVA BSL
 PRG BUD WAW KRK GDN WRO KTW CPH ARN GOT OSL BGO HEL TLL RIX VNO MAD BCN AGP PMI VLC SVQ ALC IBZ LIS OPO FAO
@@ -108,7 +110,7 @@ async def _seed(folder: Path, days: int) -> None:
     con = sqlite3.connect(path)
     keys = con.execute("SELECT route, source, origin_city, dest_city, trip_type, nights_bucket, depart_date"
                        " FROM price_history").fetchall()
-    rng, now = random.Random(7), datetime.utcnow()
+    rng, now = random.Random(7), utcnow()
 
     def rows():
         for k in range(1, days * SEARCHES_PER_DAY + 1):

@@ -1,10 +1,11 @@
 """Tests for confidence score calculations."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from storage.models import RawFlightResult, RawHotelResult
 from utils.confidence import compute_flight_confidence, compute_hotel_confidence
+from utils.timeutil import utcnow
 
 
 def _raw_flight(
@@ -24,7 +25,7 @@ def _raw_flight(
         airline=airline,
         booking_url=booking_url,
         source=source,
-        scraped_at=datetime.utcnow() - timedelta(hours=age_hours),
+        scraped_at=utcnow() - timedelta(hours=age_hours),
     )
 
 

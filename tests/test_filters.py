@@ -1,12 +1,13 @@
 """Tests for filtering, deduplication, and time decay."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from filters.hard_filters import apply_hard_filters
 from filters.time_decay import apply_time_decay
 from storage.models import AlertTier, BookingConfidence, DealType, FlightLeg, Trip
+from utils.timeutil import utcnow
 
 
 def _make_flight_trip(
@@ -17,7 +18,7 @@ def _make_flight_trip(
     scraped_age_hours: float = 0.0,
     booking_confidence: BookingConfidence = BookingConfidence.MEDIUM,
 ) -> Trip:
-    scraped_at = datetime.utcnow() - timedelta(hours=scraped_age_hours)
+    scraped_at = utcnow() - timedelta(hours=scraped_age_hours)
     leg = FlightLeg(
         origin=origin,
         destination=dest,
