@@ -1,6 +1,6 @@
 [project]
 name = "cheaptrip"
-version = "0.8.6"
+version = "0.8.7"
 description = "A travel-deal radar for Windows: learns what each route usually costs and alerts you when a fare is genuinely cheap"
 readme = "README.md"
 license = { text = "MIT" }
