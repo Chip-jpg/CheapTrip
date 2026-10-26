@@ -2,6 +2,13 @@
 
 What each release of CheapTrip brought, newest first. The installers are on the [releases page](https://github.com/Chip-jpg/CheapTrip/releases), and the [development history](docs/ROADMAP.md) has every change card by card.
 
+## 1.0.0 (2026-10-26)
+
+The final release: 0.8.7, tested from end to end and declared finished. Nothing in the app changes.
+
+- The version is 1.0.0, so **Check for updates** offers it to 0.8.x installs.
+- The tray and the Windows notifications, the last thing CI couldn't check, have been checked on a real PC.
+
 ## 0.8.7 (2026-10-15)
 
 Tidying before 1.0, with nothing new to learn.

@@ -1,6 +1,6 @@
 ## Install on Windows
 
-1. Download **`CheapTrip-Setup-0.8.7.exe`** below and run it. No administrator rights are needed.
+1. Download **`CheapTrip-Setup-1.0.0.exe`** below and run it. No administrator rights are needed.
 2. Windows SmartScreen may say *"Windows protected your PC"*, because the installer isn't code-signed. Click **More info → Run anyway**.
 3. Leave **Open CheapTrip and set it up** ticked. The app opens on its setup wizard, which asks for:
    - your home airports and the trips you like;
@@ -16,107 +16,16 @@
 
 Step-by-step Telegram setup: [docs/telegram_setup.md](https://github.com/Chip-jpg/CheapTrip/blob/main/docs/telegram_setup.md).
 
-## What's new in 0.8.7
+## CheapTrip 1.0
 
-**Getting ready for 1.0.** Nothing new to learn: this version tidies up.
-- **Skyscanner is gone.** It was off unless you switched it on, and its free quota was too small to be useful. A RapidAPI key you had set is simply ignored.
-- **A new setting, `SEARCH_ON_START`**, on by default. Set it to `false` in `%APPDATA%\CheapTrip\.env` and CheapTrip waits for its first scheduled search instead of searching the moment it starts.
-- **Behind the scenes:** the automatic tests no longer need the internet. The project now has screenshots, a license (MIT) and a [changelog](https://github.com/Chip-jpg/CheapTrip/blob/main/CHANGELOG.md).
+**CheapTrip is finished.** 1.0 is 0.8.7, tested from end to end and declared done: nothing in the app changes, and there is nothing new to learn. If you have 0.8.7, it's the same app with a new number.
 
-## What's new in 0.8.6
+What CheapTrip 1.0 does:
+- **Searches by itself** every 90 minutes from the tray: Ryanair, Google Flights and, with a token, Travelpayouts. PiratinViaggio deal posts are read by Claude when an Anthropic key is set.
+- **Knows what's cheap:** every fare is compared with similar fares (same route and trip length, departing within 30 days either side) seen over the last month. Fares far below the usual price, new lows and possible error fares alert at once; the rest wait for the daily digest.
+- **Explains each deal:** how far below its usual price it is, how it compares, its price over time, and a hotel priced from Google Hotels for exactly its dates.
+- **Tells you once:** Windows notifications with **Book**, **Details** and **Mute**, and Telegram if you like, within one hourly limit. A deal alerts again only if its price drops further.
+- **Yours to steer:** priority destinations always alert and muted ones never do, from the app, a notification or Telegram.
+- **A desktop app** in light and dark: Deals, Destinations, Activity, Notifications & tray, Settings and a setup wizard, with a text size setting and a tray icon that shows what the engine is doing.
 
-**Light or dark stays as you set it.** If you switched the theme, or changed the text size with **Ctrl +** or **Ctrl −**, just as CheapTrip's window opened, it could switch back to what was set before a moment later. Now your choice stays.
-
-**Also:** a tool used only to build the app has a security update. Nothing changes in CheapTrip itself.
-
-## What's new in 0.8.5
-
-**The setup wizard steps aside.** Once you've finished it, **Setup wizard** is no longer in the menu.
-- Until it's finished, it stays in the menu, and CheapTrip opens on it at each start, as before.
-- It disappears as soon as you click **Finish**. If you finished it in an earlier version, it's gone from the first start of 0.8.5.
-- To go through it again, open **Settings → App → Setup wizard**.
-
-## What's new in 0.8.4
-
-**Real hotel prices.** Every flight deal now shows what a hotel costs for exactly its dates, from Google Hotels.
-- **Telegram:** "🏨 Hotels in Krakow from €63 a night · €189 for 3 nights at Antique Apartments, 9/10". The link opens Google Hotels with the trip's dates already set.
-- **Windows notifications:** "hotels from €63 a night".
-- **The app:** a deal's **Hotels** button shows the price, and its details have **A hotel for these dates**.
-- It's the cheapest hotel that meets your minimum rating (**Settings → Deals & alerts → Hotels**). The price is for your travellers, with taxes and fees.
-- The hotel is shown with the deal, not added to its price, so you're alerted about the same deals as before, once each.
-- When no hotel was found for a deal, **Hotels** still opens a Booking.com search for its dates.
-
-**How it finds them.** After each search, CheapTrip looks up hotels for the stays of the best few fares: your priority destinations first, then the fares furthest below their usual price. That adds about half a minute to a search. Cities are searched with their country, so Naples means Naples, Italy, not Naples, Florida.
-
-**Gentle with Google.** If Google asks CheapTrip to slow down, Google Flights and Google Hotels both pause for a few hours, then carry on by themselves. **Settings → Sources** turns Google Hotels off.
-
-**Also:** two automatic checks that failed for reasons unrelated to the app (a test's sample fares had expired, and a test pressed Settings' buttons before they had loaded) now pass.
-
-## What's new in 0.8.3
-
-**No more black window.** Pressing a button in the menu no longer turns CheapTrip's window black.
-- **The cause:** the setup wizard, which a new install opens on, handed Microsoft Edge WebView2 something it couldn't handle when you left it, and the whole screen disappeared.
-- **Tested in the real window:** every change is now checked in CheapTrip's own window on Windows, not only in a browser.
-- **If a screen ever fails:** it now shows what happened, with **Try this screen again** and **Open the log folder**, instead of going blank. The menu keeps working, and the error is saved in the log.
-
-**Bigger and easier to read.**
-- Everything is about a quarter larger: text, buttons, the menu and the cards. Secondary text has more contrast.
-- **Text size** in **Settings → App**: Standard, Large or Largest. **Ctrl +** and **Ctrl −** change it from anywhere, and **Ctrl 0** goes back to standard.
-- The screens rearrange themselves to fit the window and the text size, so nothing is cut short.
-- The window opens larger (1440×900) where the screen allows.
-
-**Every button checked.** An automatic test now presses every button on every screen. It found three things, now fixed:
-- **Pause alerts** during a search now shows **Resume** at once.
-- A test notification that Windows or Telegram refuses says why, instead of "HTTP 502".
-- **Hide this deal** has an **Undo**.
-
-**Also:**
-- **Settings → App → Advanced:** open the log folder, and turn on developer tools (F12) if you need to report a problem.
-- Source problems read "Google Flights isn't working".
-- The picture in a deal's notification no longer overlaps its caption.
-- The icons come from the full icon font again, so the installer is about 4 MB larger than 0.8.2's.
-
-## What got faster in 0.8.2
-
-Nothing new to learn: the same deals, the same alerts, and less work to find them. With a month of price history:
-
-- **Searches do their own work about three times faster**: about 2.4 seconds on Windows. They also open the database once instead of about 1,900 times. CheapTrip used to read every price it had saved (about 370,000 after a month) to judge each fare. Now the database adds them up for it, and it finds exactly the same deals as before.
-- **About a quarter of the memory** while it searches: about 86 MB on Windows.
-- **Destinations opens instantly.** Its figures are worked out right after each search, not when you open it.
-- **A database that stays small.** Prices are kept 45 days (everything looks back 30), and the space old ones leave is handed back to the disk. A database that reached about 445 MB after four months now stays around 160 MB.
-- **A smaller app.** The icons now come from a font holding only the ones CheapTrip uses: 99 KB instead of 4 MB. They look exactly the same.
-- **Quieter in the tray.** While the window is hidden, the screens don't refresh; they catch up once when you open it.
-
-## What was fixed in 0.8.1
-
-- **The Deals screen opens quickly again.** After a few weeks of searches it could take up to a minute to load, and the menu's deal count as long. Both now take a fraction of a second. The first start after the update spends about a second preparing the price history.
-- **Settings refuse impossible values.** For example: 0 days ahead, which searched nothing, or a hotel rating of 42 out of 10. The field goes back to what was saved and says the allowed range, for example "How far ahead: enter a number from 14 to 365". A value like that already in your preferences file now falls back to its default alone, instead of resetting the whole file.
-- **"Clear filters" resets the max price** on the Deals screen too.
-- **A destination is never both a priority and muted.** Making it a priority unmutes it, and muting it ends its priority, from the app, Telegram or a notification's **Mute** button.
-- **The menu stays as you left it.** If you collapse it, it opens collapsed next time.
-- **No light flash on start** when you've chosen the dark theme and Windows is light, or the other way round.
-- **Behind the scenes:** the build and release steps are updated to the tools GitHub supports.
-
-## New in 0.8.0: CheapTrip is a desktop app
-
-**A window with its own design**, in light and dark (it follows Windows, or you choose):
-- **Deals:**
-  - today's unusually cheap fares as cards, each showing how far below its usual price it is and where it sits among similar fares;
-  - then the best of the rest, with filters;
-  - each deal opens a panel with **How this fare compares**, **This fare over time**, the flights and **Book**.
-- **Destinations:** the ones that always alert, the muted ones, and every destination seen in the last 30 days with its trend. Add one with a search box.
-- **Activity:** what each source found, every search, and every notification sent.
-- **Notifications & tray:** what CheapTrip's notifications will look like with today's deals. Any of them can be sent to your PC.
-- **Settings:** changes save as you make them. Keys are never shown back, and **Check** buttons test Telegram and Anthropic. It also has **Check for updates**.
-- The top bar says what the engine is doing ("Running · next search in 42 min", "Searching… 2 of 4 sources"). It has **Search now**, **Pause alerts**, and a quick jump to any destination (Ctrl+K).
-
-**Windows notifications**
-- Each deal comes with a picture of its price and fare range, and **Book**, **Details** and **Mute** buttons.
-- There's also a daily digest, and a notice when a source stops working.
-- Telegram still works alongside, and one hourly limit covers both.
-
-**The tray icon** shows whether CheapTrip is running, searching, paused or needs attention. Its menu has Search now, Pause alerts, Settings and Quit. Closing the window keeps CheapTrip searching.
-
-**Also:** only one CheapTrip runs at a time, and `cheaptrip://` links open a deal. The console commands are now `cheaptrip-cli.exe`. The engine's local API only answers this PC, with a new password each launch.
-
-Every release in short: [CHANGELOG.md](https://github.com/Chip-jpg/CheapTrip/blob/main/CHANGELOG.md). Every change, card by card: [docs/ROADMAP.md](https://github.com/Chip-jpg/CheapTrip/blob/main/docs/ROADMAP.md).
+Every release in short: [CHANGELOG.md](https://github.com/Chip-jpg/CheapTrip/blob/main/CHANGELOG.md). How it was built, card by card: [docs/ROADMAP.md](https://github.com/Chip-jpg/CheapTrip/blob/main/docs/ROADMAP.md).

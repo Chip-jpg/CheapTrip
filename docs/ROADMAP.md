@@ -2,9 +2,9 @@
 
 How CheapTrip was built: where it stands now, then a review of the prototype (28 September 2026), the plan it led to, and every card (B01 onwards) as it was done. For what each release brought in short, see the [changelog](../CHANGELOG.md).
 
-## Where things stand (release v0.8.7)
+## Where things stand (release v1.0.0: finished)
 
-Every card below (B01–B51) is merged into `main`, and v0.8.7 is published on GitHub Releases with a Windows installer. It is v0.8.0 plus the fixes in B45 (v0.8.1), the optimizations in B46 (v0.8.2), B47 (v0.8.3: the window no longer goes black, a bigger UI with a text size setting, and every button tested), B48 (v0.8.4: real hotel prices from Google Hotels with every flight deal), B49 (v0.8.5: the setup wizard leaves the sidebar once it's finished), B50 (v0.8.6: a theme or text size chosen as the window opens is no longer undone), and B51: tidying before 1.0 (Skyscanner removed, demo data, end-to-end tests with no network, screenshots, a license and a changelog). The progress tracker at the end has the details. In short:
+CheapTrip is finished. Every card below (B01–B51) is merged into `main`, and v1.0.0, the final release, is published on GitHub Releases with a Windows installer. It is v0.8.7, tested from end to end and declared done: v0.8.0 plus the fixes in B45 (v0.8.1), the optimizations in B46 (v0.8.2), B47 (v0.8.3: the window no longer goes black, a bigger UI with a text size setting, and every button tested), B48 (v0.8.4: real hotel prices from Google Hotels with every flight deal), B49 (v0.8.5: the setup wizard leaves the sidebar once it's finished), B50 (v0.8.6: a theme or text size chosen as the window opens is no longer undone), and B51 (v0.8.7: tidying before 1.0: Skyscanner removed, demo data, end-to-end tests with no network, screenshots, a license and a changelog). The progress tracker at the end has the details. In short:
 
 - **The app (Windows):** one setup `.exe` from the [releases](https://github.com/Chip-jpg/CheapTrip/releases), with no admin rights needed.
   - It is a desktop app in the owner's design ("Fluent Deal Radar"), in light and dark. Its screens: Deals with a detail panel and charts, Destinations, Activity, Notifications & tray, Settings, and a setup wizard at the first launch.
@@ -21,7 +21,7 @@ Every card below (B01–B51) is merged into `main`, and v0.8.7 is published on G
 
   Alerts go to the desktop and/or Telegram, with one hourly limit for both.
 - **Control:** the app, the tray, and Telegram commands (`/deals`, `/mute`, `/priority`, `/budget`, `/pause`).
-- **Still open:** how the tray and notifications look on real PCs. CI drives the real window, but can't display notifications.
+- **Nothing is open.** The tray and the notifications, which CI can't display, have been checked on a real PC.
 - **Not planned:** code signing. It costs a yearly fee, and since 2024 even a signed installer gets a SmartScreen warning until enough people have downloaded it.
 
 > **History from here on.** What follows was written on 28 September 2026, as a review of the prototype (commit `85711de`) and a plan to fix it. Every problem it lists has since been fixed, and every card is done: the tracker at the end has them all. It's kept as the record of how the project was built, in the present tense of the day each part was written.
@@ -515,6 +515,11 @@ The owner's design is built and released as v0.8.0:
 
 **Release v0.8.7:** version and notes; the merge publishes the installer.
 
+### v1.0.0: finished
+Everything tested, including the tray and the notifications on a real PC, so the project is done. No code changes from v0.8.7: version 1.0.0, release notes that describe the finished app, the changelog, and this document's summary.
+
+**Release v1.0.0:** version and notes; the merge publishes the installer.
+
 ---
 
 ## 4. Suggested order
@@ -590,3 +595,4 @@ If you only want the fastest path to "useful alerts on my phone": B01, B02, B03,
 | — | release v0.8.6 | done (released as v0.8.6) |
 | B51 | `claude/elegant-goodall-4jh6pg` | done |
 | — | release v0.8.7 | done (released as v0.8.7) |
+| — | release v1.0.0 | done (the final release) |
