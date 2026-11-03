@@ -6,6 +6,8 @@
 
 **A travel-deal radar for Windows.** CheapTrip searches flights from your home airports around the clock, learns what each route usually costs, and tells you, with a Windows notification or on Telegram, when a fare is genuinely cheap.
 
+**Status: finished.** [v1.0.0](https://github.com/Chip-jpg/CheapTrip/releases/latest) is the final release: complete and tested end to end.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/deals-dark.png">
   <img alt="The Deals screen: today's unusually cheap fares, each with how far below its usual price it is" src="docs/images/deals-light.png">
